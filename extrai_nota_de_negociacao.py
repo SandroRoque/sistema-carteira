@@ -1,3 +1,4 @@
+import os
 import fitz
 import pandas as pd
 
@@ -73,6 +74,9 @@ def extrai_nota_de_negociacao(pdf_path):
     return nota_crua
 
 if __name__ == "__main__":
+    # Ensure our data directories exist
+    os.makedirs("data/notas_de_negociacao", exist_ok=True)
+    
     # Our test pdf is at cwd + "data/notas_de_negociacao/3019.pdf"
     pdf_path = "data/notas_de_negociacao/3019.pdf"
     # let's run the find_tables method from pymupdf to see what tables it finds in the pdf

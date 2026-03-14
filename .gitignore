@@ -20,6 +20,3 @@ __pycache__/
 data/**/*.pdf
 data/**/*.csv
 data/**/*.xlsx
-
-# Keep this empty directory structure
-!data/**/.gitkeep
