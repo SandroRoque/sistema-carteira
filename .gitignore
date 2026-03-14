@@ -1,0 +1,25 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest
+.pytest_cache/
+
+# Data
+# We want to ignore the pdf files, but keep the folder structure
+data/**/*.pdf
+data/**/*.csv
+data/**/*.xlsx
+
+# Keep this empty directory structure
+!data/**/.gitkeep

@@ -1,0 +1,10 @@
+[project]
+name = "sistema-carteira"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=3.0.1",
+    "pymupdf>=1.27.2",
+]
