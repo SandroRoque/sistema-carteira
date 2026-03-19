@@ -1,12 +1,17 @@
-import os
 import fitz
-import pandas as pd
-from layout_config import LAYOUT_CONFIG
+from layout_config import CORRETORAS, FIELD_CONFIG, LAYOUT_CONFIG
+
+
+class PdfImagemError(Exception):
+    pass
 
 
 class NotaNegociacaoExtractor:
-    def __init__(self, layout_config=None):
+    def __init__(self, layout_config=None, field_config=None, corretoras=None, parser_registry=None):
         self.layout_config = layout_config or LAYOUT_CONFIG
+        self.field_config = field_config or FIELD_CONFIG
+        self.corretoras = corretoras or CORRETORAS
+        self.parser_registry = parser_registry or {}
 
     def prepara_pagina_unica(self, pdf_path):
         """Lê um PDF e retorna um objeto Document em memória contendo uma única página fundida."""
@@ -40,61 +45,77 @@ class NotaNegociacaoExtractor:
         doc_mesclado = self.prepara_pagina_unica(pdf_path)
         pagina = doc_mesclado[0]
 
-        # Aqui você aplicará a lógica do layout sobre a 'pagina'
-        nota_crua = {}
+        if self.eh_pdf_de_imagem(pagina):
+            doc_mesclado.close()
+            raise PdfImagemError("PDF sem texto extraível; provavelmente é um arquivo de imagem.")
+
+        corretora = self.identificar_corretora(pagina)
+        layout = self.identificar_layout(pagina, corretora)
+        nota_crua = self.extrair_com_layout(pagina, layout)
 
         doc_mesclado.close()
         return nota_crua
 
-    def identificar_layout(self, pagina):
+    def normalize_text_for_matching(self, text):
+        return "".join(char.lower() for char in text if char.isalnum())
+
+    def eh_pdf_de_imagem(self, pagina, min_text_chars=20):
+        text = pagina.get_text("text").strip()
+        return len(text) < min_text_chars
+
+    def identificar_corretora(self, pagina):
+        page_text = pagina.get_text("text")
+        normalized_page_text = self.normalize_text_for_matching(page_text)
+
+        best_match = None
+        best_score = 0
+
+        for corretora in self.corretoras:
+            score = 0
+            for header_line in corretora.header_lines:
+                if self.normalize_text_for_matching(header_line) in normalized_page_text:
+                    score += 3
+            for alias in corretora.aliases:
+                if self.normalize_text_for_matching(alias) in normalized_page_text:
+                    score += 1
+            if self.normalize_text_for_matching(corretora.cnpj) in normalized_page_text:
+                score += 4
+
+            if score > best_score:
+                best_match = corretora
+                best_score = score
+
+        if not best_match:
+            raise ValueError("Nenhuma corretora reconhecida no documento.")
+
+        return best_match
+
+    def identificar_layout(self, pagina, corretora):
         pass
 
-    def extrair_campos_vertical(self, pagina, campos):
+    def score_layout(self, pagina, layout):
         pass
 
-    def extrair_campos_sbs(self, pagina, campos):
+    def extrair_com_layout(self, pagina, layout):
         pass
 
-    def extrair_tabelas(self, pagina, tabelas):
+    def extrair_grupo(self, pagina, group):
         pass
 
+    def extrair_key_value_group(self, pagina, group):
+        pass
 
-if __name__ == "__main__":
-    notas_dir = os.environ.get("NOTAS_DIR")
-    if not notas_dir:
-        raise ValueError("A variável de ambiente NOTAS_DIR não está definida.")
+    def extrair_table_group(self, pagina, group):
+        pass
 
-    pdf_files = sorted(
-        file_name for file_name in os.listdir(notas_dir) if file_name.lower().endswith(".pdf")
-    )
+    def parse_field_value(self, field_id, raw_value, binding=None):
+        pass
 
-    for file_name in pdf_files:
-        pdf_path = os.path.join(notas_dir, file_name)
-        documento = fitz.open(pdf_path)
-        todas_as_tabelas = []
+    def get_field_config(self, field_id):
+        pass
 
-        print(f"Processando {file_name}")
-
-        for pagina in documento:
-            ancora_inicio = pagina.search_for("Negócios realizados")
-            ancora_fim = pagina.search_for("Resumo dos Negócios")
-
-            if ancora_inicio:
-                y_topo = ancora_inicio[0].y0
-                y_base = ancora_fim[0].y0 if ancora_fim else pagina.rect.height
-
-                area_recorte = fitz.Rect(0, y_topo, pagina.rect.width, y_base)
-                tabelas_encontradas = pagina.find_tables(clip=area_recorte)
-
-                print(f"Encontradas {len(tabelas_encontradas.tables)} tabelas na página {pagina.number} usando clip")
-
-                for tabela in tabelas_encontradas.tables:
-                    df = tabela.to_pandas()
-                    print(df.head())
-                    todas_as_tabelas.append(df)
-
-            for tabela in tabelas_encontradas.tables:
-                df = pd.DataFrame(tabela.cells)
-                print(df)
-
-        documento.close()
+    def get_corretora_config(self, corretora_id):
+        for corretora in self.corretoras:
+            if corretora.id == corretora_id:
+                return corretora
+        raise ValueError(f"Corretora '{corretora_id}' não encontrada.")

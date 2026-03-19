@@ -1,105 +1,1184 @@
-LAYOUT_CONFIG = {
-    "62169875000179": {
-        "nome_corretora": "Nu Investimentos S.A.",
-        "nomes_alternativos_corretora": ["Nu Investimentos", "Nubank", "Nu"],
-        "layout_bolsa": {
-            "campos_vertical": {
-                "numero_da_nota": {
-                    "label": "Número da nota",
-                },
-                "data_pregao": {
-                    "label": "Data Pregão",
-                },
-                "nome_cliente": {
-                    "label": "Nome do Cliente",
-                },
-                "cpf_cliente": {
-                    "label": "CPF",
-                },
-                "codigo_cliente": {
-                    "label": "Código do Cliente",
+from models import Corretora
+
+
+CORRETORAS = [
+    Corretora(
+        id="brasil_plural",
+        nome="Brasil Plural CCTVM S/A",
+        cnpj="05.816.451/0001-15",
+        aliases=[
+            "BRASIL PLURAL",
+            "BRASIL PLURAL CCTVM S/A",
+            "120-BRASIL PLURAL CCTVM S/A-",
+        ],
+        header_lines=[
+            "120-BRASIL PLURAL CCTVM S/A-",
+            "C.N.P.J: 05.816.451/0001-15",
+        ],
+        site="www.brasilplural.com",
+    ),
+    Corretora(
+        id="nu_invest",
+        nome="Nu Investimentos S.A. - Corretora de Títulos e Valores Mobiliários",
+        cnpj="62.169.875/0001-79",
+        aliases=[
+            "Nu Investimentos S.A.",
+            "Nu Investimentos",
+            "Nubank",
+            "Nu",
+        ],
+        header_lines=[
+            "Nu Investimentos S.A. - Corretora de Títulos e Valores Mobiliários",
+            "CNPJ: 62.169.875/0001-79 | www.nuinvest.com.br",
+            "Rua Capote Valente, nº 39, 2º andar",
+            "conjunto 01, 6º andar, conjunto 09 e 8º andar, conjunto 03 - Pinheiros",
+            "05409-000. | São Paulo. | SP | BR",
+        ],
+        site="www.nuinvest.com.br",
+    ),
+    Corretora(
+        id="xp",
+        nome="XP Investimentos Corretora de Câmbio, Títulos e Valores Mobiliários S.A.",
+        cnpj="02.332.886/0001-04",
+        aliases=[
+            "XP INVESTIMENTOS",
+            "XP INVESTIMENTOS CCTVM S/A",
+            "XP INVESTIMENTOS CORRETORA DE CÂMBIO, TÍTULOS E VALORES MOBILIÁRIOS S.A.",
+        ],
+        header_lines=[
+            "XP INVESTIMENTOS CCTVM S/A",
+            "XP INVESTIMENTOS CORRETORA DE CÂMBIO, TÍTULOS E VALORES MOBILIÁRIOS S.A.",
+            "C.N.P.J: 02.332.886/0001-04",
+        ],
+        site="www.xpi.com.br",
+    ),
+    Corretora(
+        id="safra",
+        nome="Safra Distribuidora de Títulos e Valores Mobiliários Ltda",
+        cnpj="01.638.542/0001-57",
+        aliases=[
+            "SAFRA",
+            "SAFRA DISTRIBUIDORA DE TITULOS E VALORES MOBILIARIOS LTDA",
+            "SAFRA DISTRIBUIDORA DE TÍTULOS E VALORES MOBILIÁRIOS LTDA",
+        ],
+        header_lines=[
+            "SAFRA DISTRIBUIDORA DE TITULOS E VALORES MOBILIARIOS LTDA",
+            "Internet: www.safracorretora.com.br",
+            "C.N.P.J: 01.638.542/0001-57",
+        ],
+        site="www.safracorretora.com.br",
+    ),
+]
+
+
+FIELD_CONFIG = [
+    {
+        "id": "folha",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "numero_da_nota",
+        "data_type": "string",
+        "required_default": True,
+        "parser_default": None,
+    },
+    {
+        "id": "data_pregao",
+        "data_type": "date",
+        "required_default": True,
+        "parser_default": "br_date_parser",
+    },
+    {
+        "id": "nome_cliente",
+        "data_type": "string",
+        "required_default": True,
+        "parser_default": None,
+    },
+    {
+        "id": "cpf_cliente",
+        "data_type": "string",
+        "required_default": True,
+        "parser_default": "cpf_parser",
+    },
+    {
+        "id": "codigo_cliente",
+        "data_type": "string",
+        "required_default": True,
+        "parser_default": None,
+    },
+    {
+        "id": "assessor",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "endereco",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "cidade",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "uf",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "cep",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "debentures",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "vendas_a_vista",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "compras_a_vista",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "opcoes_compras",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "opcoes_vendas",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "operacoes_a_termo",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "valor_das_operacoes_com_titulos_publicos",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "valor_liquido_das_operacoes",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "taxa_de_liquidacao",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "taxa_de_registro",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "total_clearing_cblc",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "taxa_de_termo_opcoes",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "taxa_a_n_a",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "emolumentos",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "total_bolsa",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "corretagem",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "iss",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "irrf_sobre_operacoes_base_0_00",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "outras",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "total_corretagem_despesas",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "liquido_para",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "valor_das_operacoes",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "mercado",
+        "data_type": "string",
+        "required_default": True,
+        "parser_default": None,
+    },
+    {
+        "id": "q_negociacao",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "compra_venda",
+        "data_type": "string",
+        "required_default": True,
+        "parser_default": None,
+    },
+    {
+        "id": "tipo_de_mercado",
+        "data_type": "string",
+        "required_default": True,
+        "parser_default": None,
+    },
+    {
+        "id": "especificacao_do_titulo",
+        "data_type": "string",
+        "required_default": True,
+        "parser_default": None,
+    },
+    {
+        "id": "observacao",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "quantidade",
+        "data_type": "number",
+        "required_default": True,
+        "parser_default": "br_number_parser",
+    },
+    {
+        "id": "preco_ajuste",
+        "data_type": "money",
+        "required_default": True,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "valor_ajuste",
+        "data_type": "money",
+        "required_default": True,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "debito_credito",
+        "data_type": "string",
+        "required_default": True,
+        "parser_default": None,
+    },
+    {
+        "id": "protocolo",
+        "data_type": "string",
+        "required_default": True,
+        "parser_default": None,
+    },
+    {
+        "id": "contra_parte",
+        "data_type": "string",
+        "required_default": True,
+        "parser_default": None,
+    },
+    {
+        "id": "cpf_contra_parte",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": "cpf_parser",
+    },
+    {
+        "id": "status",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "tipo",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "data",
+        "data_type": "date",
+        "required_default": False,
+        "parser_default": "br_date_parser",
+    },
+    {
+        "id": "titulo",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "valor_1_titulo",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "tx_bvmf",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "tx_agente_custodia",
+        "data_type": "percent",
+        "required_default": False,
+        "parser_default": "percent_parser",
+    },
+    {
+        "id": "valor_total",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "numero",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "nota_de",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "local",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "emissor",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "comando",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "data_de_operacao",
+        "data_type": "date",
+        "required_default": False,
+        "parser_default": "br_date_parser",
+    },
+    {
+        "id": "data_de_liquidacao",
+        "data_type": "date",
+        "required_default": False,
+        "parser_default": "br_date_parser",
+    },
+    {
+        "id": "cnpj_emissor",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "conta_bancaria",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "tipo_emitente",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "taxa_cupom_percentual",
+        "data_type": "percent",
+        "required_default": False,
+        "parser_default": "percent_parser",
+    },
+    {
+        "id": "indexador",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "percentual_do_indexador",
+        "data_type": "percent",
+        "required_default": False,
+        "parser_default": "percent_parser",
+    },
+    {
+        "id": "prazo",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "custodia",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "emissao",
+        "data_type": "date",
+        "required_default": False,
+        "parser_default": "br_date_parser",
+    },
+    {
+        "id": "vencimento",
+        "data_type": "date",
+        "required_default": False,
+        "parser_default": "br_date_parser",
+    },
+    {
+        "id": "quantidade_valor_nominal",
+        "data_type": "number",
+        "required_default": False,
+        "parser_default": "br_number_parser",
+    },
+    {
+        "id": "preco_unitario_da_operacao",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "valor_da_operacao",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "rendimentos",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+    {
+        "id": "imposto_de_renda_federal",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "iof",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "valor_liquido",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "taxa_operacional",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "execucao",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "taxa_de_custodia",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "impostos",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "taxa_de_transferencia_de_ativos",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "execucao_casa",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "pis_cofins",
+        "data_type": "money",
+        "required_default": False,
+        "parser_default": "money_parser",
+    },
+    {
+        "id": "especificacao_observacao",
+        "data_type": "string",
+        "required_default": False,
+        "parser_default": None,
+    },
+]
+
+
+LAYOUT_CONFIG = [
+    {
+        "id": "xp_nota_corretagem",
+        "corretora_id": "xp",
+        "groups": [
+            {
+                "id": "dados_basicos_topo",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "folha", "label": "Folha"},
+                    {"field_id": "numero_da_nota", "label": "Nr. nota"},
+                    {"field_id": "data_pregao", "label": "Data pregão"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
                 },
             },
-            "campos_sbs": {
-                "debentures": {
-                    "label": "Debêntures",
-                },
-                "vendas_a_vista": {
-                    "label": "Vendas à vista",
-                },
-                "compras_a_vista": {
-                    "label": "Compras à vista",
-                },
-                "opcoes_compras": {
-                    "label": "Opções - Compras",
-                },
-                "opcoes_vendas": {
-                    "label": "Opções - Vendas",
-                },
-                "operacoes_a_termo": {
-                    "label": "Operações a Termo",
-                },
-                "valor_das_operacoes_com_titulos_publicos": {
-                    "label": "Valor das Operações com Títulos Públicos",
-                },
-                "valor_liquido_das_operacoes": {
-                    "label": "Valor Líquido das Operações",
-                },
-                "taxa_de_liquidacao": {
-                    "label": "Taxa de Liquidação",
-                },
-                "taxa_de_registro": {
-                    "label": "Taxa de Registro",
-                },
-                "total_clearing_cblc": {
-                    "label": "Total Clearing (CBLC)",
-                },
-                "Taxa de Termo / Opções": {
-                    "label": "Taxa de Termo / Opções",
-                },
-                "Taxa A.N.A.": {
-                    "label": "Taxa A.N.A.",
-                },
-                "Emolumentos": {
-                    "label": "Emolumentos",
-                },
-                "Total Bolsa": {
-                    "label": "Total Bolsa",
-                },
-                "Corretagem": {
-                    "label": "Corretagem",
-                },
-                "ISS (SÃO PAULO)": {
-                    "label": "ISS",
-                },
-                "I.R.R.F. s/ operações Base 0,00": {
-                    "label": "I.R.R.F. s/ operações Base 0,00",
-                },
-                "Outras": {
-                    "label": "Outras",
-                },
-                "Total Corretagem/Despesas": {
-                    "label": "Total Corretagem/Despesas",
-                },
-                "Líquido para data": {
-                    "label": "Líquido para data",
+            {
+                "id": "dados_basicos_cliente",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "cpf_cliente", "label": "C.P.F./C.N.P.J/C.V.M./C.O.B."},
+                    {"field_id": "codigo_cliente", "label": "Código cliente"},
+                    {"field_id": "assessor", "label": "Assessor"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                    "value_height_ratio": 1.0,
                 },
             },
-            "tabelas": {
-                "tabela_movimentacoes": {
-                    "headers": [
-                        {"field_name": "mercado", "label": "Mercado"},
-                        {"field_name": "c_v", "label": "C/V"},
-                        {"field_name": "tipo_de_mercado", "label": "Tipo de Mercado"},
-                        {"field_name": "especificacao_do_titulo", "label": "Especificação do Título"},
-                        {"field_name": "observacao", "label": "Observação"},
-                        {"field_name": "quantidade", "label": "Quantidade"},
-                        {"field_name": "preco_ajuste", "label": "Preço/Ajuste"},
-                        {"field_name": "valor_ajuste", "label": "Valor/Ajuste"},
-                        {"field_name": "d_c", "label": "D/C"},
-                    ],
-                }
+            {
+                "id": "resumo_dos_negocios",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "RIGHT",
+                "bindings": [
+                    {"field_id": "debentures", "label": "Debêntures"},
+                    {"field_id": "vendas_a_vista", "label": "Vendas à vista"},
+                    {"field_id": "compras_a_vista", "label": "Compras à vista"},
+                    {"field_id": "opcoes_compras", "label": "Opções - compras"},
+                    {"field_id": "opcoes_vendas", "label": "Opções - vendas"},
+                    {"field_id": "operacoes_a_termo", "label": "Operações à termo"},
+                    {
+                        "field_id": "valor_das_operacoes_com_titulos_publicos",
+                        "label": "Valor das oper. c/ títulos públ. (v. nom.)",
+                    },
+                    {"field_id": "valor_das_operacoes", "label": "Valor das operações"},
+                ],
+                "options": {
+                    "x_tolerance": 3,
+                    "joiner": " ",
+                    "gap_tolerance_ratio": 0.5,
+                },
             },
-        }
-    }
-}
+            {
+                "id": "resumo_financeiro",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "RIGHT",
+                "bindings": [
+                    {"field_id": "total_clearing_cblc", "label": "Total CBLC"},
+                    {
+                        "field_id": "valor_liquido_das_operacoes",
+                        "label": "Valor líquido das operações",
+                    },
+                    {"field_id": "taxa_de_liquidacao", "label": "Taxa de liquidação"},
+                    {"field_id": "taxa_de_registro", "label": "Taxa de Registro"},
+                    {"field_id": "total_bolsa", "label": "Total Bovespa / Soma"},
+                    {"field_id": "taxa_de_termo_opcoes", "label": "Taxa de termo/opções"},
+                    {"field_id": "taxa_a_n_a", "label": "Taxa A.N.A."},
+                    {"field_id": "emolumentos", "label": "Emolumentos"},
+                    {
+                        "field_id": "total_corretagem_despesas",
+                        "label": "Total Custos / Despesas",
+                    },
+                    {"field_id": "taxa_operacional", "label": "Taxa Operacional"},
+                    {"field_id": "execucao", "label": "Execução"},
+                    {"field_id": "taxa_de_custodia", "label": "Taxa de Custódia"},
+                    {"field_id": "impostos", "label": "Impostos"},
+                    {
+                        "field_id": "irrf_sobre_operacoes_base_0_00",
+                        "label": "I.R.R.F. s/ operações, base R$",
+                    },
+                    {"field_id": "outras", "label": "Outros"},
+                    {"field_id": "liquido_para", "label": "Líquido para"},
+                ],
+                "options": {
+                    "x_tolerance": 3,
+                    "joiner": " ",
+                    "gap_tolerance_ratio": 0.5,
+                },
+            },
+            {
+                "id": "movimentacoes",
+                "type": "TABLE",
+                "anchors": {
+                    "top": "Q Negociação",
+                    "bottom": "Resumo dos Negócios",
+                },
+                "direction": None,
+                "bindings": [
+                    {"field_id": "q_negociacao", "label": "Q Negociação"},
+                    {"field_id": "compra_venda", "label": "C/V"},
+                    {"field_id": "tipo_de_mercado", "label": "Tipo mercado"},
+                    {"field_id": "prazo", "label": "Prazo"},
+                    {
+                        "field_id": "especificacao_do_titulo",
+                        "label": "Especificação do título",
+                    },
+                    {"field_id": "observacao", "label": "Obs. (*)"},
+                    {"field_id": "quantidade", "label": "Quantidade"},
+                    {"field_id": "preco_ajuste", "label": "Preço / Ajuste"},
+                    {"field_id": "valor_ajuste", "label": "Valor Operação / Ajuste"},
+                    {"field_id": "debito_credito", "label": "D/C"},
+                ],
+                "options": {
+                    "y_tolerance_ratio": 0.5,
+                    "row_y_tol": 1.0,
+                },
+            },
+        ],
+    },
+    {
+        "id": "safra_nota_corretagem",
+        "corretora_id": "safra",
+        "groups": [
+            {
+                "id": "dados_basicos_topo",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "folha", "label": "Folha"},
+                    {"field_id": "numero_da_nota", "label": "Nr Nota"},
+                    {"field_id": "data_pregao", "label": "Data pregão"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                    "value_height_ratio": 1.0,
+                },
+            },
+            {
+                "id": "dados_basicos_cliente",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "cpf_cliente", "label": "C.P.F / C.N.P.J / C.V.M / C.O.B"},
+                    {"field_id": "codigo_cliente", "label": "Código Cliente"},
+                    {"field_id": "assessor", "label": "Assessor"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                    "value_height_ratio": 1.0,
+                },
+            },
+            {
+                "id": "resumo_dos_negocios",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "RIGHT",
+                "bindings": [
+                    {"field_id": "debentures", "label": "Debêntures"},
+                    {"field_id": "vendas_a_vista", "label": "Vendas à vista"},
+                    {"field_id": "compras_a_vista", "label": "Compras à vista"},
+                    {"field_id": "opcoes_compras", "label": "Opções - Compras"},
+                    {"field_id": "opcoes_vendas", "label": "Opções - vendas"},
+                    {"field_id": "operacoes_a_termo", "label": "Operações a termo"},
+                    {
+                        "field_id": "valor_das_operacoes_com_titulos_publicos",
+                        "label": "Valor das oper. c/ títulos públ. (v. nom.)",
+                    },
+                    {"field_id": "valor_das_operacoes", "label": "Valor das operações"},
+                ],
+                "options": {
+                    "x_tolerance": 3,
+                    "joiner": " ",
+                    "gap_tolerance_ratio": 0.5,
+                },
+            },
+            {
+                "id": "resumo_financeiro",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "RIGHT",
+                "bindings": [
+                    {
+                        "field_id": "valor_liquido_das_operacoes",
+                        "label": "Valor Líquido das operações",
+                    },
+                    {"field_id": "taxa_de_liquidacao", "label": "Taxa de liquidação"},
+                    {"field_id": "taxa_de_registro", "label": "Taxa de registro"},
+                    {"field_id": "total_clearing_cblc", "label": "Total CBLC"},
+                    {"field_id": "taxa_de_termo_opcoes", "label": "Taxa de termo/opções"},
+                    {"field_id": "taxa_a_n_a", "label": "Taxa A.N.A."},
+                    {"field_id": "emolumentos", "label": "Emolumentos"},
+                    {"field_id": "total_bolsa", "label": "Total Bovespa / Soma"},
+                    {
+                        "field_id": "taxa_de_transferencia_de_ativos",
+                        "label": "Taxa de transferência de Ativos",
+                    },
+                    {"field_id": "corretagem", "label": "Clearing"},
+                    {"field_id": "execucao", "label": "Execução"},
+                    {"field_id": "execucao_casa", "label": "Execução casa"},
+                    {"field_id": "iss", "label": "ISS ( SÃO PAULO )"},
+                    {
+                        "field_id": "irrf_sobre_operacoes_base_0_00",
+                        "label": "I.R.R.F s/ operações base",
+                    },
+                    {"field_id": "pis_cofins", "label": "Pis Cofins"},
+                    {"field_id": "outras", "label": "Outras"},
+                    {
+                        "field_id": "total_corretagem_despesas",
+                        "label": "Total Corretagem / Despesas",
+                    },
+                    {"field_id": "liquido_para", "label": "Líquido para"},
+                ],
+                "options": {
+                    "x_tolerance": 3,
+                    "joiner": " ",
+                    "gap_tolerance_ratio": 0.5,
+                },
+            },
+            {
+                "id": "movimentacoes",
+                "type": "TABLE",
+                "anchors": {
+                    "top": "Q Negociação",
+                    "bottom": "Resumo de Negócios",
+                },
+                "direction": None,
+                "bindings": [
+                    {"field_id": "mercado", "label": "Q Negociação"},
+                    {"field_id": "compra_venda", "label": "C/V"},
+                    {"field_id": "tipo_de_mercado", "label": "Tipo Mercado"},
+                    {"field_id": "prazo", "label": "Prazo"},
+                    {
+                        "field_id": "especificacao_do_titulo",
+                        "label": "Especificação do título",
+                    },
+                    {"field_id": "observacao", "label": "Obs.(*)"},
+                    {"field_id": "quantidade", "label": "Quantidade"},
+                    {"field_id": "preco_ajuste", "label": "Preço / Ajuste"},
+                    {"field_id": "valor_ajuste", "label": "Valor Operação / Ajuste"},
+                    {"field_id": "debito_credito", "label": "D/C"},
+                ],
+                "options": {
+                    "y_tolerance_ratio": 0.5,
+                    "row_y_tol": 1.0,
+                },
+            },
+        ],
+    },
+    {
+        "id": "nu_invest_nota_corretagem",
+        "corretora_id": "nu_invest",
+        "groups": [
+            {
+                "id": "dados_basicos",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "folha", "label": "Folha"},
+                    {"field_id": "numero_da_nota", "label": "Número da nota"},
+                    {"field_id": "data_pregao", "label": "Data Pregão"},
+                    {"field_id": "nome_cliente", "label": "Nome do Cliente"},
+                    {"field_id": "cpf_cliente", "label": "CPF"},
+                    {"field_id": "codigo_cliente", "label": "Código do Cliente"},
+                    {"field_id": "endereco", "label": "Endereço"},
+                    {"field_id": "cidade", "label": "Cidade"},
+                    {"field_id": "uf", "label": "UF"},
+                    {"field_id": "cep", "label": "CEP"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                },
+            },
+            {
+                "id": "resumo_dos_negocios",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "RIGHT",
+                "bindings": [
+                    {"field_id": "debentures", "label": "Debêntures"},
+                    {"field_id": "vendas_a_vista", "label": "Vendas à vista"},
+                    {"field_id": "compras_a_vista", "label": "Compras à vista"},
+                    {"field_id": "opcoes_compras", "label": "Opções - Compras"},
+                    {"field_id": "opcoes_vendas", "label": "Opções - Vendas"},
+                    {"field_id": "operacoes_a_termo", "label": "Operações a Termo"},
+                    {
+                        "field_id": "valor_das_operacoes_com_titulos_publicos",
+                        "label": "Valor das Operações com Títulos Públicos (V. Nom.)",
+                    },
+                ],
+                "options": {
+                    "x_tolerance": 3,
+                    "joiner": " ",
+                },
+            },
+            {
+                "id": "resumo_financeiro",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "RIGHT",
+                "bindings": [
+                    {
+                        "field_id": "valor_liquido_das_operacoes",
+                        "label": "Valor Líquido das Operações",
+                    },
+                    {"field_id": "taxa_de_liquidacao", "label": "Taxa de Liquidação"},
+                    {"field_id": "taxa_de_registro", "label": "Taxa de Registro"},
+                    {"field_id": "total_clearing_cblc", "label": "Total Clearing (CBLC)"},
+                    {"field_id": "taxa_de_termo_opcoes", "label": "Taxa de Termo / Opções"},
+                    {"field_id": "taxa_a_n_a", "label": "Taxa A.N.A."},
+                    {"field_id": "emolumentos", "label": "Emolumentos"},
+                    {"field_id": "total_bolsa", "label": "Total Bolsa"},
+                    {"field_id": "corretagem", "label": "Corretagem        "},  # padded to avoid matching "Corretagem/Despesas"
+                    {"field_id": "iss", "label": "ISS (SÃO PAULO)"},
+                    {
+                        "field_id": "irrf_sobre_operacoes_base_0_00",
+                        "label": "I.R.R.F. s/ operações. Base 0,00",
+                    },
+                    {"field_id": "outras", "label": "Outras"},
+                    {
+                        "field_id": "total_corretagem_despesas",
+                        "label": "Total Corretagem/Despesas",
+                    },
+                    {"field_id": "liquido_para", "label": "Líquido para"},
+                ],
+                "options": {
+                    "x_tolerance": 3,
+                    "joiner": " ",
+                },
+            },
+            {
+                "id": "movimentacoes",
+                "type": "TABLE",
+                "anchors": {
+                    "top": "Especificação do Título",
+                    "bottom": "Resumo dos Negócios",
+                },
+                "direction": None,
+                "bindings": [
+                    {"field_id": "mercado", "label": "Mercado"},
+                    {"field_id": "compra_venda", "label": "C/V"},
+                    {"field_id": "tipo_de_mercado", "label": "Tipo de Mercado"},
+                    {
+                        "field_id": "especificacao_do_titulo",
+                        "label": "Especificação do Título",
+                    },
+                    {"field_id": "observacao", "label": "Observação"},
+                    {"field_id": "quantidade", "label": "Quantidade"},
+                    {"field_id": "preco_ajuste", "label": "Preço/Ajuste"},
+                    {"field_id": "valor_ajuste", "label": "Valor/Ajuste"},
+                    {"field_id": "debito_credito", "label": "D/C"},
+                ],
+                "options": {
+                    "y_tolerance_ratio": 0.5,
+                    "row_y_tol": 1.0,
+                },
+            },
+        ],
+    },
+    {
+        "id": "nu_invest_titulos_publicos",
+        "corretora_id": "nu_invest",
+        "groups": [
+            {
+                "id": "titulos_publicos_contraparte",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "protocolo", "label": "protocolo"},
+                    {"field_id": "contra_parte", "label": "Contra Parte"},
+                    {"field_id": "cpf_contra_parte", "label": "CPF Contra Parte"},
+                    {"field_id": "codigo_cliente", "label": "Código Contra Parte"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                },
+            },
+            {
+                "id": "titulos_publicos_operacao",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "mercado", "label": "Mercado"},
+                    {"field_id": "status", "label": "Status"},
+                    {"field_id": "tipo", "label": "Tipo"},
+                    {"field_id": "data", "label": "Data"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                },
+            },
+            {
+                "id": "titulos_publicos_valores",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {
+                        "field_id": "titulo",
+                        "label": "Título",
+                        "options": {"occurrence_index": 2},
+                    },
+                    {"field_id": "valor_1_titulo", "label": "Valor 1 título"},
+                    {"field_id": "quantidade", "label": "Quantidade"},
+                    {"field_id": "tx_bvmf", "label": "Tx BVMF"},
+                    {"field_id": "tx_agente_custodia", "label": "Tx Agente Custódia"},
+                    {"field_id": "valor_total", "label": "Valor Total"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                },
+            },
+        ],
+    },
+    {
+        "id": "nu_invest_titulos_privados",
+        "corretora_id": "nu_invest",
+        "groups": [
+            {
+                "id": "titulos_privados_cabecalho",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "numero", "label": "Número"},
+                    {"field_id": "contra_parte", "label": "Contra Parte"},
+                    {"field_id": "cpf_contra_parte", "label": "CPF Contra Parte"},
+                    {"field_id": "codigo_cliente", "label": "Código Contra Parte"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                },
+            },
+            {
+                "id": "titulos_privados_negocio",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {
+                        "field_id": "nota_de",
+                        "label": "Nota de",
+                        "options": {"occurrence_index": 1},
+                    },
+                    {"field_id": "local", "label": "Local"},
+                    {"field_id": "emissor", "label": "Emissor"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                },
+            },
+            {
+                "id": "titulos_privados_operacao",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "comando", "label": "Comando"},
+                    {"field_id": "data_de_operacao", "label": "Data de Operação"},
+                    {"field_id": "data_de_liquidacao", "label": "Data de Liquidação"},
+                    {"field_id": "cnpj_emissor", "label": "CNPJ Emissor"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                },
+            },
+            {
+                "id": "titulos_privados_titulo",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "conta_bancaria", "label": "Conta bancária"},
+                    {"field_id": "tipo_emitente", "label": "Tipo/Emitente"},
+                    {"field_id": "taxa_cupom_percentual", "label": "Tx. / CUPON %"},
+                    {"field_id": "indexador", "label": "Indexador"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                },
+            },
+            {
+                "id": "titulos_privados_titulo_detalhe",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {
+                        "field_id": "titulo",
+                        "label": "Título",
+                        "options": {"occurrence_index": 2},
+                    }
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                    "multiline_values": True,
+                    "horizontal_gap_ratio": 1.5,
+                    "line_y_tolerance_ratio": 0.6,
+                    "continuation_gap_ratio": 0.9,
+                    "line_joiner": " ",
+                },
+            },
+            {
+                "id": "titulos_privados_prazo",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "percentual_do_indexador", "label": "% do Indexador"},
+                    {"field_id": "prazo", "label": "Prazo"},
+                    {"field_id": "custodia", "label": "Custódia"},
+                    {"field_id": "emissao", "label": "Emissão"},
+                    {"field_id": "vencimento", "label": "Vencimento"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                },
+            },
+            {
+                "id": "titulos_privados_financeiro",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {
+                        "field_id": "quantidade_valor_nominal",
+                        "label": "Quantidade/Valor nominal",
+                    },
+                    {
+                        "field_id": "preco_unitario_da_operacao",
+                        "label": "Preço Unitário da Operação",
+                    },
+                    {"field_id": "valor_da_operacao", "label": "Valor da Operação"},
+                    {"field_id": "rendimentos", "label": "Rendimentos"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                },
+            },
+            {
+                "id": "titulos_privados_fechamento",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {
+                        "field_id": "imposto_de_renda_federal",
+                        "label": "Imposto de Renda Federal",
+                    },
+                    {"field_id": "outras", "label": "Outros"},
+                    {"field_id": "iof", "label": "IOF"},
+                    {"field_id": "valor_liquido", "label": "Valor Líquido"},
+                    {
+                        "field_id": "especificacao_observacao",
+                        "label": "Especificação/Observação",
+                    },
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                },
+            },
+        ],
+    },
+]

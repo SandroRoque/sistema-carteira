@@ -20,3 +20,6 @@ __pycache__/
 data/**/*.pdf
 data/**/*.csv
 data/**/*.xlsx
+
+# Generated exports
+exports/
