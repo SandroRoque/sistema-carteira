@@ -117,7 +117,6 @@ Colunas importantes:
 
 - `receipt_id`
 - `filename`
-- `document_guess`
 - `corretora_id`
 - `layout_id`
 - `status`

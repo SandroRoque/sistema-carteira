@@ -12,9 +12,10 @@ from extrai_nota_de_negociacao import NotaNegociacaoExtractor, PdfImagemError
 from settings import load_settings
 
 
-TARGET_CORRETORA_ID = "safra"
-PROTOTYPE_LAYOUT_ID = "safra_nota_corretagem"
+TARGET_CORRETORA_ID = "brasil_plural"
+PROTOTYPE_LAYOUT_ID = "brasil_plural_nota_corretagem"
 VERBOSE_FIRST_FILE = True
+ONLY_FILENAME = "2016-08-01 Opções - Nota de Corretagem.pdf"
 
 PARSER_REGISTRY = {
     "br_date_parser": br_date_parser,
@@ -98,6 +99,8 @@ def extract_table_group(page, group, field_by_id):
         header_text=anchors["top"],
         table_anchor=anchors["bottom"],
         expected_headers=expected_headers,
+        column_margin_ratio=options.get("column_margin_ratio", 0.35),
+        column_margin_overrides=options.get("column_margin_overrides"),
         y_tolerance_ratio=options.get("y_tolerance_ratio", 0.5),
         row_y_tol=options.get("row_y_tol", 1.0),
     )
@@ -141,6 +144,9 @@ def main():
     processed_count = 0
 
     for pdf_path in pdf_files:
+        if ONLY_FILENAME and pdf_path.name != ONLY_FILENAME:
+            continue
+
         try:
             doc = extractor.prepara_pagina_unica(pdf_path)
             page = doc[0]
@@ -171,7 +177,9 @@ def main():
                         rows = extract_table_group(page, group, field_by_id)
                         print(f"  OK: {len(rows)} linhas")
                         if verbose and rows:
-                            print(f"    primeira_linha: {rows[0]!r}")
+                            for index, row in enumerate(rows, start=1):
+                                print(f"    linha_{index}: {row!r}")
+                            print(f"    segunda_linha: {rows[1]!r}" if len(rows) > 1 else "    segunda_linha: N/A")
                     else:
                         raise ValueError(f"Tipo de grupo nao suportado: {group['type']}")
                 except Exception as exc:

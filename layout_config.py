@@ -331,24 +331,6 @@ FIELD_CONFIG = [
         "parser_default": None,
     },
     {
-        "id": "protocolo",
-        "data_type": "string",
-        "required_default": True,
-        "parser_default": None,
-    },
-    {
-        "id": "contra_parte",
-        "data_type": "string",
-        "required_default": True,
-        "parser_default": None,
-    },
-    {
-        "id": "cpf_contra_parte",
-        "data_type": "string",
-        "required_default": False,
-        "parser_default": "cpf_parser",
-    },
-    {
         "id": "status",
         "data_type": "string",
         "required_default": False,
@@ -359,12 +341,6 @@ FIELD_CONFIG = [
         "data_type": "string",
         "required_default": False,
         "parser_default": None,
-    },
-    {
-        "id": "data",
-        "data_type": "date",
-        "required_default": False,
-        "parser_default": "br_date_parser",
     },
     {
         "id": "titulo",
@@ -395,12 +371,6 @@ FIELD_CONFIG = [
         "data_type": "money",
         "required_default": False,
         "parser_default": "money_parser",
-    },
-    {
-        "id": "numero",
-        "data_type": "string",
-        "required_default": False,
-        "parser_default": None,
     },
     {
         "id": "nota_de",
@@ -592,6 +562,139 @@ FIELD_CONFIG = [
 
 
 LAYOUT_CONFIG = [
+    {
+        "id": "brasil_plural_nota_corretagem",
+        "corretora_id": "brasil_plural",
+        "groups": [
+            {
+                "id": "dados_basicos_topo",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "numero_da_nota", "label": "Nr.Nota"},
+                    {"field_id": "folha", "label": "Folha"},
+                    {"field_id": "data_pregao", "label": "Data pregão"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                },
+            },
+            {
+                "id": "dados_basicos_cliente",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "BELOW",
+                "bindings": [
+                    {"field_id": "cpf_cliente", "label": "C.P.F/C.N.P.J/C.V.M/C.O.B"},
+                    {"field_id": "codigo_cliente", "label": "Código cliente"},
+                    {"field_id": "assessor", "label": "Assessor"},
+                ],
+                "options": {
+                    "y_tol": 2.0,
+                    "debug": False,
+                    "value_height_ratio": 1.0,
+                },
+            },
+            {
+                "id": "resumo_dos_negocios",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "RIGHT",
+                "bindings": [
+                    {"field_id": "debentures", "label": "Debêntures"},
+                    {"field_id": "vendas_a_vista", "label": "Vendas a vista"},
+                    {"field_id": "compras_a_vista", "label": "Compras a vista"},
+                    {"field_id": "opcoes_compras", "label": "Opções - compras"},
+                    {"field_id": "opcoes_vendas", "label": "Opções - vendas"},
+                    {"field_id": "operacoes_a_termo", "label": "Operações à termo"},
+                    {
+                        "field_id": "valor_das_operacoes_com_titulos_publicos",
+                        "label": "Valor das oper. c/ títulos públ. (v. nom)",
+                    },
+                    {"field_id": "valor_das_operacoes", "label": "Valor das operações"},
+                ],
+                "options": {
+                    "x_tolerance": 3,
+                    "joiner": " ",
+                    "gap_tolerance_ratio": 0.5,
+                },
+            },
+            {
+                "id": "resumo_financeiro",
+                "type": "KEY_VALUE",
+                "anchors": [],
+                "direction": "RIGHT",
+                "bindings": [
+                    {
+                        "field_id": "valor_liquido_das_operacoes",
+                        "label": "Valor líquido das operações",
+                    },
+                    {"field_id": "taxa_de_liquidacao", "label": "Taxa de liquidação"},
+                    {"field_id": "taxa_de_registro", "label": "Taxa de Registro"},
+                    {"field_id": "total_clearing_cblc", "label": "Total CBLC"},
+                    {"field_id": "taxa_de_termo_opcoes", "label": "Taxa de termo/opções"},
+                    {"field_id": "taxa_a_n_a", "label": "Taxa A.N.A"},
+                    {"field_id": "emolumentos", "label": "Emolumentos"},
+                    {"field_id": "total_bolsa", "label": "Total Bovespa / Soma"},
+                    {
+                        "field_id": "corretagem",
+                        "label": "Corretagem",
+                        "options": {"occurrence_index": 1},
+                    },
+                    {"field_id": "iss", "label": "ISS ( São Paulo )"},
+                    {"field_id": "outras", "label": "Outras"},
+                    {
+                        "field_id": "total_corretagem_despesas",
+                        "label": "Total corretagem / Despesas",
+                    },
+                    {"field_id": "liquido_para", "label": "Liquido para"},
+                ],
+                "options": {
+                    "x_tolerance": 3,
+                    "joiner": " ",
+                    "gap_tolerance_ratio": 0.5,
+                },
+            },
+            {
+                "id": "movimentacoes",
+                "type": "TABLE",
+                "anchors": {
+                    "top": "Q Negociação",
+                    "bottom": "Resumo dos Negócios",
+                },
+                "direction": None,
+                "bindings": [
+                    {"field_id": "mercado", "label": "Q Negociação"},
+                    {"field_id": "compra_venda", "label": "C/V"},
+                    {"field_id": "tipo_de_mercado", "label": "Tipo mercado"},
+                    {"field_id": "prazo", "label": "Prazo"},
+                    {
+                        "field_id": "especificacao_do_titulo",
+                        "label": "Especificacao do título",
+                    },
+                    {"field_id": "observacao", "label": "Obs.(*)"},
+                    {"field_id": "quantidade", "label": "Quantidade"},
+                    {"field_id": "preco_ajuste", "label": "Preço / Ajuste"},
+                    {"field_id": "valor_ajuste", "label": "Valor Operação / Ajuste"},
+                    {"field_id": "debito_credito", "label": "D/C"},
+                ],
+                "options": {
+                    "y_tolerance_ratio": 0.5,
+                    "row_y_tol": 10.0,
+                    "column_margin_overrides": {
+                        "Especificacao do título": {
+                            "right": 30.0,
+                        },
+                        "Preço / Ajuste": {
+                            "right": 16.0,
+                        },
+                    },
+                },
+            },
+        ],
+    },
     {
         "id": "xp_nota_corretagem",
         "corretora_id": "xp",
@@ -974,9 +1077,9 @@ LAYOUT_CONFIG = [
                 "anchors": [],
                 "direction": "BELOW",
                 "bindings": [
-                    {"field_id": "protocolo", "label": "protocolo"},
-                    {"field_id": "contra_parte", "label": "Contra Parte"},
-                    {"field_id": "cpf_contra_parte", "label": "CPF Contra Parte"},
+                    {"field_id": "numero_da_nota", "label": "protocolo"},
+                    {"field_id": "nome_cliente", "label": "Contra Parte"},
+                    {"field_id": "cpf_cliente", "label": "CPF Contra Parte"},
                     {"field_id": "codigo_cliente", "label": "Código Contra Parte"},
                 ],
                 "options": {
@@ -993,7 +1096,7 @@ LAYOUT_CONFIG = [
                     {"field_id": "mercado", "label": "Mercado"},
                     {"field_id": "status", "label": "Status"},
                     {"field_id": "tipo", "label": "Tipo"},
-                    {"field_id": "data", "label": "Data"},
+                    {"field_id": "data_de_operacao", "label": "Data"},
                 ],
                 "options": {
                     "y_tol": 2.0,
@@ -1034,9 +1137,9 @@ LAYOUT_CONFIG = [
                 "anchors": [],
                 "direction": "BELOW",
                 "bindings": [
-                    {"field_id": "numero", "label": "Número"},
-                    {"field_id": "contra_parte", "label": "Contra Parte"},
-                    {"field_id": "cpf_contra_parte", "label": "CPF Contra Parte"},
+                    {"field_id": "numero_da_nota", "label": "Número"},
+                    {"field_id": "nome_cliente", "label": "Contra Parte"},
+                    {"field_id": "cpf_cliente", "label": "CPF Contra Parte"},
                     {"field_id": "codigo_cliente", "label": "Código Contra Parte"},
                 ],
                 "options": {

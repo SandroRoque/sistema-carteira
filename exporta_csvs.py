@@ -1,5 +1,6 @@
-import csv
 from pathlib import Path
+
+import pandas as pd
 
 from extrai_nota_de_negociacao import NotaNegociacaoExtractor
 from key_value_finders import find_sbs_key_value_pairs, find_vertical_key_value_pairs
@@ -125,6 +126,8 @@ def extract_table_group(page, group, field_by_id):
         header_text=anchors["top"],
         table_anchor=anchors["bottom"],
         expected_headers=expected_headers,
+        column_margin_ratio=options.get("column_margin_ratio", 0.35),
+        column_margin_overrides=options.get("column_margin_overrides"),
         y_tolerance_ratio=options.get("y_tolerance_ratio", 0.5),
         row_y_tol=options.get("row_y_tol", 1.0),
     )
@@ -147,35 +150,27 @@ def stringify_value(value):
     return str(value)
 
 
-def guess_document_type(filename):
-    normalized = filename.lower()
-
-    if "darf" in normalized:
-        return "darf"
-    if "títulos" in normalized or "titulos" in normalized:
-        return "titulos"
-    if "nota de corretagem" in normalized:
-        return "nota_de_corretagem"
-    if "nota de negociação" in normalized or "nota de negociacao" in normalized:
-        return "nota_de_negociacao"
-    if "opção" in normalized or "opcao" in normalized or "opções" in normalized or "opcoes" in normalized:
-        return "derivativos_ou_opcoes"
-
-    return "desconhecido"
-
-
 def main():
     settings = load_settings()
     extractor = NotaNegociacaoExtractor()
     field_by_id = {field["id"]: field for field in FIELD_CONFIG}
     scalar_field_ids = [field["id"] for field in FIELD_CONFIG]
+    table_field_ids = [
+        field["id"]
+        for field in FIELD_CONFIG
+        if any(
+            group["type"] == "TABLE"
+            and any(binding["field_id"] == field["id"] for binding in group["bindings"])
+            for layout in LAYOUT_CONFIG
+            for group in layout["groups"]
+        )
+    ]
 
     project_root = Path(__file__).resolve().parent
     output_dir = project_root / "exports"
     output_dir.mkdir(exist_ok=True)
 
-    receipts_csv_path = output_dir / "receipts.csv"
-    movimentacoes_csv_path = output_dir / "movimentacoes.csv"
+    workbook_path = output_dir / "extracao_notas.xlsx"
 
     receipt_rows = []
     movimentacao_rows = []
@@ -186,7 +181,6 @@ def main():
             "receipt_id": receipt_id,
             "filename": pdf_path.name,
             "source_path": str(pdf_path),
-            "document_guess": guess_document_type(pdf_path.name),
             "corretora_id": "",
             "layout_id": "",
             "status": "",
@@ -220,16 +214,11 @@ def main():
                             receipt_row[field_id] = stringify_value(value)
                     elif group["type"] == "TABLE":
                         parsed_rows = extract_table_group(page, group, field_by_id)
-                        for index, parsed_row in enumerate(parsed_rows, start=1):
+                        for parsed_row in parsed_rows:
                             movimentacao_row = {
                                 "receipt_id": receipt_id,
-                                "filename": pdf_path.name,
-                                "corretora_id": corretora.id,
-                                "layout_id": layout["id"],
-                                "group_id": group["id"],
-                                "row_number": index,
                             }
-                            for field_id in scalar_field_ids:
+                            for field_id in table_field_ids:
                                 movimentacao_row[field_id] = ""
                             for field_id, value in parsed_row.items():
                                 movimentacao_row[field_id] = stringify_value(value)
@@ -252,7 +241,6 @@ def main():
         "receipt_id",
         "filename",
         "source_path",
-        "document_guess",
         "corretora_id",
         "layout_id",
         "status",
@@ -262,31 +250,22 @@ def main():
 
     movimentacao_headers = [
         "receipt_id",
-        "filename",
-        "corretora_id",
-        "layout_id",
-        "group_id",
-        "row_number",
-        *scalar_field_ids,
+        *table_field_ids,
     ]
 
-    with receipts_csv_path.open("w", newline="", encoding="utf-8") as receipts_file:
-        writer = csv.DictWriter(receipts_file, fieldnames=receipt_headers)
-        writer.writeheader()
-        writer.writerows(receipt_rows)
+    receipts_df = pd.DataFrame(receipt_rows, columns=receipt_headers)
+    movimentacoes_df = pd.DataFrame(movimentacao_rows, columns=movimentacao_headers)
 
-    with movimentacoes_csv_path.open("w", newline="", encoding="utf-8") as movimentacoes_file:
-        writer = csv.DictWriter(movimentacoes_file, fieldnames=movimentacao_headers)
-        writer.writeheader()
-        writer.writerows(movimentacao_rows)
+    with pd.ExcelWriter(workbook_path) as writer:
+        receipts_df.to_excel(writer, sheet_name="notas", index=False)
+        movimentacoes_df.to_excel(writer, sheet_name="movimentacoes", index=False)
 
     parsed_count = sum(1 for row in receipt_rows if row["status"] == "parsed")
     partial_count = sum(1 for row in receipt_rows if row["status"] == "partial")
     skipped_count = sum(1 for row in receipt_rows if row["status"] == "skipped_image")
     failed_count = sum(1 for row in receipt_rows if row["status"] == "failed")
 
-    print(f"Receipts CSV: {receipts_csv_path}")
-    print(f"Movimentacoes CSV: {movimentacoes_csv_path}")
+    print(f"Workbook XLSX: {workbook_path}")
     print(
         "Resumo:"
         f" parsed={parsed_count}"
