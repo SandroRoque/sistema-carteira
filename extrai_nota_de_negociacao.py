@@ -1,25 +1,21 @@
 import fitz
-from layout_config import CORRETORAS, FIELD_CONFIG, LAYOUT_CONFIG
 
-
-class PdfImagemError(Exception):
-    pass
+from layout_config import CORRETORAS
 
 
 class NotaNegociacaoExtractor:
-    def __init__(self, layout_config=None, field_config=None, corretoras=None, parser_registry=None):
-        self.layout_config = layout_config or LAYOUT_CONFIG
-        self.field_config = field_config or FIELD_CONFIG
+    """Low-level PDF helpers used by the orchestration in main.py."""
+
+    def __init__(self, corretoras=None):
         self.corretoras = corretoras or CORRETORAS
-        self.parser_registry = parser_registry or {}
 
     def prepara_pagina_unica(self, pdf_path):
-        """Lê um PDF e retorna um objeto Document em memória contendo uma única página fundida."""
+        """Le um PDF e retorna um documento em memoria com uma pagina fundida."""
         doc = fitz.open(pdf_path)
 
         if doc.page_count == 0:
             doc.close()
-            raise ValueError("O PDF não contém páginas.")
+            raise ValueError("O PDF nao contem paginas.")
 
         doc_mesclado = fitz.open()
 
@@ -28,33 +24,21 @@ class NotaNegociacaoExtractor:
         else:
             altura_total = sum(page.rect.height for page in doc)
             largura_maxima = max(page.rect.width for page in doc)
-
             pagina = doc_mesclado.new_page(width=largura_maxima, height=altura_total)
 
             y_offset = 0
-            for i, page in enumerate(doc):
-                rect_destino = fitz.Rect(0, y_offset, page.rect.width, y_offset + page.rect.height)
-                pagina.show_pdf_page(rect_destino, doc, i)
+            for index, page in enumerate(doc):
+                rect_destino = fitz.Rect(
+                    0,
+                    y_offset,
+                    page.rect.width,
+                    y_offset + page.rect.height,
+                )
+                pagina.show_pdf_page(rect_destino, doc, index)
                 y_offset += page.rect.height
 
         doc.close()
         return doc_mesclado
-
-    def extrair(self, pdf_path):
-        """Orquestra a extração dos dados da nota de negociação."""
-        doc_mesclado = self.prepara_pagina_unica(pdf_path)
-        pagina = doc_mesclado[0]
-
-        if self.eh_pdf_de_imagem(pagina):
-            doc_mesclado.close()
-            raise PdfImagemError("PDF sem texto extraível; provavelmente é um arquivo de imagem.")
-
-        corretora = self.identificar_corretora(pagina)
-        layout = self.identificar_layout(pagina, corretora)
-        nota_crua = self.extrair_com_layout(pagina, layout)
-
-        doc_mesclado.close()
-        return nota_crua
 
     def normalize_text_for_matching(self, text):
         return "".join(char.lower() for char in text if char.isalnum())
@@ -89,33 +73,3 @@ class NotaNegociacaoExtractor:
             raise ValueError("Nenhuma corretora reconhecida no documento.")
 
         return best_match
-
-    def identificar_layout(self, pagina, corretora):
-        pass
-
-    def score_layout(self, pagina, layout):
-        pass
-
-    def extrair_com_layout(self, pagina, layout):
-        pass
-
-    def extrair_grupo(self, pagina, group):
-        pass
-
-    def extrair_key_value_group(self, pagina, group):
-        pass
-
-    def extrair_table_group(self, pagina, group):
-        pass
-
-    def parse_field_value(self, field_id, raw_value, binding=None):
-        pass
-
-    def get_field_config(self, field_id):
-        pass
-
-    def get_corretora_config(self, corretora_id):
-        for corretora in self.corretoras:
-            if corretora.id == corretora_id:
-                return corretora
-        raise ValueError(f"Corretora '{corretora_id}' não encontrada.")

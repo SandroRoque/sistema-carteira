@@ -1,4 +1,5 @@
 from layout_config import CORRETORAS, FIELD_CONFIG, LAYOUT_CONFIG
+from main import validate_runtime_config
 
 
 KNOWN_PARSERS = {
@@ -45,3 +46,7 @@ def test_every_binding_references_a_known_field():
 def test_every_field_parser_is_known():
     for field in FIELD_CONFIG:
         assert field["parser_default"] in KNOWN_PARSERS
+
+
+def test_runtime_config_validation_passes_for_current_config():
+    validate_runtime_config()
