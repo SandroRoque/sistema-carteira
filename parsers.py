@@ -90,11 +90,28 @@ def int_parser(int_str):
         raise ValueError(f"Invalid integer format: {int_str}. Expected a valid integer string.")
 
 
+def _cpf_digito_verificador(digitos: list[int]) -> int:
+    peso_inicial = len(digitos) + 1
+    soma = sum(d * (peso_inicial - i) for i, d in enumerate(digitos))
+    return (soma * 10) % 11 % 10
+
+
 def cpf_parser(cpf_str):
-    """Normaliza um CPF removendo pontuacao e validando se possui 11 digitos."""
+    """Normaliza um CPF para 11 digitos (sem pontuacao) e valida os digitos verificadores.
+
+    A forma canonica (so digitos) e a que se armazena; formatacao e responsabilidade
+    da camada de exibicao.
+    """
     digits_only = "".join(char for char in cpf_str if char.isdigit())
 
     if len(digits_only) != 11:
         raise ValueError(f"Invalid CPF format: {cpf_str}. Expected 11 digits.")
 
-    return f"{digits_only[:3]}.{digits_only[3:6]}.{digits_only[6:9]}-{digits_only[9:]}"
+    digitos = [int(c) for c in digits_only]
+    if len(set(digitos)) == 1 or (
+        _cpf_digito_verificador(digitos[:9]) != digitos[9]
+        or _cpf_digito_verificador(digitos[:10]) != digitos[10]
+    ):
+        raise ValueError(f"Invalid CPF: {cpf_str}. Check digits do not match.")
+
+    return digits_only

@@ -83,3 +83,14 @@ def test_cpf_parser_normalizes_punctuation():
 def test_cpf_parser_rejects_invalid_length():
     with pytest.raises(ValueError):
         cpf_parser("123")
+
+
+def test_cpf_parser_rejects_wrong_check_digits():
+    with pytest.raises(ValueError):
+        cpf_parser("123.456.789-00")
+
+
+def test_cpf_parser_rejects_repeated_digits():
+    # 111.111.111-11 passes the checksum arithmetic but is not a valid CPF.
+    with pytest.raises(ValueError):
+        cpf_parser("111.111.111-11")
