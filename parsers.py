@@ -97,4 +97,4 @@ def cpf_parser(cpf_str):
     if len(digits_only) != 11:
         raise ValueError(f"Invalid CPF format: {cpf_str}. Expected 11 digits.")
 
-    return digits_only
+    return f"{digits_only[:3]}.{digits_only[3:6]}.{digits_only[6:9]}-{digits_only[9:]}"

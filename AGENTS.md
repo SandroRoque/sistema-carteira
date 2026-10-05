@@ -1,0 +1,29 @@
+# Repository Guidelines
+
+## Project Structure & Module Organization
+
+This Python 3.12 project imports brokerage documents into a local SQLite portfolio database. The ingestion flow starts in `carrega_notas.py`, dispatches PDF parsing through `extrai_nota_de_negociacao.py` and `extractors/`, normalizes records in `transformer.py`, and persists them through `loader.py` and `database.py`. Portfolio calculations and reporting live in top-level modules such as `portfolio.py`, `posicoes.py`, `imposto.py`, and `relatorio.py`.
+
+The FastAPI application is under `app/`; Jinja templates belong in `app/templates/` and browser assets in `app/static/`. Tests live in `tests/`, while format and schema notes are maintained in `docs/`. Treat `notas/`, `b3-reports/`, generated `exports/` or `reports/`, and `carteira.db` as local data rather than source code.
+
+## Build, Test, and Development Commands
+
+- `uv sync --dev`: create or update the virtual environment from `pyproject.toml` and `uv.lock`.
+- `uv run pytest -q`: run the full test suite.
+- `uv run uvicorn app.main:app --reload`: start the web UI with automatic reload.
+- `uv run python carrega_notas.py`: parse configured PDFs and load the database idempotently.
+- `uv run python exporta_csvs.py`: create the diagnostic Excel export.
+
+Copy `.env.example` to `.env` before running ingestion. Set `NOTAS_DIR`; optionally override `CARTEIRA_DB`.
+
+## Coding Style & Naming Conventions
+
+Use four-space indentation, type hints, and small functions with a single responsibility. Follow existing Python conventions: `snake_case` for modules, functions, and variables; `PascalCase` for dataclasses; and uppercase names for constants. Keep parsing and transformation logic pure where practical, and isolate database writes in loader/database modules. There is no configured formatter or linter, so keep imports organized and follow PEP 8 manually.
+
+## Testing Guidelines
+
+Tests use pytest. Name files `test_<module>.py` and tests `test_<behavior>`. Add regression cases for every new PDF layout, parser edge case, or financial calculation. Prefer fixtures in `tests/conftest.py`; avoid mutating the checked-in database or depending on private documents. No coverage threshold is configured, but changed behavior should be exercised directly.
+
+## Commit & Pull Request Guidelines
+
+Recent commits use concise, imperative Portuguese descriptions (for example, `Adiciona extracao de PDFs...` or `corrige extracao...`). Keep each commit focused and explain the affected workflow. Pull requests should summarize the change, list verification commands, note schema or configuration changes, and link related issues. Include screenshots for UI changes and sanitized sample details for extraction fixes; never commit credentials or customer financial data.

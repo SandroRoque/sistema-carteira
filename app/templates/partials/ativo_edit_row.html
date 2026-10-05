@@ -1,0 +1,48 @@
+<tr id="ativo-{{ a.id }}">
+  <td>{{ a.ticker or "—" }}</td>
+  <td>
+    <input
+      type="text"
+      name="nome"
+      value="{{ a.nome or "" }}"
+      form="edit-ativo-{{ a.id }}"
+      style="margin:0"
+    >
+  </td>
+  <td>
+    <select name="tipo" form="edit-ativo-{{ a.id }}" style="margin:0">
+      {% for t in tipos %}
+      <option value="{{ t }}" {% if t == a.tipo %}selected{% endif %}>{{ t | tipo_label }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td class="num">{{ a.num_negociacoes }}</td>
+  <td>
+    <input
+      type="checkbox"
+      name="revisado"
+      value="1"
+      form="edit-ativo-{{ a.id }}"
+      {% if a.revisado %}checked{% endif %}
+      style="margin:0"
+    >
+  </td>
+  <td>
+    <form
+      id="edit-ativo-{{ a.id }}"
+      hx-patch="/ativos/{{ a.id }}"
+      hx-target="#ativo-{{ a.id }}"
+      hx-swap="outerHTML"
+      hx-include="[form='edit-ativo-{{ a.id }}']"
+    >
+      <button type="submit" class="small" style="margin:0 0.25rem 0 0">Salvar</button>
+    </form>
+    <button
+      class="outline small"
+      style="margin:0"
+      hx-get="/ativos/{{ a.id }}/row"
+      hx-target="#ativo-{{ a.id }}"
+      hx-swap="outerHTML"
+    >Cancelar</button>
+  </td>
+</tr>

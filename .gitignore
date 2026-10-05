@@ -21,5 +21,15 @@ data/**/*.pdf
 data/**/*.csv
 data/**/*.xlsx
 
+# Personal financial data (real CPF, trades) — never commit
+*.db
+*.db-wal
+*.db-shm
+notas/
+b3-reports/
+
 # Generated exports
 exports/
+
+# Generated reports
+reports/

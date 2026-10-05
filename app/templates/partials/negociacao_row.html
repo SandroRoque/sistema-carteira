@@ -1,0 +1,24 @@
+<tr id="neg-{{ n.id }}">
+  <td>{{ n.data }}</td>
+  <td>{{ n.ativo_label }}</td>
+  <td>{{ n.tipo }}</td>
+  <td>
+    {% if n.sentido == "entrada" %}
+    <span class="tag-entrada">entrada</span>
+    {% else %}
+    <span class="tag-saida">saída</span>
+    {% endif %}
+  </td>
+  <td class="num">{{ n.quantidade | qty }}</td>
+  <td class="num">{{ n.preco_unitario | brl }}</td>
+  <td class="num">{{ n.valor_liquido | brl }}</td>
+  <td>
+    <button
+      class="outline danger small"
+      hx-delete="/negociacoes/{{ n.id }}"
+      hx-target="#neg-{{ n.id }}"
+      hx-swap="outerHTML"
+      hx-confirm="Remover esta negociação?"
+    >✕</button>
+  </td>
+</tr>

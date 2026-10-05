@@ -1,0 +1,15 @@
+<tr id="ativo-{{ a.id }}">
+  <td>{{ a.ticker or "—" }}</td>
+  <td>{{ a.nome or "—" }}</td>
+  <td>{{ a.tipo | tipo_label }}</td>
+  <td class="num">{{ a.num_negociacoes }}</td>
+  <td>{% if a.revisado %}✓{% else %}<span class="muted">pendente</span>{% endif %}</td>
+  <td>
+    <button
+      class="outline small"
+      hx-get="/ativos/{{ a.id }}/edit"
+      hx-target="#ativo-{{ a.id }}"
+      hx-swap="outerHTML"
+    >Editar</button>
+  </td>
+</tr>

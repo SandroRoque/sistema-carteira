@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Ativos — Carteira{% endblock %}
+
+{% block content %}
+<h2>Ativos</h2>
+
+<figure>
+  <table>
+    <thead>
+      <tr>
+        <th>Ticker</th>
+        <th>Nome</th>
+        <th>Tipo</th>
+        <th class="num">Negociações</th>
+        <th>Revisado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="ativos-body">
+      {% for a in ativos %}
+      {% with %}
+      {% include "partials/ativo_row.html" %}
+      {% endwith %}
+      {% endfor %}
+    </tbody>
+  </table>
+</figure>
+{% endblock %}

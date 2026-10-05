@@ -1,0 +1,60 @@
+/* Carteira — minimal overrides on top of PicoCSS classless */
+
+header nav {
+  padding: 0.5rem var(--pico-spacing);
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+header nav a.plain {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Right-align numeric columns */
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inline table tag badges */
+.tag-entrada {
+  color: var(--pico-ins-color, #2d6a4f);
+  font-size: 0.85em;
+}
+
+.tag-saida {
+  color: var(--pico-del-color, #9d0208);
+  font-size: 0.85em;
+}
+
+/* Warning rows (custo_sem_origem, etc.) */
+tr.warn td {
+  background-color: color-mix(in srgb, var(--pico-del-color, #e63946) 8%, transparent);
+}
+
+/* Muted text */
+.muted {
+  color: var(--pico-muted-color);
+  font-size: 0.85em;
+}
+
+/* Smaller action buttons */
+button.small {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+button.danger {
+  --pico-background-color: transparent;
+  --pico-border-color: var(--pico-del-color, #e63946);
+  --pico-color: var(--pico-del-color, #e63946);
+}
+
+/* Keep form grid labels compact in the add form */
+details form label {
+  margin-bottom: 0;
+}
+
+figure {
+  overflow-x: auto;
+}

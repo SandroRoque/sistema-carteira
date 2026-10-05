@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Negociações — Carteira{% endblock %}
+
+{% block content %}
+<h2>Negociações</h2>
+
+<details open>
+  <summary>Adicionar negociação</summary>
+  <form
+    hx-post="/negociacoes"
+    hx-target="#negociacoes-body"
+    hx-swap="afterbegin"
+    hx-on::after-request="this.reset()"
+  >
+    <div class="grid">
+      <label>
+        Ativo
+        <select name="ativo_id" required>
+          <option value="">— selecione —</option>
+          {% for a in ativos %}
+          <option value="{{ a.id }}">{{ a.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Data
+        <input type="date" name="data" value="{{ today }}" required>
+      </label>
+      <label>
+        Sentido
+        <select name="sentido" required>
+          <option value="entrada">Entrada (compra)</option>
+          <option value="saida">Saída (venda)</option>
+        </select>
+      </label>
+    </div>
+    <div class="grid">
+      <label>
+        Quantidade
+        <input type="number" name="quantidade" step="0.0001" min="0.0001" required>
+      </label>
+      <label>
+        Preço unitário (R$)
+        <input type="number" name="preco_unitario" step="0.01" min="0" required>
+      </label>
+      <label>
+        Taxas (R$)
+        <input type="number" name="taxas" step="0.01" min="0" value="0">
+      </label>
+    </div>
+    <button type="submit">Adicionar</button>
+  </form>
+</details>
+
+<figure>
+  <table>
+    <thead>
+      <tr>
+        <th>Data</th>
+        <th>Ativo</th>
+        <th>Tipo</th>
+        <th>Sentido</th>
+        <th class="num">Qtd</th>
+        <th class="num">Preço Unit.</th>
+        <th class="num">Valor Líquido</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="negociacoes-body">
+      {% for n in negociacoes %}
+      {% include "partials/negociacao_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+</figure>
+
+{% if not negociacoes %}
+<p>Nenhuma negociação registrada.</p>
+{% endif %}
+{% endblock %}

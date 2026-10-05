@@ -1,154 +1,105 @@
 # Sistema Carteira
 
-Backend de extração de notas e relatórios de corretoras em PDF.
+Extrai notas de corretagem e outros documentos de corretoras em PDF e os carrega
+em um banco de dados SQLite local para rastreamento de carteira pessoal.
 
-Hoje o projeto já consegue extrair documentos textuais de:
+Corretoras e tipos de documento suportados:
 
-- `nu_invest_nota_corretagem`
-- `nu_invest_titulos_publicos`
-- `nu_invest_titulos_privados`
-- `xp_nota_corretagem`
-- `safra_nota_corretagem`
+| Corretora | Documentos |
+|---|---|
+| Nu Invest | Nota de corretagem, Títulos públicos, Títulos privados |
+| XP Investimentos | Nota de corretagem |
+| Safra | Nota de corretagem |
+| Brasil Plural | Nota de corretagem |
 
-## Visão Geral
+## Arquitetura
 
-O projeto está organizado em duas camadas principais:
+O pipeline tem três etapas:
 
-- configuração declarativa de corretoras, campos e layouts
-- funções de extração/parsing que usam essa configuração
+```
+PDFs (notas/)
+    └─► extrai_nota_de_negociacao.py   identifica corretora, chama extrator
+            └─► extractors/<corretora>.py   extrai campos do PDF com PyMuPDF
+    └─► transformer.py                 normaliza tipos, distribui taxas por operação
+    └─► loader.py                      grava no SQLite, resolve ativos, idempotente
+            └─► carteira.db
+```
 
-Arquivos principais:
+Além dos PDFs, relatórios de movimentações exportados da B3 (xlsx) fornecem
+dividendos, JCP, rendimentos de FII e eventos corporativos — ver
+[docs/b3-movimentacoes.md](docs/b3-movimentacoes.md).
 
-- [layout_config.py](/home/roque/Documents/Projects/sistema-carteira/layout_config.py): `CORRETORAS`, `FIELD_CONFIG` e `LAYOUT_CONFIG`
-- [models.py](/home/roque/Documents/Projects/sistema-carteira/models.py): modelos leves, como `Corretora`
-- [parsers.py](/home/roque/Documents/Projects/sistema-carteira/parsers.py): parsers de datas, números, percentuais, CPF e dinheiro
-- [key_value_finders.py](/home/roque/Documents/Projects/sistema-carteira/key_value_finders.py): extração de grupos `KEY_VALUE`
-- [movimentacoes_table_finder.py](/home/roque/Documents/Projects/sistema-carteira/movimentacoes_table_finder.py): extração de grupos `TABLE`
-- [extrai_nota_de_negociacao.py](/home/roque/Documents/Projects/sistema-carteira/extrai_nota_de_negociacao.py): classe `NotaNegociacaoExtractor`
-- [main.py](/home/roque/Documents/Projects/sistema-carteira/main.py): harness de prototipagem
-- [exporta_csvs.py](/home/roque/Documents/Projects/sistema-carteira/exporta_csvs.py): exportação em CSV do acervo inteiro
-- [settings.py](/home/roque/Documents/Projects/sistema-carteira/settings.py): carregamento centralizado de variáveis de ambiente
+## Arquivos principais
 
-## Modelo de Configuração
+| Arquivo | Responsabilidade |
+|---|---|
+| `carrega_notas.py` | Entry point: itera PDFs, extrai, transforma e carrega no DB |
+| `exporta_csvs.py` | Exporta o acervo de PDFs para `exports/extracao_notas.xlsx` (diagnóstico) |
+| `extrai_nota_de_negociacao.py` | Dispatcher: identifica corretora e chama o extrator certo |
+| `extractors/` | Um módulo por corretora, cada um expõe `extract(page)` |
+| `transformer.py` | Conversão pura: dataclasses → registros normalizados + distribuição de taxas |
+| `loader.py` | Escrita no SQLite: resolução de ativos, idempotência via `notas_processadas` |
+| `database.py` | Schema SQLite e context manager `connect()` |
+| `models.py` | Dataclasses de domínio: `Corretora`, `NotaCorretagem`, `TituloPublico`, `TituloPrivado`, `Movimentacao` |
+| `parsers.py` | Parsers de datas, números BR, percentuais, CPF e valores monetários |
+| `key_value_finders.py` | Extração de pares chave-valor de páginas PDF |
+| `movimentacoes_table_finder.py` | Extração da tabela de movimentações de notas de corretagem |
+| `settings.py` | Carregamento centralizado de variáveis de ambiente |
 
-`FIELD_CONFIG` define o catálogo canônico de campos:
+## Configuração de ambiente
 
-- `id`
-- `data_type`
-- `required_default`
-- `parser_default`
+Copie `.env.example` para `.env` e preencha:
 
-`LAYOUT_CONFIG` define cada layout por corretora:
+```bash
+cp .env.example .env
+```
 
-- `id`
-- `corretora_id`
-- `groups`
+Variáveis:
 
-Cada `group` define:
-
-- `id`
-- `type`: `KEY_VALUE` ou `TABLE`
-- `anchors`
-- `direction`: `RIGHT`, `BELOW` ou `None`
-- `bindings`
-- `options`
-
-Cada `binding` conecta o campo canônico ao rótulo daquele layout:
-
-- `field_id`
-- `label`
-- `options` opcionais, como `occurrence_index`
-
-## Extração
-
-Os grupos `KEY_VALUE` usam dois modos:
-
-- `RIGHT`: valor à direita do rótulo
-- `BELOW`: valor abaixo do rótulo
-
-Os grupos `TABLE` usam âncoras superior e inferior para delimitar a tabela e depois
-mapeiam os cabeçalhos detectados para `field_id`.
-
-Os parsers são aplicados durante a orquestração, não dentro dos finders.
-
-Comportamentos já suportados:
-
-- valores monetários com `R$`
-- sinal via sufixo `D` / `C`
-- percentuais
-- números brasileiros com vírgula decimal
-- CPF normalizado
-- valores multiline específicos em grupos verticais configurados
-
-## Configuração de Ambiente
-
-As configurações de runtime ficam fora do repositório e são lidas por
-[settings.py](/home/roque/Documents/Projects/sistema-carteira/settings.py).
-
-Use [.env.example](/home/roque/Documents/Projects/sistema-carteira/.env.example) como referência.
-
-Variáveis atuais:
-
-- `NOTAS_DIR`: diretório onde estão os PDFs a processar
-- `PROTOTYPE_PDF_NAMES`: lista opcional usada pelo `main.py` durante prototipagem
+- `NOTAS_DIR` — diretório com os PDFs a processar (obrigatório)
+- `CARTEIRA_DB` — caminho do banco SQLite (padrão: `carteira.db` na raiz do projeto)
 
 ## Execução
 
-Rodar o harness de prototipagem:
+Carregar todos os PDFs no banco:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python main.py
+.venv/bin/python carrega_notas.py
 ```
 
-Exportar o acervo para CSV:
+Exportar acervo para Excel (diagnóstico / conferência):
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python exporta_csvs.py
+.venv/bin/python exporta_csvs.py
 ```
 
-Arquivos gerados:
+Gera `exports/extracao_notas.xlsx` com duas abas:
 
-- `exports/receipts.csv`
-- `exports/movimentacoes.csv`
+- `notas` — uma linha por documento, com todos os campos financeiros
+- `movimentacoes` — uma linha por operação de compra/venda
 
-`receipts.csv` contém uma linha por arquivo, inclusive quando houver falha.
+## Banco de dados
 
-Colunas importantes:
+Schema em `database.py`. Tabelas principais:
 
-- `receipt_id`
-- `filename`
-- `corretora_id`
-- `layout_id`
-- `status`
-- `error`
+| Tabela | Conteúdo |
+|---|---|
+| `ativos` | Cadastro de ativos; novos ativos são criados automaticamente com `revisado=0` |
+| `ticker_aliases` | Mapeia o texto bruto do PDF para `ativo_id` |
+| `operacoes` | Uma linha por compra/venda, com taxas proporcionais alocadas |
+| `custos_de_nota` | Breakdown completo de taxas de cada nota de corretagem |
+| `notas_processadas` | Controle de idempotência — impede reinserção do mesmo PDF |
 
-`movimentacoes.csv` contém uma linha por movimentação e referencia o recibo por:
+Após carregar, revisar ativos não identificados:
 
-- `receipt_id`
+```sql
+SELECT * FROM ativos WHERE revisado = 0 ORDER BY nome;
+```
 
 ## Testes
 
-Rodar testes:
-
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run --group dev pytest -q
+.venv/bin/python -m pytest -q
 ```
 
-Cobertura atual:
-
-- parsers
-- sanidade da configuração
-
-Arquivos de teste:
-
-- [tests/test_parsers.py](/home/roque/Documents/Projects/sistema-carteira/tests/test_parsers.py)
-- [tests/test_layout_config.py](/home/roque/Documents/Projects/sistema-carteira/tests/test_layout_config.py)
-
-## Estado Atual
-
-O código já está em um estado utilizável para extração em lote, mas ainda há pontos de evolução:
-
-- `main.py` continua sendo um arquivo de prototipagem
-- `NotaNegociacaoExtractor` ainda não concentra toda a orquestração final
-- a identificação automática de layout ainda pode ser refinada mais dentro da classe
-- PDFs sem texto extraível ainda dependem de uma estratégia futura de OCR
+Cobertura atual: `tests/test_parsers.py`
