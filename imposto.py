@@ -41,7 +41,10 @@ from __future__ import annotations
 import sys
 from datetime import date
 
-from database import connect, init_db
+from sqlalchemy import Connection
+
+from contas import investidor_do_cli
+from database import connect, fetch_all, fetch_one
 
 # Tax thresholds
 _LIMITE_ISENCAO_ACOES = 20_000.0   # R$ / month
@@ -53,35 +56,36 @@ _ALIQUOTA_FII   = 20.0
 _ALIQUOTA_BDR   = 15.0
 
 
-def _custo_medio_antes_da_venda(conn, ativo_id: int, data_venda: str) -> float | None:
+def _custo_medio_antes_da_venda(
+    conn: Connection, investidor_id: int, ativo_id: int, data_venda: date
+) -> float | None:
     """Weighted average cost per share from all purchases BEFORE the sale date."""
-    row = conn.execute(
+    row = fetch_one(
+        conn,
         """
         SELECT
             SUM(quantidade)    AS qty_total,
             SUM(valor_liquido) AS custo_total
         FROM negociacoes
-        WHERE ativo_id = ?
+        WHERE investidor_id = :investidor_id
+          AND ativo_id = :ativo_id
           AND sentido = 'entrada'
-          AND data < ?
+          AND data < :data_venda
         """,
-        (ativo_id, data_venda),
-    ).fetchone()
+        investidor_id=investidor_id,
+        ativo_id=ativo_id,
+        data_venda=data_venda,
+    )
     if row is None or not row["qty_total"]:
         return None
     return row["custo_total"] / row["qty_total"]
 
 
-def _buscar_vendas(conn, ano: int | None = None) -> list[dict]:
+def _buscar_vendas(conn: Connection, investidor_id: int, ano: int | None = None) -> list[dict]:
     """Return all sale transactions with cost-basis and gain/loss computed."""
-    where = "n.sentido = 'saida'"
-    params: list = []
-    if ano is not None:
-        where += " AND strftime('%Y', n.data) = ?"
-        params.append(str(ano))
-
-    rows = conn.execute(
-        f"""
+    rows = fetch_all(
+        conn,
+        """
         SELECT
             n.id,
             n.ativo_id,
@@ -94,15 +98,18 @@ def _buscar_vendas(conn, ano: int | None = None) -> list[dict]:
             n.valor_liquido
         FROM negociacoes n
         JOIN ativos a ON a.id = n.ativo_id
-        WHERE {where}
+        WHERE n.investidor_id = :investidor_id
+          AND n.sentido = 'saida'
+          AND (CAST(:ano AS integer) IS NULL OR EXTRACT(YEAR FROM n.data) = :ano)
         ORDER BY n.data
         """,
-        params,
-    ).fetchall()
+        investidor_id=investidor_id,
+        ano=ano,
+    )
 
     result = []
     for r in rows:
-        pm = _custo_medio_antes_da_venda(conn, r["ativo_id"], r["data"])
+        pm = _custo_medio_antes_da_venda(conn, investidor_id, r["ativo_id"], r["data"])
         custo_venda = (pm * r["quantidade"]) if pm is not None else None
         ganho = (r["valor_liquido"] - custo_venda) if custo_venda is not None else None
         result.append({
@@ -114,20 +121,23 @@ def _buscar_vendas(conn, ano: int | None = None) -> list[dict]:
     return result
 
 
-def _buscar_jcp_por_ano(conn) -> list[dict]:
+def _buscar_jcp_por_ano(conn: Connection, investidor_id: int) -> list[dict]:
     """JCP received per year (15% already withheld at source)."""
-    return conn.execute(
+    return fetch_all(
+        conn,
         """
         SELECT
-            strftime('%Y', data) AS ano,
-            SUM(valor)           AS total_jcp
+            to_char(data, 'YYYY') AS ano,
+            SUM(valor)            AS total_jcp
         FROM b3_movimentacoes
-        WHERE movimentacao = 'Juros Sobre Capital Próprio'
+        WHERE investidor_id = :investidor_id
+          AND movimentacao = 'Juros Sobre Capital Próprio'
           AND ativo_id IS NOT NULL
         GROUP BY ano
         ORDER BY ano
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -167,24 +177,27 @@ def _cat(mov: str, tipo_ativo: str) -> str:
     return "rendimento_outros"
 
 
-def _buscar_rendimentos_anuais(conn) -> list[dict]:
+def _buscar_rendimentos_anuais(conn: Connection, investidor_id: int) -> list[dict]:
     """All income events grouped by year and category, including per-category totals."""
-    rows = conn.execute(
-        f"""
+    rows = fetch_all(
+        conn,
+        """
         SELECT
-            strftime('%Y', m.data) AS ano,
+            to_char(m.data, 'YYYY') AS ano,
             m.movimentacao,
-            a.tipo                 AS tipo_ativo,
-            SUM(m.valor)           AS total
+            a.tipo                  AS tipo_ativo,
+            SUM(m.valor)            AS total
         FROM b3_movimentacoes m
         JOIN ativos a ON a.id = m.ativo_id
-        WHERE m.sentido = 'Credito'
-          AND m.movimentacao IN ({','.join('?' for _ in _MOVS_RENDIMENTO)})
+        WHERE m.investidor_id = :investidor_id
+          AND m.sentido = 'Credito'
+          AND m.movimentacao = ANY(:movs)
         GROUP BY ano, m.movimentacao, a.tipo
         ORDER BY ano, m.movimentacao
         """,
-        _MOVS_RENDIMENTO,
-    ).fetchall()
+        investidor_id=investidor_id,
+        movs=list(_MOVS_RENDIMENTO),
+    )
 
     # Aggregate into {ano: {categoria: total}}
     from collections import defaultdict
@@ -196,10 +209,11 @@ def _buscar_rendimentos_anuais(conn) -> list[dict]:
     return [{"ano": ano, **totals} for ano, totals in sorted(by_year.items())]
 
 
-def _buscar_rendimentos_detalhe(conn, ano: int) -> list[dict]:
+def _buscar_rendimentos_detalhe(conn: Connection, investidor_id: int, ano: int) -> list[dict]:
     """Per-ativo income breakdown for a given year, grouped by category."""
-    rows = conn.execute(
-        f"""
+    rows = fetch_all(
+        conn,
+        """
         SELECT
             COALESCE(a.ticker, a.nome) AS ativo,
             a.tipo                     AS tipo_ativo,
@@ -207,14 +221,17 @@ def _buscar_rendimentos_detalhe(conn, ano: int) -> list[dict]:
             SUM(m.valor)               AS total
         FROM b3_movimentacoes m
         JOIN ativos a ON a.id = m.ativo_id
-        WHERE m.sentido = 'Credito'
-          AND strftime('%Y', m.data) = ?
-          AND m.movimentacao IN ({','.join('?' for _ in _MOVS_RENDIMENTO)})
+        WHERE m.investidor_id = :investidor_id
+          AND m.sentido = 'Credito'
+          AND EXTRACT(YEAR FROM m.data) = :ano
+          AND m.movimentacao = ANY(:movs)
         GROUP BY a.id, m.movimentacao
         ORDER BY m.movimentacao, total DESC
         """,
-        (str(ano), *_MOVS_RENDIMENTO),
-    ).fetchall()
+        investidor_id=investidor_id,
+        ano=ano,
+        movs=list(_MOVS_RENDIMENTO),
+    )
 
     result = []
     for r in rows:
@@ -226,28 +243,28 @@ def _buscar_rendimentos_detalhe(conn, ano: int) -> list[dict]:
     return result
 
 
-def _buscar_vendas_mensais(conn, ano: int | None = None) -> list[dict]:
+def _buscar_vendas_mensais(conn: Connection, investidor_id: int, ano: int | None = None) -> list[dict]:
     """Monthly sales totals by tipo for exemption threshold analysis."""
-    where = "n.sentido = 'saida' AND a.tipo IN ('acao', 'fii', 'bdr')"
-    params: list = []
-    if ano is not None:
-        where += " AND strftime('%Y', n.data) = ?"
-        params.append(str(ano))
-    return conn.execute(
-        f"""
+    return fetch_all(
+        conn,
+        """
         SELECT
-            strftime('%Y-%m', n.data) AS mes,
+            to_char(n.data, 'YYYY-MM') AS mes,
             a.tipo,
-            SUM(n.valor_liquido)      AS total_vendas,
-            SUM(n.quantidade)         AS qty_total
+            SUM(n.valor_liquido)       AS total_vendas,
+            SUM(n.quantidade)          AS qty_total
         FROM negociacoes n
         JOIN ativos a ON a.id = n.ativo_id
-        WHERE {where}
+        WHERE n.investidor_id = :investidor_id
+          AND n.sentido = 'saida'
+          AND a.tipo IN ('acao', 'fii', 'bdr')
+          AND (CAST(:ano AS integer) IS NULL OR EXTRACT(YEAR FROM n.data) = :ano)
         GROUP BY mes, a.tipo
         ORDER BY mes
         """,
-        params,
-    ).fetchall()
+        investidor_id=investidor_id,
+        ano=ano,
+    )
 
 
 def _brl(v: float | None) -> str:
@@ -356,12 +373,12 @@ def _exibir_rendimentos_secao(
 
 def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) -> None:
     ano_atual = date.today().year
-    init_db()
     with connect() as conn:
+        investidor_id = investidor_do_cli(conn)
         ano_filtro   = None if todos else (ano_override or ano_atual)
-        vendas       = _buscar_vendas(conn, ano=ano_filtro)
-        mens_vends   = _buscar_vendas_mensais(conn, ano=ano_filtro)
-        rend_anuais  = _buscar_rendimentos_anuais(conn)
+        vendas       = _buscar_vendas(conn, investidor_id, ano=ano_filtro)
+        mens_vends   = _buscar_vendas_mensais(conn, investidor_id, ano=ano_filtro)
+        rend_anuais  = _buscar_rendimentos_anuais(conn, investidor_id)
         if todos:
             anos_detalhe = [r["ano"] for r in rend_anuais]
         elif ano_override:
@@ -369,7 +386,7 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
         else:
             anos_detalhe = [str(ano_atual)]
         rend_detalhe = {
-            a: _buscar_rendimentos_detalhe(conn, int(a))
+            a: _buscar_rendimentos_detalhe(conn, investidor_id, int(a))
             for a in anos_detalhe
         }
 
@@ -399,12 +416,12 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
         from collections import defaultdict
         vendas_por_mes_tipo: dict[tuple, float] = defaultdict(float)
         for v in vendas:
-            mes = v["data"][:7]
+            mes = v["data"].strftime("%Y-%m")
             vendas_por_mes_tipo[(mes, v["tipo"])] += v["valor_liquido"] or 0.0
 
         for v in vendas:
             tipo = v["tipo"]
-            mes  = v["data"][:7]
+            mes  = v["data"].strftime("%Y-%m")
             receita = v["valor_liquido"] or 0.0
             ganho   = v["ganho"]
             aliq    = _aliquota(tipo)
@@ -434,7 +451,7 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
             ir_str = _brl(ir_est) if ir_est else f"{'—':>15}"
             ticker = v["ticker"] or (v["nome"] or "")[:8]
             print(
-                f"  {v['data']:>10}  {ticker:>8}  {tipo:>10}  {v['quantidade']:>8.2f}  "
+                f"  {v['data'].isoformat():>10}  {ticker:>8}  {tipo:>10}  {v['quantidade']:>8.2f}  "
                 f"{_brl(receita)}  {_brl(v['custo_venda'])}  {_brl(ganho)}  "
                 f"{'—':>9}  {ir_str}  {situacao}"
             )

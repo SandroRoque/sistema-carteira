@@ -2,26 +2,30 @@
 
 Run with:
     uvicorn app.main:app --reload
+
+Routes are plain `def` (not `async def`): they do blocking database I/O,
+so FastAPI runs them in its threadpool instead of on the event loop.
 """
 from __future__ import annotations
 
 import sys
 from collections import defaultdict
-from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
+from typing import Annotated
 
 # Make project root importable when running from the project root directory.
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from fastapi import FastAPI, Form, Request
+from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from database import connect, init_db
+from contas import investidor_do_cli
+from database import connect, execute, fetch_all, fetch_one, scalar
 from posicoes import calcular_posicoes
 
 _HERE = Path(__file__).parent
@@ -63,13 +67,7 @@ def _tipo_label(v: str) -> str:
 # App setup
 # ---------------------------------------------------------------------------
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    init_db()
-    yield
-
-
-app = FastAPI(title="Carteira", lifespan=lifespan)
+app = FastAPI(title="Carteira")
 app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
 
 templates = Jinja2Templates(directory=str(_HERE / "templates"))
@@ -84,14 +82,31 @@ _TIPOS = [
 _TIPO_ORDER = _TIPOS  # same order for display
 
 
+def investidor_atual() -> int:
+    """The investidor whose portfolio this request reads and writes.
+
+    Until authentication exists this is the local investidor
+    (CARTEIRA_INVESTIDOR_ID, or the only one); it will come from the session.
+    """
+    with connect() as conn:
+        return investidor_do_cli(conn)
+
+
+InvestidorId = Annotated[int, Depends(investidor_atual)]
+
+
+def _erro(msg: str, status_code: int = 422) -> HTMLResponse:
+    return HTMLResponse(msg, status_code=status_code)
+
+
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
+def dashboard(request: Request, investidor_id: InvestidorId):
     with connect() as conn:
-        posicoes = calcular_posicoes(conn)
+        posicoes = calcular_posicoes(conn, investidor_id)
 
     grupos: dict[str, list] = defaultdict(list)
     for p in posicoes:
@@ -112,8 +127,9 @@ async def dashboard(request: Request):
 # Negociações
 # ---------------------------------------------------------------------------
 
-def _list_negociacoes(conn) -> list[dict]:
-    rows = conn.execute(
+def _list_negociacoes(conn, investidor_id: int) -> list[dict]:
+    rows = fetch_all(
+        conn,
         """
         SELECT
             n.id, n.data, n.sentido, n.quantidade,
@@ -122,23 +138,25 @@ def _list_negociacoes(conn) -> list[dict]:
             a.tipo
         FROM negociacoes n
         JOIN ativos a ON a.id = n.ativo_id
+        WHERE n.investidor_id = :investidor_id
         ORDER BY n.data DESC, n.id DESC
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
     return [dict(r) for r in rows]
 
 
 def _list_ativos_select(conn) -> list[dict]:
-    rows = conn.execute(
-        "SELECT id, COALESCE(ticker, nome) AS label FROM ativos ORDER BY ticker, nome"
-    ).fetchall()
+    rows = fetch_all(
+        conn, "SELECT id, COALESCE(ticker, nome) AS label FROM ativos ORDER BY ticker, nome"
+    )
     return [dict(r) for r in rows]
 
 
 @app.get("/negociacoes", response_class=HTMLResponse)
-async def negociacoes_list(request: Request):
+def negociacoes_list(request: Request, investidor_id: InvestidorId):
     with connect() as conn:
-        negociacoes = _list_negociacoes(conn)
+        negociacoes = _list_negociacoes(conn, investidor_id)
         ativos = _list_ativos_select(conn)
     return templates.TemplateResponse(request, "negociacoes.html", {
         "negociacoes": negociacoes,
@@ -147,68 +165,100 @@ async def negociacoes_list(request: Request):
     })
 
 
-def _ensure_manual_nota(conn, nota_id: str) -> None:
-    conn.execute(
+def _ensure_manual_nota(conn, investidor_id: int, nota_id: str, data: date) -> None:
+    execute(
+        conn,
         """
-        INSERT OR IGNORE INTO notas
-            (nota_id, corretora_id, doc_type, data_pregao,
+        INSERT INTO notas
+            (investidor_id, nota_id, corretora_id, doc_type, data_pregao,
              cpf_cliente, codigo_cliente, filename)
-        VALUES (?, 'manual', 'Manual', date('now'), '', '', 'manual')
+        SELECT :investidor_id, :nota_id, 'manual', 'Manual', :data, cpf, '', 'manual'
+        FROM investidores WHERE id = :investidor_id
+        ON CONFLICT DO NOTHING
         """,
-        (nota_id,),
+        investidor_id=investidor_id,
+        nota_id=nota_id,
+        data=data,
     )
 
 
-def _next_linha(conn, nota_id: str) -> int:
-    row = conn.execute(
-        "SELECT COALESCE(MAX(linha_na_nota), 0) + 1 FROM negociacoes "
-        "WHERE nota_id = ? AND corretora_id = 'manual'",
-        (nota_id,),
-    ).fetchone()
-    return row[0]
+def _next_linha(conn, investidor_id: int, nota_id: str) -> int:
+    return scalar(
+        conn,
+        """
+        SELECT COALESCE(MAX(linha_na_nota), 0) + 1 FROM negociacoes
+        WHERE investidor_id = :investidor_id AND nota_id = :nota_id
+          AND corretora_id = 'manual'
+        """,
+        investidor_id=investidor_id,
+        nota_id=nota_id,
+    )
 
 
 @app.post("/negociacoes", response_class=HTMLResponse)
-async def negociacoes_create(
+def negociacoes_create(
     request: Request,
+    investidor_id: InvestidorId,
     ativo_id: int = Form(...),
-    data: str = Form(...),
+    data: date = Form(...),
     sentido: str = Form(...),
     quantidade: float = Form(...),
     preco_unitario: float = Form(...),
     taxas: float = Form(default=0.0),
 ):
+    if sentido not in ("entrada", "saida"):
+        return _erro("Sentido inválido")
+    if quantidade <= 0:
+        return _erro("Quantidade deve ser positiva")
+    if preco_unitario < 0 or taxas < 0:
+        return _erro("Preço e taxas não podem ser negativos")
+
     valor_bruto = round(quantidade * preco_unitario, 2)
     if sentido == "entrada":
         valor_liquido = round(valor_bruto + taxas, 2)
     else:
         valor_liquido = round(valor_bruto - taxas, 2)
 
-    nota_id = f"MANUAL-{data}"
+    nota_id = f"MANUAL-{data.isoformat()}"
 
     with connect() as conn:
-        ativo = conn.execute(
-            "SELECT tipo, COALESCE(ticker, nome) AS label FROM ativos WHERE id = ?",
-            (ativo_id,),
-        ).fetchone()
+        ativo = fetch_one(
+            conn,
+            "SELECT tipo, COALESCE(ticker, nome) AS label FROM ativos WHERE id = :id",
+            id=ativo_id,
+        )
         if not ativo:
-            return HTMLResponse("Ativo não encontrado", status_code=404)
+            return _erro("Ativo não encontrado", 404)
 
-        _ensure_manual_nota(conn, nota_id)
-        linha = _next_linha(conn, nota_id)
+        _ensure_manual_nota(conn, investidor_id, nota_id, data)
+        linha = _next_linha(conn, investidor_id, nota_id)
 
-        conn.execute(
+        new_id = scalar(
+            conn,
             """
             INSERT INTO negociacoes
-                (nota_id, corretora_id, doc_type, linha_na_nota, ativo_id,
+                (investidor_id, nota_id, corretora_id, doc_type, linha_na_nota, ativo_id,
                  data, sentido, tipo, quantidade, preco_unitario,
                  valor_bruto, taxas_proporcionais, valor_liquido)
-            VALUES (?, 'manual', 'Manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES
+                (:investidor_id, :nota_id, 'manual', 'Manual', :linha, :ativo_id,
+                 :data, :sentido, :tipo, :quantidade, :preco_unitario,
+                 :valor_bruto, :taxas, :valor_liquido)
+            RETURNING id
             """,
-            (nota_id, linha, ativo_id, data, sentido, ativo["tipo"],
-             quantidade, preco_unitario, valor_bruto, taxas, valor_liquido),
+            investidor_id=investidor_id,
+            nota_id=nota_id,
+            linha=linha,
+            ativo_id=ativo_id,
+            data=data,
+            sentido=sentido,
+            tipo=ativo["tipo"],
+            quantidade=quantidade,
+            preco_unitario=preco_unitario,
+            valor_bruto=valor_bruto,
+            taxas=taxas,
+            valor_liquido=valor_liquido,
         )
-        new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
     row = {
         "id": new_id,
@@ -225,44 +275,66 @@ async def negociacoes_create(
 
 
 @app.delete("/negociacoes/{neg_id}", response_class=HTMLResponse)
-async def negociacoes_delete(neg_id: int):
+def negociacoes_delete(neg_id: int, investidor_id: InvestidorId):
     with connect() as conn:
-        conn.execute("DELETE FROM negociacoes WHERE id = ?", (neg_id,))
+        deleted = scalar(
+            conn,
+            """
+            DELETE FROM negociacoes
+            WHERE id = :id AND investidor_id = :investidor_id
+            RETURNING id
+            """,
+            id=neg_id,
+            investidor_id=investidor_id,
+        )
+    if deleted is None:
+        return _erro("Negociação não encontrada", 404)
     return HTMLResponse("")
 
 
 # ---------------------------------------------------------------------------
 # Ativos
+#
+# ativos is the catalog shared by all investidores. Listings are scoped to the
+# investidor's own activity; editing the catalog will be restricted to
+# administrators once authentication exists.
 # ---------------------------------------------------------------------------
 
-def _get_ativo_row(conn, ativo_id: int) -> dict:
-    row = conn.execute(
-        """
-        SELECT a.id, a.ticker, a.nome, a.tipo, a.revisado,
-               COUNT(n.id) AS num_negociacoes
-        FROM ativos a
-        LEFT JOIN negociacoes n ON n.ativo_id = a.id
-        WHERE a.id = ?
-        GROUP BY a.id
-        """,
-        (ativo_id,),
-    ).fetchone()
+_ATIVO_ROW_SQL = """
+    SELECT a.id, a.ticker, a.nome, a.tipo, a.revisado,
+           COUNT(n.id) AS num_negociacoes
+    FROM ativos a
+    LEFT JOIN negociacoes n ON n.ativo_id = a.id AND n.investidor_id = :investidor_id
+"""
+
+
+def _get_ativo_row(conn, investidor_id: int, ativo_id: int) -> dict:
+    row = fetch_one(
+        conn,
+        _ATIVO_ROW_SQL + " WHERE a.id = :ativo_id GROUP BY a.id",
+        investidor_id=investidor_id,
+        ativo_id=ativo_id,
+    )
     return dict(row) if row else {}
 
 
 @app.get("/ativos", response_class=HTMLResponse)
-async def ativos_list(request: Request):
+def ativos_list(request: Request, investidor_id: InvestidorId):
     with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT a.id, a.ticker, a.nome, a.tipo, a.revisado,
-                   COUNT(n.id) AS num_negociacoes
-            FROM ativos a
-            LEFT JOIN negociacoes n ON n.ativo_id = a.id
+        rows = fetch_all(
+            conn,
+            _ATIVO_ROW_SQL
+            + """
+            WHERE a.id IN (
+                SELECT ativo_id FROM negociacoes WHERE investidor_id = :investidor_id
+                UNION
+                SELECT ativo_id FROM b3_movimentacoes WHERE investidor_id = :investidor_id
+            )
             GROUP BY a.id
             ORDER BY a.tipo, a.ticker, a.nome
-            """
-        ).fetchall()
+            """,
+            investidor_id=investidor_id,
+        )
     return templates.TemplateResponse(request, "ativos.html", {
         "ativos": [dict(r) for r in rows],
         "tipos": _TIPOS,
@@ -270,33 +342,48 @@ async def ativos_list(request: Request):
 
 
 @app.get("/ativos/{ativo_id}/row", response_class=HTMLResponse)
-async def ativo_row(request: Request, ativo_id: int):
+def ativo_row(request: Request, ativo_id: int, investidor_id: InvestidorId):
     with connect() as conn:
-        a = _get_ativo_row(conn, ativo_id)
+        a = _get_ativo_row(conn, investidor_id, ativo_id)
+    if not a:
+        return _erro("Ativo não encontrado", 404)
     return templates.TemplateResponse(request, "partials/ativo_row.html", {"a": a, "tipos": _TIPOS})
 
 
 @app.get("/ativos/{ativo_id}/edit", response_class=HTMLResponse)
-async def ativo_edit_form(request: Request, ativo_id: int):
+def ativo_edit_form(request: Request, ativo_id: int, investidor_id: InvestidorId):
     with connect() as conn:
-        a = _get_ativo_row(conn, ativo_id)
+        a = _get_ativo_row(conn, investidor_id, ativo_id)
+    if not a:
+        return _erro("Ativo não encontrado", 404)
     return templates.TemplateResponse(request, "partials/ativo_edit_row.html", {"a": a, "tipos": _TIPOS})
 
 
 @app.patch("/ativos/{ativo_id}", response_class=HTMLResponse)
-async def ativo_update(
+def ativo_update(
     request: Request,
     ativo_id: int,
+    investidor_id: InvestidorId,
     tipo: str = Form(...),
     nome: str = Form(default=""),
-    revisado: int = Form(default=0),
+    revisado: bool = Form(default=False),
 ):
+    if tipo not in _TIPOS:
+        return _erro("Tipo inválido")
     with connect() as conn:
-        conn.execute(
-            "UPDATE ativos SET tipo = ?, revisado = ? WHERE id = ?",
-            (tipo, revisado, ativo_id),
+        execute(
+            conn,
+            """
+            UPDATE ativos
+            SET tipo = :tipo, revisado = :revisado, nome = COALESCE(NULLIF(:nome, ''), nome)
+            WHERE id = :id
+            """,
+            tipo=tipo,
+            revisado=revisado,
+            nome=nome,
+            id=ativo_id,
         )
-        if nome:
-            conn.execute("UPDATE ativos SET nome = ? WHERE id = ?", (nome, ativo_id))
-        a = _get_ativo_row(conn, ativo_id)
+        a = _get_ativo_row(conn, investidor_id, ativo_id)
+    if not a:
+        return _erro("Ativo não encontrado", 404)
     return templates.TemplateResponse(request, "partials/ativo_row.html", {"a": a, "tipos": _TIPOS})

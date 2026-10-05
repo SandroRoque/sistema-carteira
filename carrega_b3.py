@@ -1,17 +1,23 @@
 """Load B3 movimentações Excel reports into b3_movimentacoes.
 
+B3 reports carry no CPF, so the target investidor comes from
+CARTEIRA_INVESTIDOR_ID (or the only investidor in the database).
+
 Usage:
-    .venv/bin/python carrega_b3.py
+    uv run python carrega_b3.py
 """
 
 from __future__ import annotations
 
 import math
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
+from sqlalchemy import Connection
 
-from database import connect, init_db
+from contas import investidor_do_cli
+from database import connect, execute, fetch_all, scalar
 from loader import resolve_ou_criar_ativo
 
 B3_REPORTS_DIR = Path(__file__).resolve().parent / "b3-reports"
@@ -32,48 +38,61 @@ def _to_float(val) -> float | None:
         return None
 
 
-def _to_date(val: str) -> str:
-    """Convert 'DD/MM/YYYY' to 'YYYY-MM-DD'."""
-    d, m, y = str(val).strip().split("/")
-    return f"{y}-{m}-{d}"
+def _to_date(val: str) -> date:
+    """Parse a 'DD/MM/YYYY' cell."""
+    return datetime.strptime(str(val).strip(), "%d/%m/%Y").date()
 
 
-def _carregar_arquivo(conn, arquivo: Path) -> tuple[int, int]:
-    """Insert rows from one XLSX for dates not yet in the DB.
+def carregar_arquivo(
+    conn: Connection, investidor_id: int, df: pd.DataFrame, filename: str
+) -> tuple[int, int]:
+    """Insert rows from one B3 report for dates not yet loaded for this investidor.
 
-    Deduplication is date-based: if any row for a given date is already
-    present in b3_movimentacoes, all rows for that date are skipped.
-    This is safe even when two files cover overlapping date ranges.
+    Deduplication is date-based: B3 reports are final for every date they
+    cover, so if any row for a given date is already present for the
+    investidor, all rows for that date are skipped. This is safe even when
+    two files cover overlapping date ranges.
 
     Returns (inserted, skipped).
     """
-    filename = arquivo.name
-
-    df = pd.read_excel(arquivo, header=0)
+    df = df.copy()
     df.columns = [
         "sentido", "data", "movimentacao", "produto_raw",
         "instituicao", "quantidade", "preco_unitario", "valor",
     ]
 
-    # Dates already present in the DB (includes rows inserted earlier in this run).
     datas_existentes = {
-        row[0]
-        for row in conn.execute(
-            "SELECT DISTINCT data FROM b3_movimentacoes"
-        ).fetchall()
+        r["data"]
+        for r in fetch_all(
+            conn,
+            "SELECT DISTINCT data FROM b3_movimentacoes WHERE investidor_id = :investidor_id",
+            investidor_id=investidor_id,
+        )
     }
 
     # Record the file for auditing (idempotent if run twice).
-    conn.execute(
-        "INSERT OR IGNORE INTO b3_arquivos_processados (arquivo) VALUES (?)",
-        (filename,),
+    execute(
+        conn,
+        """
+        INSERT INTO b3_arquivos_processados (investidor_id, arquivo)
+        VALUES (:investidor_id, :arquivo)
+        ON CONFLICT (investidor_id, arquivo) DO NOTHING
+        """,
+        investidor_id=investidor_id,
+        arquivo=filename,
+    )
+    arquivo_id = scalar(
+        conn,
+        "SELECT id FROM b3_arquivos_processados WHERE investidor_id = :investidor_id AND arquivo = :arquivo",
+        investidor_id=investidor_id,
+        arquivo=filename,
     )
 
     inserted = 0
     skipped = 0
     for _, r in df.iterrows():
-        data_iso = _to_date(r["data"])
-        if data_iso in datas_existentes:
+        data = _to_date(r["data"])
+        if data in datas_existentes:
             skipped += 1
             continue
 
@@ -81,33 +100,37 @@ def _carregar_arquivo(conn, arquivo: Path) -> tuple[int, int]:
         ativo_id = resolve_ou_criar_ativo(conn, produto_raw, doc_type="B3")
 
         movimentacao = str(r["movimentacao"]).strip()
-        cur = conn.execute(
+        mov_id = scalar(
+            conn,
             """
             INSERT INTO b3_movimentacoes
-                (sentido, data, movimentacao, produto_raw, ativo_id,
-                 instituicao, quantidade, preco_unitario, valor, arquivo)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (investidor_id, arquivo_id, sentido, data, movimentacao, produto_raw,
+                 ativo_id, instituicao, quantidade, preco_unitario, valor)
+            VALUES
+                (:investidor_id, :arquivo_id, :sentido, :data, :movimentacao, :produto_raw,
+                 :ativo_id, :instituicao, :quantidade, :preco_unitario, :valor)
+            RETURNING id
             """,
-            (
-                str(r["sentido"]).strip(),
-                data_iso,
-                movimentacao,
-                produto_raw,
-                ativo_id,
-                str(r["instituicao"]).strip() if pd.notna(r["instituicao"]) else None,
-                _to_float(r["quantidade"]),
-                _to_float(r["preco_unitario"]),
-                _to_float(r["valor"]),
-                filename,
-            ),
+            investidor_id=investidor_id,
+            arquivo_id=arquivo_id,
+            sentido=str(r["sentido"]).strip(),
+            data=data,
+            movimentacao=movimentacao,
+            produto_raw=produto_raw,
+            ativo_id=ativo_id,
+            instituicao=str(r["instituicao"]).strip() if pd.notna(r["instituicao"]) else None,
+            quantidade=_to_float(r["quantidade"]),
+            preco_unitario=_to_float(r["preco_unitario"]),
+            valor=_to_float(r["valor"]),
         )
 
         # Every bonus-share event gets a placeholder row in bonificacoes so the
         # user can later fill in custo_por_cota for correct average-cost calc.
         if movimentacao == "Bonificação em Ativos":
-            conn.execute(
-                "INSERT OR IGNORE INTO bonificacoes (b3_movimentacao_id) VALUES (?)",
-                (cur.lastrowid,),
+            execute(
+                conn,
+                "INSERT INTO bonificacoes (b3_movimentacao_id) VALUES (:id) ON CONFLICT DO NOTHING",
+                id=mov_id,
             )
 
         inserted += 1
@@ -116,15 +139,17 @@ def _carregar_arquivo(conn, arquivo: Path) -> tuple[int, int]:
 
 
 def main() -> None:
-    init_db()
     with connect() as conn:
+        investidor_id = investidor_do_cli(conn)
+
         arquivos = sorted(B3_REPORTS_DIR.glob("*.xlsx"))
         if not arquivos:
             print(f"Nenhum arquivo .xlsx em {B3_REPORTS_DIR}")
             return
 
         for arquivo in arquivos:
-            inserted, skipped = _carregar_arquivo(conn, arquivo)
+            df = pd.read_excel(arquivo, header=0)
+            inserted, skipped = carregar_arquivo(conn, investidor_id, df, arquivo.name)
             if inserted == 0 and skipped > 0:
                 print(f"  ignorado  : {arquivo.name}  ({skipped} linhas, datas já carregadas)")
             elif skipped > 0:
@@ -133,14 +158,17 @@ def main() -> None:
                 print(f"  carregado : {arquivo.name}  ({inserted} linhas)")
 
         # Quick breakdown of what's now in the table
-        rows = conn.execute(
+        rows = fetch_all(
+            conn,
             """
             SELECT movimentacao, COUNT(*) AS n, SUM(valor) AS total
             FROM b3_movimentacoes
+            WHERE investidor_id = :investidor_id
             GROUP BY movimentacao
             ORDER BY n DESC
-            """
-        ).fetchall()
+            """,
+            investidor_id=investidor_id,
+        )
         print("\nMovimentações na base:")
         for r in rows:
             total = f"R$ {r['total']:,.2f}" if r["total"] else "-"

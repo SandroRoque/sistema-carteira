@@ -1,5 +1,8 @@
 """Interactive review loop for unconfirmed ativos.
 
+ativos is the catalog shared by every investidor, so this is an
+administrative tool: edits here affect all portfolios.
+
 Usage:
     .venv/bin/python revisa_ativos.py
 """
@@ -9,7 +12,7 @@ from __future__ import annotations
 import os
 import sys
 
-from database import connect
+from database import connect, execute, fetch_all, fetch_one, scalar
 
 # Fields the user can edit (in display order)
 _EDIT_FIELDS = [
@@ -34,26 +37,21 @@ def _clear() -> None:
 
 
 def _fetch_unreviewed(conn) -> list:
-    return conn.execute(
-        "SELECT * FROM ativos WHERE revisado = 0 ORDER BY tipo, nome"
-    ).fetchall()
+    return fetch_all(conn, "SELECT * FROM ativos WHERE NOT revisado ORDER BY tipo, nome")
 
 
 def _fetch_aliases(conn, ativo_id: int) -> list[str]:
-    rows = conn.execute(
-        "SELECT raw_text FROM ticker_aliases WHERE ativo_id = ? ORDER BY raw_text",
-        (ativo_id,),
-    ).fetchall()
+    rows = fetch_all(
+        conn,
+        "SELECT raw_text FROM ticker_aliases WHERE ativo_id = :ativo_id ORDER BY raw_text",
+        ativo_id=ativo_id,
+    )
     return [r["raw_text"] for r in rows]
 
 
 def _fetch_usage(conn, ativo_id: int) -> tuple[int, int]:
-    neg = conn.execute(
-        "SELECT COUNT(*) FROM negociacoes WHERE ativo_id = ?", (ativo_id,)
-    ).fetchone()[0]
-    b3 = conn.execute(
-        "SELECT COUNT(*) FROM b3_movimentacoes WHERE ativo_id = ?", (ativo_id,)
-    ).fetchone()[0]
+    neg = scalar(conn, "SELECT COUNT(*) FROM negociacoes WHERE ativo_id = :id", id=ativo_id)
+    b3 = scalar(conn, "SELECT COUNT(*) FROM b3_movimentacoes WHERE ativo_id = :id", id=ativo_id)
     return neg, b3
 
 
@@ -119,9 +117,9 @@ def _edit(conn, ativo) -> bool:
         print("  (sem alterações)")
         return False
 
-    set_clause = ", ".join(f"{k} = ?" for k in updates)
-    params = list(updates.values()) + [ativo["id"]]
-    conn.execute(f"UPDATE ativos SET {set_clause} WHERE id = ?", params)
+    # Field names come from the _EDIT_FIELDS whitelist, never from user input.
+    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+    execute(conn, f"UPDATE ativos SET {set_clause} WHERE id = :id", **updates, id=ativo["id"])
     conn.commit()
 
     print(f"\n  Salvo: {updates}")
@@ -154,9 +152,7 @@ def main() -> None:
                 break
 
             if choice in ("", "c"):
-                conn.execute(
-                    "UPDATE ativos SET revisado = 1 WHERE id = ?", (ativo["id"],)
-                )
+                execute(conn, "UPDATE ativos SET revisado = true WHERE id = :id", id=ativo["id"])
                 conn.commit()
                 idx += 1
 
@@ -164,9 +160,7 @@ def main() -> None:
                 changed = _edit(conn, ativo)
                 if changed:
                     # reload the ativo so the next display reflects edits
-                    updated = conn.execute(
-                        "SELECT * FROM ativos WHERE id = ?", (ativo["id"],)
-                    ).fetchone()
+                    updated = fetch_one(conn, "SELECT * FROM ativos WHERE id = :id", id=ativo["id"])
                     ativos[idx] = updated
                 # ask once more whether to confirm or skip
                 try:
@@ -175,9 +169,7 @@ def main() -> None:
                 except (KeyboardInterrupt, EOFError):
                     break
                 if confirm in ("", "c"):
-                    conn.execute(
-                        "UPDATE ativos SET revisado = 1 WHERE id = ?", (ativo["id"],)
-                    )
+                    execute(conn, "UPDATE ativos SET revisado = true WHERE id = :id", id=ativo["id"])
                     conn.commit()
                     idx += 1
                 # else: stay on same ativo (loop redisplays)
@@ -188,9 +180,7 @@ def main() -> None:
             elif choice == "q":
                 break
 
-        remaining = conn.execute(
-            "SELECT COUNT(*) FROM ativos WHERE revisado = 0"
-        ).fetchone()[0]
+        remaining = scalar(conn, "SELECT COUNT(*) FROM ativos WHERE NOT revisado")
         _clear()
         print(f"Sessão encerrada.  Ativos pendentes restantes: {remaining}")
 

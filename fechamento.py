@@ -20,7 +20,11 @@ from __future__ import annotations
 import sys
 from datetime import date
 
-from database import connect, init_db
+from sqlalchemy import Connection
+
+from contas import investidor_do_cli
+from database import connect, fetch_all, fetch_one
+from posicoes import ativos_do_investidor
 
 _EQUITY_TIPOS = {"acao", "fii", "bdr", "tesouro_direto"}
 
@@ -58,26 +62,29 @@ def _qty_str(v: float, width: int = 8) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _atualizacoes_credito_ate(conn, data_fim: str) -> dict[int, float]:
+def _atualizacoes_credito_ate(conn: Connection, investidor_id: int, data_fim: date) -> dict[int, float]:
     """Atualização Crédito genuine share credits up to data_fim.
 
     Same algorithm as posicoes._atualizacoes_credito but capped at data_fim
     so that post-date events don't pollute historical snapshots.
     """
-    events = conn.execute(
+    events = fetch_all(
+        conn,
         """
         SELECT b.ativo_id, b.data, b.quantidade
         FROM b3_movimentacoes b
         JOIN ativos a ON a.id = b.ativo_id
-        WHERE b.movimentacao = 'Atualização'
+        WHERE b.investidor_id = :investidor_id
+          AND b.movimentacao = 'Atualização'
           AND b.sentido = 'Credito'
           AND b.ativo_id IS NOT NULL
-          AND b.data <= ?
+          AND b.data <= :data_fim
           AND a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
         ORDER BY b.ativo_id, b.data
         """,
-        (data_fim,),
-    ).fetchall()
+        investidor_id=investidor_id,
+        data_fim=data_fim,
+    )
 
     result: dict[int, float] = {}
 
@@ -85,33 +92,37 @@ def _atualizacoes_credito_ate(conn, data_fim: str) -> dict[int, float]:
         ativo_id = ev["ativo_id"]
         data     = ev["data"]
         qty_ev   = ev["quantidade"] or 0.0
+        params   = {"investidor_id": investidor_id, "ativo_id": ativo_id, "data": data}
 
-        row = conn.execute(
+        row = fetch_one(
+            conn,
             """SELECT COALESCE(SUM(
                 CASE WHEN sentido = 'entrada' THEN quantidade ELSE -quantidade END
-            ), 0.0) AS qty FROM negociacoes WHERE ativo_id = ? AND data < ?""",
-            (ativo_id, data),
-        ).fetchone()
+            ), 0.0) AS qty FROM negociacoes
+            WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id AND data < :data""",
+            **params,
+        )
         qty_negocios = row["qty"] if row else 0.0
 
-        row = conn.execute(
+        row = fetch_one(
+            conn,
             """SELECT
-                COALESCE((SELECT SUM(quantidade) FROM b3_movimentacoes
-                          WHERE ativo_id = ? AND movimentacao = 'Bonificação em Ativos'
-                            AND data < ?), 0.0)
-                - COALESCE((SELECT SUM(quantidade) FROM b3_movimentacoes
-                            WHERE ativo_id = ? AND movimentacao = 'Leilão de Fração'
-                              AND data < ?), 0.0) AS qty_bonif_net""",
-            (ativo_id, data, ativo_id, data),
-        ).fetchone()
+                COALESCE(SUM(quantidade) FILTER (WHERE movimentacao = 'Bonificação em Ativos'), 0.0)
+                - COALESCE(SUM(quantidade) FILTER (WHERE movimentacao = 'Leilão de Fração'), 0.0)
+                  AS qty_bonif_net
+            FROM b3_movimentacoes
+            WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id AND data < :data""",
+            **params,
+        )
         qty_bonif = row["qty_bonif_net"] if row else 0.0
 
-        row = conn.execute(
+        row = fetch_one(
+            conn,
             """SELECT COALESCE(SUM(quantidade), 0.0) AS qty FROM b3_movimentacoes
-               WHERE ativo_id = ? AND movimentacao = 'Desdobro'
-                 AND sentido = 'Credito' AND data < ?""",
-            (ativo_id, data),
-        ).fetchone()
+               WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id
+                 AND movimentacao = 'Desdobro' AND sentido = 'Credito' AND data < :data""",
+            **params,
+        )
         qty_desdobro = row["qty"] if row else 0.0
 
         qty_prev = result.get(ativo_id, 0.0)
@@ -130,18 +141,14 @@ def _atualizacoes_credito_ate(conn, data_fim: str) -> dict[int, float]:
 # ---------------------------------------------------------------------------
 
 
-def calcular_posicao_em(conn, data_fim: str) -> dict[int, dict]:
+def calcular_posicao_em(conn: Connection, investidor_id: int, data_fim: date) -> dict[int, dict]:
     """Return {ativo_id: position_dict} for all equity ativos as of data_fim."""
 
-    ativos = {
-        r["id"]: dict(r)
-        for r in conn.execute(
-            "SELECT id, tipo, subtipo, ticker, nome, vencimento FROM ativos"
-        ).fetchall()
-    }
+    ativos = ativos_do_investidor(conn, investidor_id)
 
     # ── Negociacoes (equity) ──────────────────────────────────────────────
-    neg_rows = conn.execute(
+    neg_rows = fetch_all(
+        conn,
         """
         SELECT
             n.ativo_id,
@@ -150,16 +157,19 @@ def calcular_posicao_em(conn, data_fim: str) -> dict[int, dict]:
             SUM(CASE WHEN n.sentido = 'entrada' THEN n.valor_liquido ELSE 0 END) AS custo_compras
         FROM negociacoes n
         JOIN ativos a ON a.id = n.ativo_id
-        WHERE a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
-          AND n.data <= ?
+        WHERE n.investidor_id = :investidor_id
+          AND a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
+          AND n.data <= :data_fim
         GROUP BY n.ativo_id
         """,
-        (data_fim,),
-    ).fetchall()
+        investidor_id=investidor_id,
+        data_fim=data_fim,
+    )
     neg_equity = {r["ativo_id"]: dict(r) for r in neg_rows}
 
     # ── Negociacoes (renda_fixa) ──────────────────────────────────────────
-    rf_rows = conn.execute(
+    rf_rows = fetch_all(
+        conn,
         """
         SELECT
             n.ativo_id,
@@ -169,16 +179,19 @@ def calcular_posicao_em(conn, data_fim: str) -> dict[int, dict]:
             SUM(CASE WHEN n.sentido = 'saida'   THEN n.quantidade   ELSE 0 END) AS qty_saida
         FROM negociacoes n
         JOIN ativos a ON a.id = n.ativo_id
-        WHERE a.tipo = 'renda_fixa'
-          AND n.data <= ?
+        WHERE n.investidor_id = :investidor_id
+          AND a.tipo = 'renda_fixa'
+          AND n.data <= :data_fim
         GROUP BY n.ativo_id
         """,
-        (data_fim,),
-    ).fetchall()
+        investidor_id=investidor_id,
+        data_fim=data_fim,
+    )
     neg_rf = {r["ativo_id"]: dict(r) for r in rf_rows}
 
     # ── Corporate events (equity) ─────────────────────────────────────────
-    bonif_rows = conn.execute(
+    bonif_rows = fetch_all(
+        conn,
         """
         SELECT
             b.ativo_id,
@@ -187,52 +200,63 @@ def calcular_posicao_em(conn, data_fim: str) -> dict[int, dict]:
                      THEN b.quantidade * bc.custo_por_cota ELSE 0 END) AS custo_bonif
         FROM b3_movimentacoes b
         LEFT JOIN bonificacoes bc ON bc.b3_movimentacao_id = b.id
-        WHERE b.movimentacao = 'Bonificação em Ativos'
+        WHERE b.investidor_id = :investidor_id
+          AND b.movimentacao = 'Bonificação em Ativos'
           AND b.ativo_id IS NOT NULL
-          AND b.data <= ?
+          AND b.data <= :data_fim
         GROUP BY b.ativo_id
         """,
-        (data_fim,),
-    ).fetchall()
+        investidor_id=investidor_id,
+        data_fim=data_fim,
+    )
     bonifs = {r["ativo_id"]: dict(r) for r in bonif_rows}
 
-    desdobro_rows = conn.execute(
+    desdobro_rows = fetch_all(
+        conn,
         """
         SELECT ativo_id, SUM(quantidade) AS qty_desdobro
         FROM b3_movimentacoes
-        WHERE movimentacao = 'Desdobro' AND sentido = 'Credito'
-          AND ativo_id IS NOT NULL AND data <= ?
+        WHERE investidor_id = :investidor_id
+          AND movimentacao = 'Desdobro' AND sentido = 'Credito'
+          AND ativo_id IS NOT NULL AND data <= :data_fim
         GROUP BY ativo_id
         """,
-        (data_fim,),
-    ).fetchall()
+        investidor_id=investidor_id,
+        data_fim=data_fim,
+    )
     desdobros = {r["ativo_id"]: r["qty_desdobro"] for r in desdobro_rows}
 
-    fracao_rows = conn.execute(
+    fracao_rows = fetch_all(
+        conn,
         """
         SELECT ativo_id, SUM(quantidade) AS qty_fracao
         FROM b3_movimentacoes
-        WHERE movimentacao = 'Leilão de Fração'
-          AND ativo_id IS NOT NULL AND data <= ?
+        WHERE investidor_id = :investidor_id
+          AND movimentacao = 'Leilão de Fração'
+          AND ativo_id IS NOT NULL AND data <= :data_fim
         GROUP BY ativo_id
         """,
-        (data_fim,),
-    ).fetchall()
+        investidor_id=investidor_id,
+        data_fim=data_fim,
+    )
     fracoes = {r["ativo_id"]: r["qty_fracao"] for r in fracao_rows}
 
-    rf_venc_rows = conn.execute(
+    rf_venc_rows = fetch_all(
+        conn,
         """
         SELECT ativo_id, SUM(COALESCE(quantidade, 0)) AS qty_vencida
         FROM b3_movimentacoes
-        WHERE movimentacao IN ('VENCIMENTO/RESGATE SALDO EM CONTA', 'VENCIMENTO')
-          AND sentido = 'Debito' AND ativo_id IS NOT NULL AND data <= ?
+        WHERE investidor_id = :investidor_id
+          AND movimentacao IN ('VENCIMENTO/RESGATE SALDO EM CONTA', 'VENCIMENTO')
+          AND sentido = 'Debito' AND ativo_id IS NOT NULL AND data <= :data_fim
         GROUP BY ativo_id
         """,
-        (data_fim,),
-    ).fetchall()
+        investidor_id=investidor_id,
+        data_fim=data_fim,
+    )
     rf_vencidos = {r["ativo_id"]: r["qty_vencida"] for r in rf_venc_rows}
 
-    atualizacoes = _atualizacoes_credito_ate(conn, data_fim)
+    atualizacoes = _atualizacoes_credito_ate(conn, investidor_id, data_fim)
 
     result: dict[int, dict] = {}
 
@@ -305,7 +329,7 @@ def calcular_posicao_em(conn, data_fim: str) -> dict[int, dict]:
                 "nome":        ativo["nome"] or "",
                 "tipo":        tipo,
                 "subtipo":     ativo.get("subtipo") or "",
-                "vencimento":  ativo.get("vencimento") or "",
+                "vencimento":  ativo.get("vencimento"),
                 "qty":         remaining,
                 "custo_total": principal_investido * frac_out,
                 "preco_medio": None,
@@ -319,9 +343,12 @@ def calcular_posicao_em(conn, data_fim: str) -> dict[int, dict]:
 # ---------------------------------------------------------------------------
 
 
-def calcular_atividade_ano(conn, data_inicio: str, data_fim: str) -> dict[int, dict]:
+def calcular_atividade_ano(
+    conn: Connection, investidor_id: int, data_inicio: date, data_fim: date
+) -> dict[int, dict]:
     """Per-ativo buy/sell activity between data_inicio and data_fim (inclusive)."""
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT
             n.ativo_id,
@@ -330,43 +357,58 @@ def calcular_atividade_ano(conn, data_inicio: str, data_fim: str) -> dict[int, d
             SUM(CASE WHEN n.sentido = 'entrada' THEN n.valor_liquido ELSE 0 END) AS valor_compras,
             SUM(CASE WHEN n.sentido = 'saida'   THEN n.valor_liquido ELSE 0 END) AS valor_vendas
         FROM negociacoes n
-        WHERE n.data BETWEEN ? AND ?
+        WHERE n.investidor_id = :investidor_id
+          AND n.data BETWEEN :data_inicio AND :data_fim
         GROUP BY n.ativo_id
         """,
-        (data_inicio, data_fim),
-    ).fetchall()
+        investidor_id=investidor_id,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+    )
     return {r["ativo_id"]: dict(r) for r in rows}
 
 
-def calcular_bonifs_ano(conn, data_inicio: str, data_fim: str) -> dict[int, float]:
+def calcular_bonifs_ano(
+    conn: Connection, investidor_id: int, data_inicio: date, data_fim: date
+) -> dict[int, float]:
     """Bonificação qty per ativo within the period."""
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT ativo_id, SUM(quantidade) AS qty_bonif
         FROM b3_movimentacoes
-        WHERE movimentacao = 'Bonificação em Ativos'
+        WHERE investidor_id = :investidor_id
+          AND movimentacao = 'Bonificação em Ativos'
           AND ativo_id IS NOT NULL
-          AND data BETWEEN ? AND ?
+          AND data BETWEEN :data_inicio AND :data_fim
         GROUP BY ativo_id
         """,
-        (data_inicio, data_fim),
-    ).fetchall()
+        investidor_id=investidor_id,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+    )
     return {r["ativo_id"]: r["qty_bonif"] for r in rows}
 
 
-def calcular_desdobros_ano(conn, data_inicio: str, data_fim: str) -> dict[int, float]:
+def calcular_desdobros_ano(
+    conn: Connection, investidor_id: int, data_inicio: date, data_fim: date
+) -> dict[int, float]:
     """Desdobro qty per ativo within the period."""
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT ativo_id, SUM(quantidade) AS qty_desdobro
         FROM b3_movimentacoes
-        WHERE movimentacao = 'Desdobro' AND sentido = 'Credito'
+        WHERE investidor_id = :investidor_id
+          AND movimentacao = 'Desdobro' AND sentido = 'Credito'
           AND ativo_id IS NOT NULL
-          AND data BETWEEN ? AND ?
+          AND data BETWEEN :data_inicio AND :data_fim
         GROUP BY ativo_id
         """,
-        (data_inicio, data_fim),
-    ).fetchall()
+        investidor_id=investidor_id,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+    )
     return {r["ativo_id"]: r["qty_desdobro"] for r in rows}
 
 
@@ -375,42 +417,29 @@ def calcular_desdobros_ano(conn, data_inicio: str, data_fim: str) -> dict[int, f
 # ---------------------------------------------------------------------------
 
 
-def _parse_data(arg: str) -> tuple[str, str, str, int | None]:
-    """Parse arg into (data_fim, data_inicio_ano, label, ano).
-
-    Returns (data_fim, ano_inicio, label, ano_int).
-    """
+def _parse_data(arg: str) -> tuple[date, date, str]:
+    """Parse 'YYYY' or 'YYYY-MM-DD' into (data_fim, data_inicio_ano, label)."""
     if len(arg) == 4 and arg.isdigit():
         ano = int(arg)
-        return f"{ano}-12-31", f"{ano}-01-01", str(ano), ano
-    # YYYY-MM-DD
-    data_fim = arg
-    ano = int(arg[:4])
-    return data_fim, f"{ano}-01-01", data_fim, ano
+        return date(ano, 12, 31), date(ano, 1, 1), str(ano)
+    data_fim = date.fromisoformat(arg)
+    return data_fim, date(data_fim.year, 1, 1), arg
 
 
-def exibir_fechamento(data_fim: str, data_inicio_ano: str, label: str, ano: int | None) -> None:
-    init_db()
+def exibir_fechamento(data_fim: date, data_inicio_ano: date, label: str) -> None:
     with connect() as conn:
+        investidor_id = investidor_do_cli(conn)
+
         # Opening position (start of year, i.e. end of previous year)
-        if ano is not None:
-            data_abertura = f"{ano - 1}-12-31"
-        else:
-            data_abertura = f"{int(data_fim[:4]) - 1}-12-31"
+        data_abertura = date(data_inicio_ano.year - 1, 12, 31)
 
-        pos_abertura = calcular_posicao_em(conn, data_abertura)
-        pos_fechamento = calcular_posicao_em(conn, data_fim)
-        atividade     = calcular_atividade_ano(conn, data_inicio_ano, data_fim)
-        bonifs_ano    = calcular_bonifs_ano(conn, data_inicio_ano, data_fim)
-        desdobros_ano = calcular_desdobros_ano(conn, data_inicio_ano, data_fim)
+        pos_abertura   = calcular_posicao_em(conn, investidor_id, data_abertura)
+        pos_fechamento = calcular_posicao_em(conn, investidor_id, data_fim)
+        atividade      = calcular_atividade_ano(conn, investidor_id, data_inicio_ano, data_fim)
+        bonifs_ano     = calcular_bonifs_ano(conn, investidor_id, data_inicio_ano, data_fim)
+        desdobros_ano  = calcular_desdobros_ano(conn, investidor_id, data_inicio_ano, data_fim)
 
-        # Fetch ativo metadata for lookup
-        ativos_meta = {
-            r["id"]: dict(r)
-            for r in conn.execute(
-                "SELECT id, tipo, subtipo, ticker, nome, vencimento FROM ativos"
-            ).fetchall()
-        }
+        ativos_meta = ativos_do_investidor(conn, investidor_id)
 
     width = 120
 
@@ -568,7 +597,7 @@ def exibir_fechamento(data_fim: str, data_inicio_ano: str, label: str, ano: int 
         for aid in sorted(ids_rf_rel, key=lambda a: ativos_meta[a].get("nome") or ""):
             meta    = ativos_meta[aid]
             nome    = (meta.get("nome") or "")[:36]
-            venc    = meta.get("vencimento") or "—"
+            venc    = meta["vencimento"].isoformat() if meta.get("vencimento") else "—"
             pfim    = pos_fechamento.get(aid, {})
             custo_rf = pfim.get("custo_total") or 0.0
             qty_rf   = pfim.get("qty") or 0.0
@@ -612,8 +641,8 @@ def main() -> None:
         # Default: previous year
         raw = str(date.today().year - 1)
 
-    data_fim, data_inicio_ano, label, ano = _parse_data(raw)
-    exibir_fechamento(data_fim, data_inicio_ano, label, ano)
+    data_fim, data_inicio_ano, label = _parse_data(raw)
+    exibir_fechamento(data_fim, data_inicio_ano, label)
 
 
 if __name__ == "__main__":

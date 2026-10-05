@@ -1,4 +1,15 @@
-from database import DB_PATH, connect, init_db
+"""Load brokerage-note PDFs from NOTAS_DIR into the database.
+
+Each nota is filed under the investidor whose CPF is printed on it (created on
+first sight) for the usuario given by CARTEIRA_USUARIO_EMAIL, or the only
+usuario in the database.
+
+Usage:
+    uv run python carrega_notas.py
+"""
+
+from contas import usuario_do_cli
+from database import connect
 from extrai_nota_de_negociacao import PdfImagemError, extrair
 from loader import carregar
 from settings import load_settings
@@ -7,12 +18,13 @@ from transformer import transformar
 
 def main() -> None:
     settings = load_settings()
-    init_db()
 
     parsed = skipped_image = skipped_duplicate = failed = 0
     negociacoes_total = 0
 
     with connect() as conn:
+        usuario_id = usuario_do_cli(conn)
+
         for pdf_path in sorted(settings.notas_dir.glob("*.pdf")):
             try:
                 resultado = extrair(pdf_path)
@@ -25,14 +37,13 @@ def main() -> None:
                 continue
 
             doc = transformar(resultado)
-            carregado = carregar(conn, doc, pdf_path.name)
+            carregado = carregar(conn, usuario_id, doc, pdf_path.name)
             if carregado:
                 parsed += 1
                 negociacoes_total += len(doc.negociacoes)
             else:
                 skipped_duplicate += 1
 
-    print(f"\nDB: {DB_PATH}")
     print(
         f"Resumo:"
         f"  carregado={parsed}"
@@ -44,7 +55,7 @@ def main() -> None:
 
     if failed == 0:
         print("\nPróximo passo: revise ativos não identificados com:")
-        print("  sqlite3 carteira.db 'SELECT * FROM ativos WHERE revisado = 0 ORDER BY tipo, nome'")
+        print("  uv run python revisa_ativos.py")
 
 
 if __name__ == "__main__":

@@ -37,11 +37,15 @@ Atualização
     → administrative (ticker rename), no financial impact
 Fração em Ativos (Débito)
     → paired with Leilão de Fração (Crédito); only the latter is processed
+
+Every query is scoped to a single investidor_id.
 """
 
 from __future__ import annotations
 
-from database import connect
+from sqlalchemy import Connection
+
+from database import fetch_all, fetch_one
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -56,9 +60,10 @@ _SUBSCRICAO_TIPOS = {"direito_subscricao", "recibo_subscricao"}
 # ---------------------------------------------------------------------------
 
 
-def _negocios_equity(conn) -> dict[int, dict]:
+def _negocios_equity(conn: Connection, investidor_id: int) -> dict[int, dict]:
     """Qty and cost from negociacoes for equity/fii/bdr/tesouro_direto ativos."""
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT
             n.ativo_id,
@@ -68,16 +73,19 @@ def _negocios_equity(conn) -> dict[int, dict]:
             SUM(CASE WHEN n.sentido = 'saida'   THEN n.valor_liquido ELSE 0 END) AS receita_vendas
         FROM negociacoes n
         JOIN ativos a ON a.id = n.ativo_id
-        WHERE a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
+        WHERE n.investidor_id = :investidor_id
+          AND a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
         GROUP BY n.ativo_id
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
     return {r["ativo_id"]: dict(r) for r in rows}
 
 
-def _negocios_rf(conn) -> dict[int, dict]:
+def _negocios_rf(conn: Connection, investidor_id: int) -> dict[int, dict]:
     """Principal invested and redeemed for renda_fixa ativos."""
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT
             n.ativo_id,
@@ -87,34 +95,39 @@ def _negocios_rf(conn) -> dict[int, dict]:
             SUM(CASE WHEN n.sentido = 'saida'   THEN n.quantidade  ELSE 0 END) AS qty_saida
         FROM negociacoes n
         JOIN ativos a ON a.id = n.ativo_id
-        WHERE a.tipo = 'renda_fixa'
+        WHERE n.investidor_id = :investidor_id
+          AND a.tipo = 'renda_fixa'
         GROUP BY n.ativo_id
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
     return {r["ativo_id"]: dict(r) for r in rows}
 
 
-def _bonificacoes(conn) -> dict[int, dict]:
+def _bonificacoes(conn: Connection, investidor_id: int) -> dict[int, dict]:
     """Bonificação qty and cost from B3, joined with bonificacoes cost table."""
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT
             b.ativo_id,
             SUM(b.quantidade)                                                         AS qty_bonif,
             SUM(CASE WHEN bc.custo_por_cota IS NOT NULL
                      THEN b.quantidade * bc.custo_por_cota ELSE 0 END)                AS custo_bonif,
-            MAX(CASE WHEN bc.custo_por_cota IS NULL THEN 1 ELSE 0 END)                AS tem_bonif_sem_custo
+            BOOL_OR(bc.custo_por_cota IS NULL)                                        AS tem_bonif_sem_custo
         FROM b3_movimentacoes b
         LEFT JOIN bonificacoes bc ON bc.b3_movimentacao_id = b.id
-        WHERE b.movimentacao = 'Bonificação em Ativos'
+        WHERE b.investidor_id = :investidor_id
+          AND b.movimentacao = 'Bonificação em Ativos'
           AND b.ativo_id IS NOT NULL
         GROUP BY b.ativo_id
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
     return {r["ativo_id"]: dict(r) for r in rows}
 
 
-def _atualizacoes_credito(conn) -> dict[int, float]:
+def _atualizacoes_credito(conn: Connection, investidor_id: int) -> dict[int, float]:
     """Atualização Crédito events that are genuine share credits (not position snapshots).
 
     B3 uses 'Atualização' for two distinct purposes:
@@ -128,18 +141,21 @@ def _atualizacoes_credito(conn) -> dict[int, float]:
     Atualização credits); if the event qty equals that derived position it is a
     snapshot and is skipped, otherwise it is a genuine credit and is included.
     """
-    events = conn.execute(
+    events = fetch_all(
+        conn,
         """
         SELECT b.ativo_id, b.data, b.quantidade
         FROM b3_movimentacoes b
         JOIN ativos a ON a.id = b.ativo_id
-        WHERE b.movimentacao = 'Atualização'
+        WHERE b.investidor_id = :investidor_id
+          AND b.movimentacao = 'Atualização'
           AND b.sentido = 'Credito'
           AND b.ativo_id IS NOT NULL
           AND a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
         ORDER BY b.ativo_id, b.data
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
 
     result: dict[int, float] = {}
 
@@ -147,44 +163,48 @@ def _atualizacoes_credito(conn) -> dict[int, float]:
         ativo_id = ev["ativo_id"]
         data     = ev["data"]
         qty_ev   = ev["quantidade"] or 0.0
+        params   = {"investidor_id": investidor_id, "ativo_id": ativo_id, "data": data}
 
         # Negociacoes-derived qty strictly before this event date
-        row = conn.execute(
+        row = fetch_one(
+            conn,
             """
             SELECT COALESCE(SUM(
                 CASE WHEN sentido = 'entrada' THEN quantidade ELSE -quantidade END
             ), 0.0) AS qty
-            FROM negociacoes WHERE ativo_id = ? AND data < ?
+            FROM negociacoes
+            WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id AND data < :data
             """,
-            (ativo_id, data),
-        ).fetchone()
+            **params,
+        )
         qty_negocios = row["qty"] if row else 0.0
 
         # Bonificações net of leilão de fração strictly before this date
-        row = conn.execute(
+        row = fetch_one(
+            conn,
             """
             SELECT
-                COALESCE((SELECT SUM(quantidade) FROM b3_movimentacoes
-                          WHERE ativo_id = ? AND movimentacao = 'Bonificação em Ativos'
-                            AND data < ?), 0.0)
-                - COALESCE((SELECT SUM(quantidade) FROM b3_movimentacoes
-                            WHERE ativo_id = ? AND movimentacao = 'Leilão de Fração'
-                              AND data < ?), 0.0) AS qty_bonif_net
+                COALESCE(SUM(quantidade) FILTER (WHERE movimentacao = 'Bonificação em Ativos'), 0.0)
+                - COALESCE(SUM(quantidade) FILTER (WHERE movimentacao = 'Leilão de Fração'), 0.0)
+                  AS qty_bonif_net
+            FROM b3_movimentacoes
+            WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id AND data < :data
             """,
-            (ativo_id, data, ativo_id, data),
-        ).fetchone()
+            **params,
+        )
         qty_bonif = row["qty_bonif_net"] if row else 0.0
 
         # Desdobros strictly before this date
-        row = conn.execute(
+        row = fetch_one(
+            conn,
             """
             SELECT COALESCE(SUM(quantidade), 0.0) AS qty
             FROM b3_movimentacoes
-            WHERE ativo_id = ? AND movimentacao = 'Desdobro'
-              AND sentido = 'Credito' AND data < ?
+            WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id
+              AND movimentacao = 'Desdobro' AND sentido = 'Credito' AND data < :data
             """,
-            (ativo_id, data),
-        ).fetchone()
+            **params,
+        )
         qty_desdobro = row["qty"] if row else 0.0
 
         # Prior genuine Atualização credits already confirmed for this ativo
@@ -202,64 +222,76 @@ def _atualizacoes_credito(conn) -> dict[int, float]:
     return result
 
 
-def _fracoes(conn) -> dict[int, float]:
+def _fracoes(conn: Connection, investidor_id: int) -> dict[int, float]:
     """Leilão de Fração: fractional shares sold after bonificação (reduce qty)."""
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT ativo_id, SUM(quantidade) AS qty_fracao
         FROM b3_movimentacoes
-        WHERE movimentacao = 'Leilão de Fração'
+        WHERE investidor_id = :investidor_id
+          AND movimentacao = 'Leilão de Fração'
           AND ativo_id IS NOT NULL
         GROUP BY ativo_id
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
     return {r["ativo_id"]: r["qty_fracao"] for r in rows}
 
 
-def _desdobramentos(conn) -> dict[int, float]:
+def _desdobramentos(conn: Connection, investidor_id: int) -> dict[int, float]:
     """Desdobro (stock split): free shares credited, zero marginal cost.
 
     The total cost basis stays the same but is spread over more shares,
     so avg_cost per share decreases proportionally.
     """
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT ativo_id, SUM(quantidade) AS qty_desdobro
         FROM b3_movimentacoes
-        WHERE movimentacao = 'Desdobro'
+        WHERE investidor_id = :investidor_id
+          AND movimentacao = 'Desdobro'
           AND sentido = 'Credito'
           AND ativo_id IS NOT NULL
         GROUP BY ativo_id
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
     return {r["ativo_id"]: r["qty_desdobro"] for r in rows}
 
 
-def _transferencias_custody(conn) -> dict[int, float]:
+def _transferencias_custody(conn: Connection, investidor_id: int) -> dict[int, float]:
     """Net qty from custody transfers ('Transferência') per ativo.
 
     Used only for ativos that have no negociacoes entry — e.g. BDRs
     received via broker-to-broker transfer rather than a trade note.
     Cost is unknown (set to zero in the position).
     """
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
-        SELECT
-            ativo_id,
-            SUM(CASE WHEN sentido = 'Credito' THEN COALESCE(quantidade, 0) ELSE 0 END)
-            - SUM(CASE WHEN sentido = 'Debito'  THEN COALESCE(quantidade, 0) ELSE 0 END)
-              AS qty_net
-        FROM b3_movimentacoes
-        WHERE movimentacao = 'Transferência'
-          AND ativo_id IS NOT NULL
-        GROUP BY ativo_id
-        HAVING qty_net != 0
-        """
-    ).fetchall()
+        SELECT ativo_id, qty_net
+        FROM (
+            SELECT
+                ativo_id,
+                SUM(CASE WHEN sentido = 'Credito' THEN COALESCE(quantidade, 0) ELSE 0 END)
+                - SUM(CASE WHEN sentido = 'Debito'  THEN COALESCE(quantidade, 0) ELSE 0 END)
+                  AS qty_net
+            FROM b3_movimentacoes
+            WHERE investidor_id = :investidor_id
+              AND movimentacao = 'Transferência'
+              AND ativo_id IS NOT NULL
+            GROUP BY ativo_id
+        ) t
+        WHERE qty_net != 0
+        """,
+        investidor_id=investidor_id,
+    )
     return {r["ativo_id"]: r["qty_net"] for r in rows}
 
 
-def _b3_resgates_equity(conn) -> dict[int, float]:
+def _b3_resgates_equity(conn: Connection, investidor_id: int) -> dict[int, float]:
     """B3 'Resgate' Crédito events that close equity/FII positions.
 
     Fund incorporações (mergers) generate a Resgate event in B3 as the
@@ -269,22 +301,25 @@ def _b3_resgates_equity(conn) -> dict[int, float]:
     Regular sales appear in negociacoes (not as B3 Resgate), so there is
     no double-counting risk in practice.
     """
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT b.ativo_id, SUM(COALESCE(b.quantidade, 0)) AS qty_resgatada
         FROM b3_movimentacoes b
         JOIN ativos a ON a.id = b.ativo_id
-        WHERE b.movimentacao = 'Resgate'
+        WHERE b.investidor_id = :investidor_id
+          AND b.movimentacao = 'Resgate'
           AND b.sentido = 'Credito'
           AND a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
           AND b.ativo_id IS NOT NULL
         GROUP BY b.ativo_id
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
     return {r["ativo_id"]: r["qty_resgatada"] for r in rows}
 
 
-def _rf_b3_vencimentos(conn) -> dict[int, float]:
+def _rf_b3_vencimentos(conn: Connection, investidor_id: int) -> dict[int, float]:
     """Qty returned via B3 VENCIMENTO/RESGATE events (no brokerage note issued).
 
     For renda_fixa instruments that matured and were redeemed without a
@@ -294,20 +329,23 @@ def _rf_b3_vencimentos(conn) -> dict[int, float]:
     Using the max of negociacoes.qty_saida vs this value avoids
     double-counting when both a nota AND a B3 event exist.
     """
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT ativo_id, SUM(COALESCE(quantidade, 0)) AS qty_vencida
         FROM b3_movimentacoes
-        WHERE movimentacao IN ('VENCIMENTO/RESGATE SALDO EM CONTA', 'VENCIMENTO')
+        WHERE investidor_id = :investidor_id
+          AND movimentacao IN ('VENCIMENTO/RESGATE SALDO EM CONTA', 'VENCIMENTO')
           AND sentido = 'Debito'
           AND ativo_id IS NOT NULL
         GROUP BY ativo_id
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
     return {r["ativo_id"]: r["qty_vencida"] for r in rows}
 
 
-def _subscricao_posicoes(conn) -> dict[int, dict]:
+def _subscricao_posicoes(conn: Connection, investidor_id: int) -> dict[int, dict]:
     """Qty for direito/recibo_subscricao ativos from B3 events.
 
     Position-opening events (Crédito):
@@ -323,7 +361,8 @@ def _subscricao_posicoes(conn) -> dict[int, dict]:
         precedes "Exercido"; both record the same exercise, so only "Exercido"
         should reduce qty to avoid double-counting.
     """
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT
             b.ativo_id,
@@ -344,15 +383,17 @@ def _subscricao_posicoes(conn) -> dict[int, dict]:
                 THEN b.valor ELSE 0 END)                                         AS custo_exercicio
         FROM b3_movimentacoes b
         JOIN ativos a ON a.id = b.ativo_id
-        WHERE a.tipo IN ('direito_subscricao', 'recibo_subscricao')
+        WHERE b.investidor_id = :investidor_id
+          AND a.tipo IN ('direito_subscricao', 'recibo_subscricao')
           AND b.ativo_id IS NOT NULL
         GROUP BY b.ativo_id
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
     return {r["ativo_id"]: dict(r) for r in rows}
 
 
-def _rendimentos_por_ativo(conn) -> dict[int, dict]:
+def _rendimentos_por_ativo(conn: Connection, investidor_id: int) -> dict[int, dict]:
     """Income received per ativo from B3.
 
     Covers:
@@ -361,7 +402,8 @@ def _rendimentos_por_ativo(conn) -> dict[int, dict]:
     - JCP               : juros sobre capital próprio
     - PAGAMENTO DE JUROS: interest paid at maturity for renda_fixa
     """
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT
             ativo_id,
@@ -385,15 +427,37 @@ def _rendimentos_por_ativo(conn) -> dict[int, dict]:
                 ELSE 0
             END)                                                                     AS total_income
         FROM b3_movimentacoes
-        WHERE movimentacao IN (
+        WHERE investidor_id = :investidor_id
+          AND movimentacao IN (
             'Rendimento', 'Dividendo', 'Dividendo - Cancelado',
             'Juros Sobre Capital Próprio', 'PAGAMENTO DE JUROS'
-        )
+          )
           AND ativo_id IS NOT NULL
         GROUP BY ativo_id
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
     return {r["ativo_id"]: dict(r) for r in rows}
+
+
+def ativos_do_investidor(conn: Connection, investidor_id: int) -> dict[int, dict]:
+    """Catalog rows for every ativo the investidor has any activity in."""
+    rows = fetch_all(
+        conn,
+        """
+        SELECT id, tipo, subtipo, ticker, nome, vencimento
+        FROM ativos
+        WHERE id IN (
+            SELECT ativo_id FROM negociacoes WHERE investidor_id = :investidor_id
+            UNION
+            SELECT ativo_id FROM b3_movimentacoes
+            WHERE investidor_id = :investidor_id AND ativo_id IS NOT NULL
+        )
+        ORDER BY tipo, ticker
+        """,
+        investidor_id=investidor_id,
+    )
+    return {r["id"]: dict(r) for r in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -401,12 +465,12 @@ def _rendimentos_por_ativo(conn) -> dict[int, dict]:
 # ---------------------------------------------------------------------------
 
 
-def calcular_posicoes(conn) -> list[dict]:
+def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
     """Return one position dict per ativo that has any recorded activity.
 
     Fields in each dict
     -------------------
-    ativo_id, ticker, nome, tipo, subtipo, vencimento
+    ativo_id, ticker, nome, tipo, subtipo, vencimento (date | None)
     qty            – current quantity (units; for renda_fixa: remaining face units)
     custo_total    – cost of current holding (R$)
     preco_medio    – avg cost per unit (None for renda_fixa)
@@ -419,24 +483,19 @@ def calcular_posicoes(conn) -> list[dict]:
     tem_bonif_sem_custo – True if any bonus-share event lacks custo_por_cota
     custo_sem_origem  – True if position from custody transfer (cost unknown)
     """
-    ativos = {
-        r["id"]: dict(r)
-        for r in conn.execute(
-            "SELECT id, tipo, subtipo, ticker, nome, vencimento FROM ativos ORDER BY tipo, ticker"
-        ).fetchall()
-    }
+    ativos = ativos_do_investidor(conn, investidor_id)
 
-    neg_equity    = _negocios_equity(conn)
-    neg_rf        = _negocios_rf(conn)
-    bonifs        = _bonificacoes(conn)
-    fracoes       = _fracoes(conn)
-    desdobros     = _desdobramentos(conn)
-    transferencias = _transferencias_custody(conn)
-    atualizacoes  = _atualizacoes_credito(conn)
-    rf_vencidos   = _rf_b3_vencimentos(conn)
-    b3_resgates   = _b3_resgates_equity(conn)
-    subscricoes   = _subscricao_posicoes(conn)
-    rendimentos   = _rendimentos_por_ativo(conn)
+    neg_equity     = _negocios_equity(conn, investidor_id)
+    neg_rf         = _negocios_rf(conn, investidor_id)
+    bonifs         = _bonificacoes(conn, investidor_id)
+    fracoes        = _fracoes(conn, investidor_id)
+    desdobros      = _desdobramentos(conn, investidor_id)
+    transferencias = _transferencias_custody(conn, investidor_id)
+    atualizacoes   = _atualizacoes_credito(conn, investidor_id)
+    rf_vencidos    = _rf_b3_vencimentos(conn, investidor_id)
+    b3_resgates    = _b3_resgates_equity(conn, investidor_id)
+    subscricoes    = _subscricao_posicoes(conn, investidor_id)
+    rendimentos    = _rendimentos_por_ativo(conn, investidor_id)
 
     posicoes: list[dict] = []
 
@@ -449,7 +508,7 @@ def calcular_posicoes(conn) -> list[dict]:
             "nome":                ativo["nome"] or "",
             "tipo":                tipo,
             "subtipo":             ativo["subtipo"] or "",
-            "vencimento":          ativo["vencimento"] or "",
+            "vencimento":          ativo["vencimento"],
             "qty":                 0.0,
             "custo_total":         0.0,
             "preco_medio":         None,

@@ -1,7 +1,8 @@
 # Sistema Carteira
 
-Extrai notas de corretagem e outros documentos de corretoras em PDF e os carrega
-em um banco de dados SQLite local para rastreamento de carteira pessoal.
+Extrai notas de corretagem e outros documentos de corretoras em PDF, cruza com os
+relatórios de movimentações da B3 e calcula posições, custo médio, proventos e
+apuração de IR. Os dados ficam em PostgreSQL, separados por investidor.
 
 Corretoras e tipos de documento suportados:
 
@@ -14,92 +15,99 @@ Corretoras e tipos de documento suportados:
 
 ## Arquitetura
 
-O pipeline tem três etapas:
-
 ```
-PDFs (notas/)
+PDFs (NOTAS_DIR)
     └─► extrai_nota_de_negociacao.py   identifica corretora, chama extrator
             └─► extractors/<corretora>.py   extrai campos do PDF com PyMuPDF
     └─► transformer.py                 normaliza tipos, distribui taxas por operação
-    └─► loader.py                      grava no SQLite, resolve ativos, idempotente
-            └─► carteira.db
+    └─► loader.py                      grava no Postgres, resolve ativos, idempotente
+
+Relatórios B3 (xlsx)
+    └─► carrega_b3.py                  proventos e eventos corporativos
+
+PostgreSQL
+    └─► posicoes.py / fechamento.py / imposto.py   cálculos
+    └─► app/ (FastAPI + HTMX)  ·  portfolio.py / relatorio.py (CLI)
 ```
 
-Além dos PDFs, relatórios de movimentações exportados da B3 (xlsx) fornecem
-dividendos, JCP, rendimentos de FII e eventos corporativos — ver
-[docs/b3-movimentacoes.md](docs/b3-movimentacoes.md).
+Relatórios de movimentações da B3 fornecem dividendos, JCP, rendimentos de FII e
+eventos corporativos — ver [docs/b3-movimentacoes.md](docs/b3-movimentacoes.md).
+
+### Multi-tenancy
+
+Um **usuário** (conta) gerencia um ou mais **investidores** (pessoas físicas, por CPF).
+Notas, negociações e movimentações B3 pertencem a um investidor, e toda consulta é
+filtrada por `investidor_id`. O cadastro de **ativos** é compartilhado: PETR4 é o
+mesmo instrumento para todos. Detalhes em [docs/schema.md](docs/schema.md).
 
 ## Arquivos principais
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `carrega_notas.py` | Entry point: itera PDFs, extrai, transforma e carrega no DB |
-| `exporta_csvs.py` | Exporta o acervo de PDFs para `exports/extracao_notas.xlsx` (diagnóstico) |
-| `extrai_nota_de_negociacao.py` | Dispatcher: identifica corretora e chama o extrator certo |
-| `extractors/` | Um módulo por corretora, cada um expõe `extract(page)` |
-| `transformer.py` | Conversão pura: dataclasses → registros normalizados + distribuição de taxas |
-| `loader.py` | Escrita no SQLite: resolução de ativos, idempotência via `notas_processadas` |
-| `database.py` | Schema SQLite e context manager `connect()` |
-| `models.py` | Dataclasses de domínio: `Corretora`, `NotaCorretagem`, `TituloPublico`, `TituloPrivado`, `Movimentacao` |
-| `parsers.py` | Parsers de datas, números BR, percentuais, CPF e valores monetários |
-| `key_value_finders.py` | Extração de pares chave-valor de páginas PDF |
-| `movimentacoes_table_finder.py` | Extração da tabela de movimentações de notas de corretagem |
-| `settings.py` | Carregamento centralizado de variáveis de ambiente |
+| `tabelas.py` | Schema (SQLAlchemy Core) — fonte da verdade das migrações |
+| `migrations/` | Migrações Alembic |
+| `database.py` | Engine, `connect()` transacional e helpers de consulta |
+| `contas.py` | Usuários e investidores (fronteira de tenancy) |
+| `carrega_notas.py` | Entry point: itera PDFs, extrai, transforma e carrega |
+| `carrega_b3.py` | Carrega relatórios de movimentações da B3 |
+| `loader.py` | Escrita: resolução de ativos, idempotência por nota |
+| `posicoes.py` | Posição atual por ativo |
+| `fechamento.py` / `imposto.py` / `relatorio.py` | Fechamento anual, IR e relatório Markdown |
+| `app/` | Interface web (FastAPI, Jinja, HTMX) |
+| `extrai_nota_de_negociacao.py` / `extractors/` | Extração de PDFs por corretora |
+| `transformer.py` | Conversão pura: dataclasses → registros normalizados + rateio de taxas |
+| `parsers.py` | Parsers de datas, números BR, percentuais, CPF (com dígitos verificadores) |
+| `migra_sqlite.py` | Importação única do banco SQLite da versão single-user |
 
-## Configuração de ambiente
+## Desenvolvimento local
 
-Copie `.env.example` para `.env` e preencha:
-
-```bash
-cp .env.example .env
-```
-
-Variáveis:
-
-- `NOTAS_DIR` — diretório com os PDFs a processar (obrigatório)
-- `CARTEIRA_DB` — caminho do banco SQLite (padrão: `carteira.db` na raiz do projeto)
-
-## Execução
-
-Carregar todos os PDFs no banco:
+Requisitos: [uv](https://docs.astral.sh/uv/) e Docker.
 
 ```bash
-.venv/bin/python carrega_notas.py
+uv sync --dev
+cp .env.example .env              # ajuste NOTAS_DIR
+docker compose up -d              # Postgres em localhost:5433
+uv run alembic upgrade head       # cria/atualiza o schema
+uv run uvicorn app.main:app --reload
 ```
 
-Exportar acervo para Excel (diagnóstico / conferência):
+Carregar dados:
 
 ```bash
-.venv/bin/python exporta_csvs.py
+CARTEIRA_USUARIO_EMAIL=voce@exemplo.com uv run python carrega_notas.py
+uv run python carrega_b3.py       # usa o único investidor, ou CARTEIRA_INVESTIDOR_ID
 ```
 
-Gera `exports/extracao_notas.xlsx` com duas abas:
+Relatórios de linha de comando (`portfolio.py`, `imposto.py`, `fechamento.py`,
+`relatorio.py`, `reconcilia.py`) usam o investidor de `CARTEIRA_INVESTIDOR_ID`, ou o
+único cadastrado.
 
-- `notas` — uma linha por documento, com todos os campos financeiros
-- `movimentacoes` — uma linha por operação de compra/venda
+### Vindo da versão SQLite
 
-## Banco de dados
-
-Schema em `database.py`. Tabelas principais:
-
-| Tabela | Conteúdo |
-|---|---|
-| `ativos` | Cadastro de ativos; novos ativos são criados automaticamente com `revisado=0` |
-| `ticker_aliases` | Mapeia o texto bruto do PDF para `ativo_id` |
-| `operacoes` | Uma linha por compra/venda, com taxas proporcionais alocadas |
-| `custos_de_nota` | Breakdown completo de taxas de cada nota de corretagem |
-| `notas_processadas` | Controle de idempotência — impede reinserção do mesmo PDF |
-
-Após carregar, revisar ativos não identificados:
-
-```sql
-SELECT * FROM ativos WHERE revisado = 0 ORDER BY nome;
+```bash
+uv run python migra_sqlite.py --email voce@exemplo.com --sqlite carteira.db
 ```
+
+O script confere as contagens de cada tabela e avisa sobre referências órfãs.
+
+## Migrações
+
+Altere `tabelas.py` e gere a migração:
+
+```bash
+uv run alembic revision --autogenerate -m "descrição"
+uv run alembic upgrade head
+uv run alembic check              # falha se o schema e tabelas.py divergirem
+```
+
+Revise sempre o arquivo gerado antes de commitar.
 
 ## Testes
 
 ```bash
-.venv/bin/python -m pytest -q
+uv run pytest -q
 ```
 
-Cobertura atual: `tests/test_parsers.py`
+Os testes sobem um PostgreSQL descartável via [testcontainers](https://testcontainers.com/)
+(é preciso Docker), aplicam as migrações reais e cobrem parsers, carga, isolamento entre
+investidores, cálculos de posição, relatórios, rotas web e a migração do SQLite.

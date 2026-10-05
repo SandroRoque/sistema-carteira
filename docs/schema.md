@@ -1,10 +1,25 @@
 # Database Schema
 
-`carteira.db` — SQLite database for the investment portfolio system.
+PostgreSQL database for the investment portfolio system.
+
+The source of truth is [`tabelas.py`](../tabelas.py) (SQLAlchemy Core); every change
+ships as an Alembic migration in [`migrations/versions/`](../migrations/versions/).
+This document explains the meaning of each table and column.
 
 All monetary values are in **BRL** unless otherwise noted.  
-All dates are stored as **ISO 8601 strings** (`YYYY-MM-DD`).  
-Booleans are stored as **INTEGER** (`0` = false, `1` = true).
+Money, quantities and rates are **NUMERIC** (exact decimals).  
+Dates are **DATE**; load timestamps are **TIMESTAMPTZ**.
+
+## Tenancy
+
+| Table | Scope |
+|---|---|
+| `usuarios` | An account that logs in (unique e-mail, case-insensitive) |
+| `investidores` | A natural person (CPF, 11 digits, unique per usuario) whose portfolio an usuario manages |
+| `notas`, `negociacoes`, `b3_arquivos_processados`, `b3_movimentacoes` | Owned by one investidor (`investidor_id`); `bonificacoes` inherits it from its movimentação |
+| `ativos`, `ticker_aliases` | Shared catalog — the same instrument for every investidor |
+
+Every portfolio query must filter by `investidor_id`.
 
 ---
 
@@ -12,12 +27,15 @@ Booleans are stored as **INTEGER** (`0` = false, `1` = true).
 
 | Table | Populated by | Source |
 |---|---|---|
+| `usuarios` | sign-up / `migra_sqlite.py` | One row per account |
+| `investidores` | `carrega_notas.py` (from the CPF on each nota) | Auto-created on first nota of a CPF |
 | `ativos` | `carrega_notas.py`, `carrega_b3.py` | Auto-created on first encounter from PDFs and B3 reports |
 | `ticker_aliases` | `carrega_notas.py`, `carrega_b3.py` | Auto-created alongside `ativos` |
 | `notas` | `carrega_notas.py` | One row per source PDF (all doc types) |
 | `negociacoes` | `carrega_notas.py` | One row per trade line extracted from PDFs |
 | `b3_movimentacoes` | `carrega_b3.py` | B3 movimentações Excel exports |
 | `b3_arquivos_processados` | `carrega_b3.py` | Audit log of loaded files |
+| `bonificacoes` | `carrega_b3.py`, `revisa_bonificacoes.py` | Cost basis for bonus shares |
 
 ---
 
@@ -25,72 +43,80 @@ Booleans are stored as **INTEGER** (`0` = false, `1` = true).
 
 ```mermaid
 erDiagram
+    usuarios {
+        bigint id PK
+        text   email
+    }
+    investidores {
+        bigint id         PK
+        bigint usuario_id FK
+        text   cpf
+    }
     ativos {
-        int  id                      PK
-        text tipo
-        text subtipo
-        text ticker
-        text nome
-        text cnpj_emissor
-        text emissor
-        text indexador
-        real taxa_prefixada
-        real percentual_do_indexador
-        text emissao
-        text vencimento
-        int  revisado
+        bigint  id                      PK
+        text    tipo
+        text    subtipo
+        text    ticker
+        text    nome
+        numeric taxa_prefixada
+        numeric percentual_do_indexador
+        date    emissao
+        date    vencimento
+        boolean revisado
     }
     ticker_aliases {
-        text raw_text  PK
-        int  ativo_id  FK
+        text   raw_text  PK
+        bigint ativo_id  FK
     }
     notas {
-        text nota_id       PK
-        text corretora_id  PK
-        text doc_type      PK
-        text data_pregao
-        text cpf_cliente
-        text codigo_cliente
+        bigint investidor_id PK
+        text   corretora_id  PK
+        text   doc_type      PK
+        text   nota_id       PK
+        date   data_pregao
+        text   cpf_cliente
     }
     negociacoes {
-        int  id             PK
-        text nota_id        FK
-        text corretora_id   FK
-        text doc_type       FK
-        int  linha_na_nota
-        int  ativo_id       FK
-        text data
-        text sentido
-        text tipo
-        real quantidade
-        real preco_unitario
-        real valor_bruto
-        real taxas_proporcionais
-        real valor_liquido
-    }
-    b3_movimentacoes {
-        int  id              PK
-        text sentido
-        text data
-        text movimentacao
-        text produto_raw
-        int  ativo_id        FK
-        text instituicao
-        real quantidade
-        real preco_unitario
-        real valor
-        text arquivo         FK
+        bigint  id            PK
+        bigint  investidor_id FK
+        text    nota_id       FK
+        int     linha_na_nota
+        bigint  ativo_id      FK
+        date    data
+        text    sentido
+        numeric quantidade
+        numeric valor_liquido
     }
     b3_arquivos_processados {
-        text arquivo       PK
-        text processado_em
+        bigint id            PK
+        bigint investidor_id FK
+        text   arquivo
+    }
+    b3_movimentacoes {
+        bigint  id            PK
+        bigint  investidor_id FK
+        bigint  arquivo_id    FK
+        date    data
+        text    movimentacao
+        bigint  ativo_id      FK
+        numeric quantidade
+        numeric valor
+    }
+    bonificacoes {
+        bigint  b3_movimentacao_id PK
+        numeric custo_por_cota
     }
 
+    usuarios                ||--o{ investidores        : "manages"
+    investidores            ||--o{ notas               : "owns"
+    investidores            ||--o{ b3_arquivos_processados : "owns"
+    investidores            ||--o{ b3_movimentacoes    : "owns"
     ativos                  ||--o{ ticker_aliases      : "identified by"
     ativos                  ||--o{ negociacoes         : "traded in"
     notas                   ||--o{ negociacoes         : "contains"
     ativos                  |o--o{ b3_movimentacoes    : "appears in"
     b3_arquivos_processados ||--o{ b3_movimentacoes    : "sourced from"
+    b3_movimentacoes        ||--o| bonificacoes        : "cost basis"
 ```
 
 ---
@@ -102,12 +128,13 @@ Covers all three document types: `NotaCorretagem`, `TituloPublico`, `TituloPriva
 
 | Column | Type | Nullable | Source | Description |
 |---|---|---|---|---|
+| `investidor_id` | BIGINT PK | NO | — | FK → `investidores.id`. Resolved from the CPF printed on the nota |
 | `nota_id` | TEXT PK | NO | all | Nota number as printed on the document |
 | `corretora_id` | TEXT PK | NO | all | Broker identifier (`nu_invest`, `xp`, `safra`, `brasil_plural`) |
 | `doc_type` | TEXT PK | NO | all | `NotaCorretagem` / `TituloPublico` / `TituloPrivado` |
-| `data_pregao` | TEXT | NO | all | Trade / operation date (`YYYY-MM-DD`) |
-| `data_de_liquidacao` | TEXT | YES | TituloPrivado | Settlement date; differs from `data_pregao` for fixed income |
-| `cpf_cliente` | TEXT | NO | all | Investor CPF (normalized, digits only) |
+| `data_pregao` | DATE | NO | all | Trade / operation date |
+| `data_de_liquidacao` | DATE | YES | TituloPrivado | Settlement date; differs from `data_pregao` for fixed income |
+| `cpf_cliente` | TEXT | NO | all | Investor CPF as extracted (normalized to 11 digits) |
 | `codigo_cliente` | TEXT | NO | all | Broker-assigned client code |
 | `nome_cliente` | TEXT | YES | all | Client full name |
 | `assessor` | TEXT | YES | NotaCorretagem | Advisor/agent code (XP, Safra, Brasil Plural) |
@@ -123,41 +150,41 @@ Covers all three document types: `NotaCorretagem`, `TituloPublico`, `TituloPriva
 | `comando` | TEXT | YES | TituloPrivado | Internal operation command code |
 | `mercado` | TEXT | YES | TituloPublico | Market segment (e.g. `Tesouro Direto`) |
 | `status` | TEXT | YES | TituloPublico | Operation status (e.g. `Pago`, `Pendente`) |
-| `liquido_para` | REAL | YES | all | Net amount the client pays or receives to settle this nota |
+| `liquido_para` | NUMERIC | YES | all | Net amount the client pays or receives to settle this nota |
 | `filename` | TEXT | NO | — | Source PDF filename |
-| `processado_em` | TEXT | NO | — | UTC timestamp of first load |
+| `processado_em` | TIMESTAMPTZ | NO | — | Timestamp of first load |
 | **Resumo dos Negócios** | | | | *(NotaCorretagem only)* |
-| `debentures` | REAL | YES | NotaCorretagem | Debêntures volume |
-| `vendas_a_vista` | REAL | YES | NotaCorretagem | Total value of equity sales |
-| `compras_a_vista` | REAL | YES | NotaCorretagem | Total value of equity purchases |
-| `opcoes_compras` | REAL | YES | NotaCorretagem | Options purchases value |
-| `opcoes_vendas` | REAL | YES | NotaCorretagem | Options sales value |
-| `operacoes_a_termo` | REAL | YES | NotaCorretagem | Forward / term contracts value |
-| `valor_das_operacoes_com_titulos_publicos` | REAL | YES | NotaCorretagem | Tesouro Direto volume (nominal) |
-| `valor_das_operacoes` | REAL | YES | NotaCorretagem | Grand total of all operations |
-| `valor_liquido_das_operacoes` | REAL | YES | NotaCorretagem | Net value after netting buys and sells |
+| `debentures` | NUMERIC | YES | NotaCorretagem | Debêntures volume |
+| `vendas_a_vista` | NUMERIC | YES | NotaCorretagem | Total value of equity sales |
+| `compras_a_vista` | NUMERIC | YES | NotaCorretagem | Total value of equity purchases |
+| `opcoes_compras` | NUMERIC | YES | NotaCorretagem | Options purchases value |
+| `opcoes_vendas` | NUMERIC | YES | NotaCorretagem | Options sales value |
+| `operacoes_a_termo` | NUMERIC | YES | NotaCorretagem | Forward / term contracts value |
+| `valor_das_operacoes_com_titulos_publicos` | NUMERIC | YES | NotaCorretagem | Tesouro Direto volume (nominal) |
+| `valor_das_operacoes` | NUMERIC | YES | NotaCorretagem | Grand total of all operations |
+| `valor_liquido_das_operacoes` | NUMERIC | YES | NotaCorretagem | Net value after netting buys and sells |
 | **Resumo Financeiro** | | | | *(NotaCorretagem only)* |
-| `taxa_de_liquidacao` | REAL | YES | NotaCorretagem | B3 clearing / settlement fee |
-| `taxa_de_registro` | REAL | YES | NotaCorretagem | B3 registration fee |
-| `total_clearing_cblc` | REAL | YES | NotaCorretagem | Total CBLC/clearing charges subtotal |
-| `taxa_de_termo_opcoes` | REAL | YES | NotaCorretagem | Term / options fee |
-| `taxa_a_n_a` | REAL | YES | NotaCorretagem | ANA fee |
-| `emolumentos` | REAL | YES | NotaCorretagem | Exchange emoluments |
-| `total_bolsa` | REAL | YES | NotaCorretagem | Total exchange charges subtotal |
-| `corretagem` | REAL | YES | NotaCorretagem | Brokerage commission |
-| `iss` | REAL | YES | NotaCorretagem | ISS municipal services tax |
-| `irrf_sobre_operacoes` | REAL | YES | NotaCorretagem | IRRF withheld on day-trades |
-| `outras` | REAL | YES | NotaCorretagem | Other charges |
-| `total_corretagem_despesas` | REAL | YES | NotaCorretagem | Total brokerage + fees subtotal |
-| `taxa_operacional` | REAL | YES | NotaCorretagem (XP) | XP operational fee |
-| `execucao` | REAL | YES | NotaCorretagem (XP, Safra) | Execution fee |
-| `taxa_de_custodia` | REAL | YES | NotaCorretagem (XP) | XP custody fee |
-| `impostos` | REAL | YES | NotaCorretagem (XP) | XP taxes line |
-| `pis_cofins` | REAL | YES | NotaCorretagem (Safra) | Safra PIS/COFINS |
-| `taxa_de_transferencia_de_ativos` | REAL | YES | NotaCorretagem (Safra) | Safra asset transfer fee |
-| `execucao_casa` | REAL | YES | NotaCorretagem (Safra) | Safra in-house execution fee |
+| `taxa_de_liquidacao` | NUMERIC | YES | NotaCorretagem | B3 clearing / settlement fee |
+| `taxa_de_registro` | NUMERIC | YES | NotaCorretagem | B3 registration fee |
+| `total_clearing_cblc` | NUMERIC | YES | NotaCorretagem | Total CBLC/clearing charges subtotal |
+| `taxa_de_termo_opcoes` | NUMERIC | YES | NotaCorretagem | Term / options fee |
+| `taxa_a_n_a` | NUMERIC | YES | NotaCorretagem | ANA fee |
+| `emolumentos` | NUMERIC | YES | NotaCorretagem | Exchange emoluments |
+| `total_bolsa` | NUMERIC | YES | NotaCorretagem | Total exchange charges subtotal |
+| `corretagem` | NUMERIC | YES | NotaCorretagem | Brokerage commission |
+| `iss` | NUMERIC | YES | NotaCorretagem | ISS municipal services tax |
+| `irrf_sobre_operacoes` | NUMERIC | YES | NotaCorretagem | IRRF withheld on day-trades |
+| `outras` | NUMERIC | YES | NotaCorretagem | Other charges |
+| `total_corretagem_despesas` | NUMERIC | YES | NotaCorretagem | Total brokerage + fees subtotal |
+| `taxa_operacional` | NUMERIC | YES | NotaCorretagem (XP) | XP operational fee |
+| `execucao` | NUMERIC | YES | NotaCorretagem (XP, Safra) | Execution fee |
+| `taxa_de_custodia` | NUMERIC | YES | NotaCorretagem (XP) | XP custody fee |
+| `impostos` | NUMERIC | YES | NotaCorretagem (XP) | XP taxes line |
+| `pis_cofins` | NUMERIC | YES | NotaCorretagem (Safra) | Safra PIS/COFINS |
+| `taxa_de_transferencia_de_ativos` | NUMERIC | YES | NotaCorretagem (Safra) | Safra asset transfer fee |
+| `execucao_casa` | NUMERIC | YES | NotaCorretagem (Safra) | Safra in-house execution fee |
 
-**Primary key:** `(nota_id, corretora_id, doc_type)`
+**Primary key:** `(investidor_id, corretora_id, doc_type, nota_id)` — nota numbers are only unique per broker and investidor
 
 ---
 
@@ -169,52 +196,55 @@ For `TituloPublico` and `TituloPrivado` a nota always has exactly one row.
 
 | Column | Type | Nullable | Source | Description |
 |---|---|---|---|---|
-| `id` | INTEGER PK | NO | — | Auto-increment surrogate key |
+| `id` | BIGINT PK | NO | — | Auto-increment surrogate key |
+| `investidor_id` | BIGINT | NO | — | Part of the FK → `notas`; denormalized so every query can filter on it |
 | `nota_id` | TEXT | NO | all | FK → `notas.nota_id` |
 | `corretora_id` | TEXT | NO | all | FK → `notas.corretora_id` |
 | `doc_type` | TEXT | NO | all | FK → `notas.doc_type` |
 | `linha_na_nota` | INTEGER | NO | all | 0-based index of this line within the nota. Always `0` for single-trade documents |
-| `ativo_id` | INTEGER | NO | — | FK → `ativos.id` |
-| `data` | TEXT | NO | all | Trade / operation date (`YYYY-MM-DD`). Denormalized from `notas.data_pregao` for query convenience |
+| `ativo_id` | BIGINT | NO | — | FK → `ativos.id` |
+| `data` | DATE | NO | all | Trade / operation date. Denormalized from `notas.data_pregao` for query convenience |
 | `sentido` | TEXT | NO | all | `entrada` (buy / aquisicao) or `saida` (sell / resgate). Derived from `tipo` |
 | `tipo` | TEXT | NO | all | `compra` / `venda` / `aquisicao` / `resgate`. See [negociacoes.tipo](#negociacoestipo) |
 | `debito_credito` | TEXT | YES | NotaCorretagem | `D` (cash outflow) or `C` (cash inflow). Present on equity lines; `NULL` for renda fixa |
-| `quantidade` | REAL | YES | all | Number of shares / units / nominal amount |
-| `preco_unitario` | REAL | YES | all | Unit price in BRL |
-| `valor_bruto` | REAL | YES | all | Gross trade value (`quantidade × preco_unitario`) |
-| `taxas_proporcionais` | REAL | NO | all | Portion of nota-level fees allocated to this line (proportional to `valor_bruto`). Always `0` for Tesouro Direto |
-| `valor_liquido` | REAL | YES | all | Net amount for this trade after fees |
+| `quantidade` | NUMERIC | YES | all | Number of shares / units / nominal amount |
+| `preco_unitario` | NUMERIC | YES | all | Unit price in BRL |
+| `valor_bruto` | NUMERIC | YES | all | Gross trade value (`quantidade × preco_unitario`) |
+| `taxas_proporcionais` | NUMERIC | NO | all | Portion of nota-level fees allocated to this line (proportional to `valor_bruto`). Always `0` for Tesouro Direto |
+| `valor_liquido` | NUMERIC | YES | all | Net amount for this trade after fees |
 | `mercado` | TEXT | YES | NotaCorretagem | Market segment code (e.g. `BOVESPA`, `BMF`) |
 | `tipo_de_mercado` | TEXT | YES | NotaCorretagem | Market type (e.g. `VISTA`, `OPCAO DE COMPRA`) |
 | `prazo` | TEXT | YES | NotaCorretagem, TituloPrivado | Expiry or term |
 | `observacao` | TEXT | YES | NotaCorretagem | Free-text note from the broker (e.g. `#` for day-trade) |
 | `indexador` | TEXT | YES | TituloPrivado | Rate index (e.g. `CDI`, `IPCA`, `PRÉ`) |
-| `taxa_cupom_percentual` | REAL | YES | TituloPrivado | Coupon rate in percent |
-| `percentual_do_indexador` | REAL | YES | TituloPrivado | Percentage of the index (e.g. `109.5` for 109.5% CDI) |
-| `emissao` | TEXT | YES | TituloPrivado | Instrument issuance date (`YYYY-MM-DD`) |
-| `vencimento` | TEXT | YES | TituloPrivado | Instrument maturity date (`YYYY-MM-DD`) |
+| `taxa_cupom_percentual` | NUMERIC | YES | TituloPrivado | Coupon rate in percent |
+| `percentual_do_indexador` | NUMERIC | YES | TituloPrivado | Percentage of the index (e.g. `109.5` for 109.5% CDI) |
+| `emissao` | DATE | YES | TituloPrivado | Instrument issuance date |
+| `vencimento` | DATE | YES | TituloPrivado | Instrument maturity date |
 | `custodia` | TEXT | YES | TituloPrivado | Custodian name |
 | `tipo_emitente` | TEXT | YES | TituloPrivado | Issuer category (e.g. `Banco`) |
 | `conta_bancaria` | TEXT | YES | TituloPrivado | Bank account tied to the operation |
 | `rendimentos` | TEXT | YES | TituloPrivado | Accrued interest description |
-| `imposto_de_renda_federal` | REAL | YES | TituloPrivado | IR withheld on this operation |
-| `iof` | REAL | YES | TituloPrivado | IOF withheld on this operation |
-| `tx_bvmf` | REAL | YES | TituloPublico | B3/BVMF transaction fee |
-| `tx_agente_custodia` | REAL | YES | TituloPublico | Custody agent fee (percentage) |
+| `imposto_de_renda_federal` | NUMERIC | YES | TituloPrivado | IR withheld on this operation |
+| `iof` | NUMERIC | YES | TituloPrivado | IOF withheld on this operation |
+| `tx_bvmf` | NUMERIC | YES | TituloPublico | B3/BVMF transaction fee |
+| `tx_agente_custodia` | NUMERIC | YES | TituloPublico | Custody agent fee (percentage) |
 | `especificacao_observacao` | TEXT | YES | TituloPrivado | Additional specification or observation from the document |
 
-**Unique constraint:** `(nota_id, corretora_id, doc_type, linha_na_nota)`
+**Unique constraint:** `(investidor_id, corretora_id, doc_type, nota_id, linha_na_nota)`  
+**Checks:** `sentido IN ('entrada', 'saida')`, `quantidade >= 0`
 
 ---
 
 ## `ativos`
 
 One row per unique investable instrument.  
-Rows are created automatically on first encounter; most type-specific fields require manual review (`revisado = 1` signals the row has been verified).
+Rows are created automatically on first encounter; most type-specific fields require manual review (`revisado = true` signals the row has been verified).  
+The catalog is shared by all investidores, so editing it is an administrative action.
 
 | Column | Type | Nullable | Auto? | Description |
 |---|---|---|---|---|
-| `id` | INTEGER PK | NO | yes | Auto-increment surrogate key |
+| `id` | BIGINT PK | NO | yes | Auto-increment surrogate key |
 | `tipo` | TEXT | NO | yes | Asset class: `acao` / `fii` / `bdr` / `tesouro_direto` / `renda_fixa`. Inferred from ticker pattern or doc_type |
 | `subtipo` | TEXT | YES | **manual** | Instrument category. For `renda_fixa`: `CDB` / `LCI` / `LCA` / `debenture` / `CRI` / `CRA`. For `tesouro_direto`: `LTN` / `NTN-B` / `NTN-F` / `LFT`. `NULL` for equity |
 | `ticker` | TEXT | YES (UNIQUE) | yes | Canonical ticker symbol. Populated for `acao`, `fii`, `bdr`. Always `NULL` for fixed income |
@@ -222,11 +252,11 @@ Rows are created automatically on first encounter; most type-specific fields req
 | `cnpj_emissor` | TEXT | YES | yes (renda_fixa) | Issuer CNPJ. Auto-populated from `TituloPrivado` |
 | `emissor` | TEXT | YES | yes (renda_fixa) | Issuer institution name. Auto-populated from `TituloPrivado.emissor` |
 | `indexador` | TEXT | YES | yes (renda_fixa) | Rate benchmark: `PRÉ` / `CDI` / `IPCA` / `SELIC` / `IGPM` |
-| `taxa_prefixada` | REAL | YES | yes (renda_fixa) | Fixed or spread component in % p.a. |
-| `percentual_do_indexador` | REAL | YES | yes (renda_fixa) | Floating component as % of index (e.g. `109.5` for 109.5% CDI) |
-| `emissao` | TEXT | YES | yes (renda_fixa) | Issuance date (`YYYY-MM-DD`) |
-| `vencimento` | TEXT | YES | yes (renda_fixa) | Maturity date (`YYYY-MM-DD`) |
-| `revisado` | INTEGER | NO | — | `0` = auto-created, not yet reviewed. `1` = manually verified |
+| `taxa_prefixada` | NUMERIC | YES | yes (renda_fixa) | Fixed or spread component in % p.a. |
+| `percentual_do_indexador` | NUMERIC | YES | yes (renda_fixa) | Floating component as % of index (e.g. `109.5` for 109.5% CDI) |
+| `emissao` | DATE | YES | yes (renda_fixa) | Issuance date |
+| `vencimento` | DATE | YES | yes (renda_fixa) | Maturity date |
+| `revisado` | BOOLEAN | NO | — | `false` = auto-created, not yet reviewed. `true` = manually verified |
 
 ### Column applicability by type
 
@@ -254,22 +284,23 @@ Covers all event categories B3 reports in a single table: trades, income, corpor
 
 | Column | Type | Nullable | Description |
 |---|---|---|---|
-| `id` | INTEGER PK | NO | Auto-increment surrogate key |
+| `id` | BIGINT PK | NO | Auto-increment surrogate key |
+| `investidor_id` | BIGINT | NO | FK → `investidores.id`. B3 reports carry no CPF, so it is chosen at import |
+| `arquivo_id` | BIGINT | NO | FK → `b3_arquivos_processados.id`. Source file for traceability |
 | `sentido` | TEXT | NO | Cash flow direction as reported by B3: `Credito` or `Debito` |
-| `data` | TEXT | NO | Event date (`YYYY-MM-DD`) |
+| `data` | DATE | NO | Event date |
 | `movimentacao` | TEXT | NO | Event type label from B3 (e.g. `Dividendo`, `Compra`, `Atualização`) |
 | `produto_raw` | TEXT | NO | Raw product string from the B3 file (e.g. `PETR4 - PETROLEO BRASILEIRO S.A. PETROBRAS`). Kept as audit trail |
-| `ativo_id` | INTEGER | YES | FK → `ativos.id`. `NULL` when the product cannot be resolved |
+| `ativo_id` | BIGINT | YES | FK → `ativos.id`. `NULL` when the product cannot be resolved |
 | `instituicao` | TEXT | YES | Broker / institution name as reported by B3 |
-| `quantidade` | REAL | YES | Number of shares or units. `NULL` for income events that carry only a total value |
-| `preco_unitario` | REAL | YES | Unit price in BRL. `NULL` for income and corporate action events |
-| `valor` | REAL | YES | Total event value in BRL |
-| `arquivo` | TEXT | NO | FK → `b3_arquivos_processados.arquivo`. Source filename for traceability |
+| `quantidade` | NUMERIC | YES | Number of shares or units. `NULL` for income events that carry only a total value |
+| `preco_unitario` | NUMERIC | YES | Unit price in BRL. `NULL` for income and corporate action events |
+| `valor` | NUMERIC | YES | Total event value in BRL |
 
 **Notes**
 - `Atualização` rows are **position snapshots**, not deltas. `quantidade` is the total holding at that point in time. Use the most recent per `(ativo_id, instituicao)` to derive current positions.
 - Trade rows (`Transferência - Liquidação`, `COMPRA / VENDA`, `Compra`) correspond to broker notes — the same trade also appears in `negociacoes` with full cost-basis detail.
-- Deduplication is **date-based**: rows are skipped if any row for that date already exists in this table. This allows safely loading overlapping files without row-level key collisions.
+- Deduplication is **date-based per investidor**: rows are skipped if any row for that `(investidor_id, data)` already exists. B3 reports are final for every date they cover (they lag ~2 days and are never amended), so this safely loads overlapping files without a row-level key, which the B3 export does not provide.
 
 **Primary key:** `id`
 
@@ -282,10 +313,25 @@ Used for traceability only — the actual deduplication guard is date-based (see
 
 | Column | Type | Nullable | Description |
 |---|---|---|---|
-| `arquivo` | TEXT PK | NO | Source filename (e.g. `movimentacao-2026-05-25-18-05-35.xlsx`) |
-| `processado_em` | TEXT | NO | UTC timestamp of load (`datetime('now')`) |
+| `id` | BIGINT PK | NO | Auto-increment surrogate key |
+| `investidor_id` | BIGINT | NO | FK → `investidores.id` |
+| `arquivo` | TEXT | NO | Source filename (e.g. `movimentacao-2026-05-25-18-05-35.xlsx`) |
+| `processado_em` | TIMESTAMPTZ | NO | Timestamp of load |
 
-**Primary key:** `arquivo`
+**Primary key:** `id`  
+**Unique constraint:** `(investidor_id, arquivo)`
+
+---
+
+## `bonificacoes`
+
+Cost basis for bonus shares (*Bonificação em Ativos*). B3 records the event but not
+the cost the company declares for the new shares; the user supplies it.
+
+| Column | Type | Nullable | Description |
+|---|---|---|---|
+| `b3_movimentacao_id` | BIGINT PK | NO | FK → `b3_movimentacoes.id` (cascade delete) |
+| `custo_por_cota` | NUMERIC | YES | Declared cost per share. `NULL` until informed; must be `>= 0` |
 
 ---
 
@@ -296,7 +342,7 @@ Loader-time lookup table. Maps every raw asset description found in a PDF or B3 
 | Column | Type | Nullable | Description |
 |---|---|---|---|
 | `raw_text` | TEXT PK | NO | Exact string as extracted from the source document |
-| `ativo_id` | INTEGER | NO | FK → `ativos.id` |
+| `ativo_id` | BIGINT | NO | FK → `ativos.id` |
 
 **Notes**
 - The same ativo can have many aliases (ex-dividend suffixes, different broker formatting, B3 long-name format, etc.).
@@ -452,11 +498,13 @@ SELECT
     m.data AS snapshot_date
 FROM b3_movimentacoes m
 JOIN ativos a ON a.id = m.ativo_id
-WHERE m.movimentacao = 'Atualização'
+WHERE m.investidor_id = :investidor_id
+  AND m.movimentacao = 'Atualização'
   AND m.data = (
       SELECT MAX(m2.data)
       FROM b3_movimentacoes m2
-      WHERE m2.ativo_id = m.ativo_id
+      WHERE m2.investidor_id = m.investidor_id
+        AND m2.ativo_id = m.ativo_id
         AND m2.instituicao = m.instituicao
         AND m2.movimentacao = 'Atualização'
   )
@@ -474,7 +522,8 @@ SELECT
     m.valor
 FROM b3_movimentacoes m
 JOIN ativos a ON a.id = m.ativo_id
-WHERE m.movimentacao IN ('Dividendo', 'Juros Sobre Capital Próprio', 'Rendimento')
+WHERE m.investidor_id = :investidor_id
+  AND m.movimentacao IN ('Dividendo', 'Juros Sobre Capital Próprio', 'Rendimento')
 ORDER BY m.data DESC;
 ```
 
@@ -488,7 +537,8 @@ SELECT
     SUM(n.taxas_proporcionais) AS total_taxas
 FROM negociacoes n
 JOIN ativos a ON a.id = n.ativo_id
-WHERE n.tipo IN ('compra', 'aquisicao')
+WHERE n.investidor_id = :investidor_id
+  AND n.tipo IN ('compra', 'aquisicao')
 GROUP BY a.ticker, n.tipo
 ORDER BY a.ticker;
 ```
@@ -498,7 +548,7 @@ ORDER BY a.ticker;
 ```sql
 SELECT id, tipo, ticker, nome
 FROM ativos
-WHERE revisado = 0
+WHERE NOT revisado
 ORDER BY tipo, ticker;
 ```
 

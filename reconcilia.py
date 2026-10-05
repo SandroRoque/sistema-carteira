@@ -27,7 +27,10 @@ Usage:
 
 from __future__ import annotations
 
-from database import connect, init_db
+from sqlalchemy import Connection
+
+from contas import investidor_do_cli
+from database import connect, fetch_all
 from posicoes import calcular_posicoes
 
 _SEP = "─" * 80
@@ -36,9 +39,10 @@ _WAR = "⚠"
 _ERR = "✗"
 
 
-def _check_sem_negociacoes(conn) -> list[dict]:
+def _check_sem_negociacoes(conn: Connection, investidor_id: int) -> list[dict]:
     """Equity ativos with income/corporate B3 events but no negociacoes."""
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT
             a.id,
@@ -50,8 +54,8 @@ def _check_sem_negociacoes(conn) -> list[dict]:
                 'PAGAMENTO DE JUROS','Bonificação em Ativos'
             ) THEN 1 ELSE 0 END)   AS income_events
         FROM ativos a
-        JOIN b3_movimentacoes bm ON bm.ativo_id = a.id
-        LEFT JOIN negociacoes n   ON n.ativo_id  = a.id
+        JOIN b3_movimentacoes bm ON bm.ativo_id = a.id AND bm.investidor_id = :investidor_id
+        LEFT JOIN negociacoes n   ON n.ativo_id  = a.id AND n.investidor_id  = :investidor_id
         WHERE n.id IS NULL
           AND a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
           AND bm.movimentacao NOT IN (
@@ -60,14 +64,16 @@ def _check_sem_negociacoes(conn) -> list[dict]:
           )
         GROUP BY a.id
         ORDER BY b3_events DESC
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
     return [dict(r) for r in rows]
 
 
-def _check_bonif_sem_custo(conn) -> list[dict]:
+def _check_bonif_sem_custo(conn: Connection, investidor_id: int) -> list[dict]:
     """Bonus-share events with NULL custo_por_cota."""
-    rows = conn.execute(
+    rows = fetch_all(
+        conn,
         """
         SELECT
             a.ticker,
@@ -77,18 +83,31 @@ def _check_bonif_sem_custo(conn) -> list[dict]:
         FROM bonificacoes b
         JOIN b3_movimentacoes bm ON bm.id = b.b3_movimentacao_id
         JOIN ativos a            ON a.id  = bm.ativo_id
-        WHERE b.custo_por_cota IS NULL
+        WHERE bm.investidor_id = :investidor_id
+          AND b.custo_por_cota IS NULL
         ORDER BY a.ticker, bm.data
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
     return [dict(r) for r in rows]
 
 
-def _check_nao_revisados(conn) -> list[dict]:
-    """Ativos still marked revisado=0."""
-    rows = conn.execute(
-        "SELECT id, ticker, tipo, nome FROM ativos WHERE revisado = 0 ORDER BY tipo, ticker"
-    ).fetchall()
+def _check_nao_revisados(conn: Connection, investidor_id: int) -> list[dict]:
+    """Ativos used by the investidor that are still unreviewed."""
+    rows = fetch_all(
+        conn,
+        """
+        SELECT id, ticker, tipo, nome FROM ativos
+        WHERE NOT revisado
+          AND id IN (
+              SELECT ativo_id FROM negociacoes WHERE investidor_id = :investidor_id
+              UNION
+              SELECT ativo_id FROM b3_movimentacoes WHERE investidor_id = :investidor_id
+          )
+        ORDER BY tipo, ticker
+        """,
+        investidor_id=investidor_id,
+    )
     return [dict(r) for r in rows]
 
 
@@ -109,12 +128,12 @@ def _section(title: str) -> None:
 
 
 def main() -> None:
-    init_db()
     with connect() as conn:
-        sem_neg    = _check_sem_negociacoes(conn)
-        bonif_pend = _check_bonif_sem_custo(conn)
-        nao_rev    = _check_nao_revisados(conn)
-        posicoes   = calcular_posicoes(conn)
+        investidor_id = investidor_do_cli(conn)
+        sem_neg    = _check_sem_negociacoes(conn, investidor_id)
+        bonif_pend = _check_bonif_sem_custo(conn, investidor_id)
+        nao_rev    = _check_nao_revisados(conn, investidor_id)
+        posicoes   = calcular_posicoes(conn, investidor_id)
 
     custo_desc = _check_custo_desconhecido(posicoes)
     qty_neg    = _check_qty_negativa(posicoes)
@@ -158,12 +177,12 @@ def main() -> None:
         print(f"  {'Ticker':<12}  {'Data':>12}  {'Qtd Bonif':>10}")
         print("  " + "─" * 38)
         for b in bonif_pend:
-            print(f"  {b['ticker']:<12}  {b['data']:>12}  {b['quantidade']:>10.4f}")
+            print(f"  {b['ticker']:<12}  {b['data'].isoformat():>12}  {b['quantidade']:>10.4f}")
         print()
         print("  → Execute: python revisa_bonificacoes.py")
 
     # ── 3. Ativos não revisados ───────────────────────────────────────────
-    _section("3. Ativos não revisados (revisado=0)")
+    _section("3. Ativos não revisados")
     if not nao_rev:
         print(f"  {_OK}  Todos os ativos revisados.")
     else:

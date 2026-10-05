@@ -1,7 +1,12 @@
+import dataclasses
 import re
-import sqlite3
 from datetime import date
 
+from sqlalchemy import Connection
+
+import tabelas
+from contas import get_or_create_investidor
+from database import execute, fetch_one, scalar
 from transformer import DocumentoTransformado, NegociacaoRecord, NotaRecord
 
 # Matches canonical B3 tickers: a letter followed by 2-3 alphanumeric chars
@@ -45,15 +50,44 @@ def _infer_tipo(ticker: str | None, doc_type: str) -> str:
     return "desconhecido"
 
 
-def ja_processado(conn: sqlite3.Connection, nota_id: str, corretora_id: str, doc_type: str) -> bool:
-    return conn.execute(
-        "SELECT 1 FROM notas WHERE nota_id = ? AND corretora_id = ? AND doc_type = ?",
-        (nota_id, corretora_id, doc_type),
-    ).fetchone() is not None
+def ja_processado(
+    conn: Connection, investidor_id: int, nota_id: str, corretora_id: str, doc_type: str
+) -> bool:
+    return fetch_one(
+        conn,
+        """
+        SELECT 1 FROM notas
+        WHERE investidor_id = :investidor_id AND nota_id = :nota_id
+          AND corretora_id = :corretora_id AND doc_type = :doc_type
+        """,
+        investidor_id=investidor_id,
+        nota_id=nota_id,
+        corretora_id=corretora_id,
+        doc_type=doc_type,
+    ) is not None
+
+
+def _registrar_alias(conn: Connection, raw_ticker: str, ativo_id: int) -> int:
+    """Point raw_ticker at ativo_id unless another loader got there first.
+
+    Returns the ativo_id the alias resolves to after the insert attempt.
+    """
+    execute(
+        conn,
+        """
+        INSERT INTO ticker_aliases (raw_text, ativo_id) VALUES (:raw, :ativo_id)
+        ON CONFLICT (raw_text) DO NOTHING
+        """,
+        raw=raw_ticker,
+        ativo_id=ativo_id,
+    )
+    # Separate statement: under READ COMMITTED it sees a row committed by a
+    # concurrent loader that won the conflict.
+    return scalar(conn, "SELECT ativo_id FROM ticker_aliases WHERE raw_text = :raw", raw=raw_ticker)
 
 
 def resolve_ou_criar_ativo(
-    conn: sqlite3.Connection,
+    conn: Connection,
     raw_ticker: str,
     doc_type: str = "",
     *,
@@ -62,8 +96,8 @@ def resolve_ou_criar_ativo(
     indexador: str | None = None,
     taxa_prefixada: float | None = None,
     percentual_do_indexador: float | None = None,
-    emissao: str | None = None,
-    vencimento: str | None = None,
+    emissao: date | None = None,
+    vencimento: date | None = None,
 ) -> int:
     """Returns the ativo_id for raw_ticker, auto-creating an unreviewed ativo on first encounter.
 
@@ -75,11 +109,12 @@ def resolve_ou_criar_ativo(
     Extra keyword arguments enrich the new ativo row for fixed income instruments.
     They are only used during creation; callers that don't provide them (e.g.
     carrega_b3.py) get the same behaviour as before.
+
+    ativos is a catalog shared by all investidores, so creation is written to be
+    safe when two imports race on the same ticker.
     """
     # 1. Fast path: alias already exists.
-    row = conn.execute(
-        "SELECT ativo_id FROM ticker_aliases WHERE raw_text = ?", (raw_ticker,)
-    ).fetchone()
+    row = fetch_one(conn, "SELECT ativo_id FROM ticker_aliases WHERE raw_text = :raw", raw=raw_ticker)
     if row:
         return row["ativo_id"]
 
@@ -91,158 +126,80 @@ def resolve_ou_criar_ativo(
     #    to avoid fragmentation (e.g. "PETR4F PN N2" and "PETR4F PN EDJ N2"
     #    both resolve to the same PETR4 ativo).
     if ticker:
-        existing = conn.execute(
-            "SELECT id FROM ativos WHERE ticker = ?", (ticker,)
-        ).fetchone()
+        existing = fetch_one(conn, "SELECT id FROM ativos WHERE ticker = :ticker", ticker=ticker)
         if existing:
-            ativo_id = existing["id"]
-            conn.execute(
-                "INSERT OR IGNORE INTO ticker_aliases (raw_text, ativo_id) VALUES (?, ?)",
-                (raw_ticker, ativo_id),
-            )
-            return ativo_id
+            return _registrar_alias(conn, raw_ticker, existing["id"])
 
-    # 4. New ativo.
-    cursor = conn.execute(
+    # 4. New ativo. ON CONFLICT covers a concurrent insert of the same ticker.
+    ativo_id = scalar(
+        conn,
         """
         INSERT INTO ativos
             (tipo, ticker, nome, cnpj_emissor, emissor, indexador,
              taxa_prefixada, percentual_do_indexador, emissao, vencimento, revisado)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        VALUES
+            (:tipo, :ticker, :nome, :cnpj_emissor, :emissor, :indexador,
+             :taxa_prefixada, :percentual_do_indexador, :emissao, :vencimento, false)
+        ON CONFLICT (ticker) DO NOTHING
+        RETURNING id
         """,
-        (tipo, ticker, raw_ticker, cnpj_emissor, emissor, indexador,
-         taxa_prefixada, percentual_do_indexador, emissao, vencimento),
+        tipo=tipo,
+        ticker=ticker,
+        nome=raw_ticker,
+        cnpj_emissor=cnpj_emissor,
+        emissor=emissor,
+        indexador=indexador,
+        taxa_prefixada=taxa_prefixada,
+        percentual_do_indexador=percentual_do_indexador,
+        emissao=emissao,
+        vencimento=vencimento,
     )
-    ativo_id = cursor.lastrowid
+    if ativo_id is None:
+        ativo_id = scalar(conn, "SELECT id FROM ativos WHERE ticker = :ticker", ticker=ticker)
+    return _registrar_alias(conn, raw_ticker, ativo_id)
+
+
+def _colunas(tabela, registro, **extra) -> dict:
+    """Dataclass fields that are columns of `tabela`, plus explicit extras."""
+    nomes = set(tabela.c.keys())
+    valores = {k: v for k, v in dataclasses.asdict(registro).items() if k in nomes}
+    valores.update(extra)
+    return valores
+
+
+def _inserir_nota(conn: Connection, investidor_id: int, nota: NotaRecord, filename: str) -> None:
     conn.execute(
-        "INSERT INTO ticker_aliases (raw_text, ativo_id) VALUES (?, ?)",
-        (raw_ticker, ativo_id),
-    )
-    return ativo_id
-
-
-def _iso(value) -> str | None:
-    if isinstance(value, date):
-        return value.isoformat()
-    return value
-
-
-def _inserir_nota(conn: sqlite3.Connection, nota: NotaRecord, filename: str) -> None:
-    conn.execute(
-        """
-        INSERT INTO notas (
-            nota_id, corretora_id, doc_type,
-            data_pregao, data_de_liquidacao,
-            cpf_cliente, codigo_cliente, nome_cliente,
-            assessor, folha, endereco, cidade, uf, cep,
-            nota_de, local, emissor, cnpj_emissor, comando,
-            mercado, status, liquido_para,
-            debentures, vendas_a_vista, compras_a_vista,
-            opcoes_compras, opcoes_vendas, operacoes_a_termo,
-            valor_das_operacoes_com_titulos_publicos,
-            valor_das_operacoes, valor_liquido_das_operacoes,
-            taxa_de_liquidacao, taxa_de_registro, total_clearing_cblc,
-            taxa_de_termo_opcoes, taxa_a_n_a, emolumentos, total_bolsa,
-            corretagem, iss, irrf_sobre_operacoes, outras,
-            total_corretagem_despesas,
-            taxa_operacional, execucao, taxa_de_custodia, impostos,
-            pis_cofins, taxa_de_transferencia_de_ativos, execucao_casa,
-            filename
-        ) VALUES (
-            ?, ?, ?,
-            ?, ?,
-            ?, ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?,
-            ?, ?, ?,
-            ?, ?, ?,
-            ?, ?, ?,
-            ?,
-            ?, ?,
-            ?, ?, ?,
-            ?, ?, ?, ?,
-            ?, ?, ?, ?,
-            ?,
-            ?, ?, ?, ?,
-            ?, ?, ?,
-            ?
+        tabelas.notas.insert().values(
+            _colunas(tabelas.notas, nota, investidor_id=investidor_id, filename=filename)
         )
-        """,
-        (
-            nota.nota_id, nota.corretora_id, nota.doc_type,
-            _iso(nota.data_pregao), _iso(nota.data_de_liquidacao),
-            nota.cpf_cliente, nota.codigo_cliente, nota.nome_cliente,
-            nota.assessor, nota.folha, nota.endereco, nota.cidade, nota.uf, nota.cep,
-            nota.nota_de, nota.local, nota.emissor, nota.cnpj_emissor, nota.comando,
-            nota.mercado, nota.status, nota.liquido_para,
-            nota.debentures, nota.vendas_a_vista, nota.compras_a_vista,
-            nota.opcoes_compras, nota.opcoes_vendas, nota.operacoes_a_termo,
-            nota.valor_das_operacoes_com_titulos_publicos,
-            nota.valor_das_operacoes, nota.valor_liquido_das_operacoes,
-            nota.taxa_de_liquidacao, nota.taxa_de_registro, nota.total_clearing_cblc,
-            nota.taxa_de_termo_opcoes, nota.taxa_a_n_a, nota.emolumentos, nota.total_bolsa,
-            nota.corretagem, nota.iss, nota.irrf_sobre_operacoes, nota.outras,
-            nota.total_corretagem_despesas,
-            nota.taxa_operacional, nota.execucao, nota.taxa_de_custodia, nota.impostos,
-            nota.pis_cofins, nota.taxa_de_transferencia_de_ativos, nota.execucao_casa,
-            filename,
-        ),
     )
 
 
-def _inserir_negociacao(conn: sqlite3.Connection, neg: NegociacaoRecord, ativo_id: int) -> None:
+def _inserir_negociacao(
+    conn: Connection, investidor_id: int, neg: NegociacaoRecord, ativo_id: int
+) -> None:
     conn.execute(
-        """
-        INSERT INTO negociacoes (
-            nota_id, corretora_id, doc_type, linha_na_nota, ativo_id,
-            data, sentido, tipo, debito_credito,
-            quantidade, preco_unitario, valor_bruto,
-            taxas_proporcionais, valor_liquido,
-            mercado, tipo_de_mercado, prazo, observacao,
-            indexador, taxa_cupom_percentual, percentual_do_indexador,
-            emissao, vencimento,
-            custodia, tipo_emitente, conta_bancaria,
-            rendimentos, imposto_de_renda_federal, iof,
-            especificacao_observacao, tx_bvmf, tx_agente_custodia
-        ) VALUES (
-            ?, ?, ?, ?, ?,
-            ?, ?, ?, ?,
-            ?, ?, ?,
-            ?, ?,
-            ?, ?, ?, ?,
-            ?, ?, ?,
-            ?, ?,
-            ?, ?, ?,
-            ?, ?, ?,
-            ?, ?, ?
+        tabelas.negociacoes.insert().values(
+            _colunas(tabelas.negociacoes, neg, investidor_id=investidor_id, ativo_id=ativo_id)
         )
-        """,
-        (
-            neg.nota_id, neg.corretora_id, neg.doc_type, neg.linha_na_nota, ativo_id,
-            _iso(neg.data), neg.sentido, neg.tipo, neg.debito_credito,
-            neg.quantidade, neg.preco_unitario, neg.valor_bruto,
-            neg.taxas_proporcionais, neg.valor_liquido,
-            neg.mercado, neg.tipo_de_mercado, neg.prazo, neg.observacao,
-            neg.indexador, neg.taxa_cupom_percentual, neg.percentual_do_indexador,
-            _iso(neg.emissao), _iso(neg.vencimento),
-            neg.custodia, neg.tipo_emitente, neg.conta_bancaria,
-            neg.rendimentos, neg.imposto_de_renda_federal, neg.iof,
-            neg.especificacao_observacao, neg.tx_bvmf, neg.tx_agente_custodia,
-        ),
     )
 
 
-def carregar(conn: sqlite3.Connection, doc: DocumentoTransformado, filename: str) -> bool:
+def carregar(conn: Connection, usuario_id: int, doc: DocumentoTransformado, filename: str) -> bool:
     """Inserts a DocumentoTransformado into the database.
+
+    The nota is filed under the investidor whose CPF is printed on it,
+    creating that investidor for usuario_id on first sight.
 
     Returns True if the nota was inserted, False if it was already present
     (idempotent — safe to call multiple times for the same nota).
     """
     nota = doc.nota
-    if ja_processado(conn, nota.nota_id, nota.corretora_id, nota.doc_type):
+    investidor_id = get_or_create_investidor(conn, usuario_id, nota.cpf_cliente, nota.nome_cliente)
+    if ja_processado(conn, investidor_id, nota.nota_id, nota.corretora_id, nota.doc_type):
         return False
 
-    _inserir_nota(conn, nota, filename)
+    _inserir_nota(conn, investidor_id, nota, filename)
 
     for neg in doc.negociacoes:
         ativo_id = resolve_ou_criar_ativo(
@@ -254,9 +211,9 @@ def carregar(conn: sqlite3.Connection, doc: DocumentoTransformado, filename: str
             indexador=neg.indexador,
             taxa_prefixada=neg.taxa_cupom_percentual,
             percentual_do_indexador=neg.percentual_do_indexador,
-            emissao=_iso(neg.emissao),
-            vencimento=_iso(neg.vencimento),
+            emissao=neg.emissao,
+            vencimento=neg.vencimento,
         )
-        _inserir_negociacao(conn, neg, ativo_id)
+        _inserir_negociacao(conn, investidor_id, neg, ativo_id)
 
     return True

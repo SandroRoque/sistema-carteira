@@ -18,7 +18,10 @@ from datetime import date, datetime
 from pathlib import Path
 
 from cotacoes import buscar_cotacoes
-from database import connect, init_db
+from sqlalchemy import Connection
+
+from contas import investidor_do_cli
+from database import connect, fetch_all, fetch_one
 from posicoes import calcular_posicoes
 
 # ---------------------------------------------------------------------------
@@ -367,11 +370,12 @@ def _section_renda_por_ativo(posicoes: list[dict]) -> str:
 # Section: Monthly income history
 # ---------------------------------------------------------------------------
 
-def _section_historico(conn) -> str:
-    db_rows = conn.execute(
+def _section_historico(conn: Connection, investidor_id: int) -> str:
+    db_rows = fetch_all(
+        conn,
         """
         SELECT
-            strftime('%Y-%m', data)                                            AS mes,
+            to_char(data, 'YYYY-MM')                                           AS mes,
             SUM(CASE WHEN movimentacao = 'Rendimento'
                      THEN COALESCE(valor, 0) ELSE 0 END)                      AS rendimento,
             SUM(CASE WHEN movimentacao = 'Dividendo'
@@ -393,15 +397,17 @@ def _section_historico(conn) -> str:
                 ELSE 0
             END)                                                               AS total
         FROM b3_movimentacoes
-        WHERE movimentacao IN (
+        WHERE investidor_id = :investidor_id
+          AND movimentacao IN (
             'Rendimento', 'Dividendo', 'Dividendo - Cancelado',
             'Juros Sobre Capital Próprio', 'PAGAMENTO DE JUROS'
-        )
+          )
           AND ativo_id IS NOT NULL
         GROUP BY mes
         ORDER BY mes
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
 
     if not db_rows:
         return "## Histórico de Renda Mensal\n\n_Nenhum rendimento registrado._\n"
@@ -455,30 +461,36 @@ def _section_historico(conn) -> str:
 # Section: IR / tax summary
 # ---------------------------------------------------------------------------
 
-def _section_ir(conn) -> str:
-    jcp_rows = conn.execute(
+def _section_ir(conn: Connection, investidor_id: int) -> str:
+    jcp_rows = fetch_all(
+        conn,
         """
         SELECT
-            strftime('%Y', data) AS ano,
-            SUM(valor)           AS total_jcp
+            to_char(data, 'YYYY') AS ano,
+            SUM(valor)            AS total_jcp
         FROM b3_movimentacoes
-        WHERE movimentacao = 'Juros Sobre Capital Próprio'
+        WHERE investidor_id = :investidor_id
+          AND movimentacao = 'Juros Sobre Capital Próprio'
           AND ativo_id IS NOT NULL
         GROUP BY ano
         ORDER BY ano
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
 
-    vendas_rows = conn.execute(
+    vendas_rows = fetch_all(
+        conn,
         """
         SELECT n.data, n.ativo_id, a.ticker, a.nome, a.tipo,
                n.quantidade, n.valor_liquido
         FROM negociacoes n
         JOIN ativos a ON a.id = n.ativo_id
-        WHERE n.sentido = 'saida'
+        WHERE n.investidor_id = :investidor_id
+          AND n.sentido = 'saida'
         ORDER BY n.data
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
 
     lines = ["## Resumo IR / Impostos"]
 
@@ -506,14 +518,18 @@ def _section_ir(conn) -> str:
         v_aligns  = ["l", "l", "l", "r", "r", "r", "r", "l"]
         v_data    = []
         for v in vendas_rows:
-            row_pm = conn.execute(
+            row_pm = fetch_one(
+                conn,
                 """
                 SELECT SUM(quantidade) AS qty_total, SUM(valor_liquido) AS custo_total
                 FROM negociacoes
-                WHERE ativo_id = ? AND sentido = 'entrada' AND data < ?
+                WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id
+                  AND sentido = 'entrada' AND data < :data
                 """,
-                (v["ativo_id"], v["data"]),
-            ).fetchone()
+                investidor_id=investidor_id,
+                ativo_id=v["ativo_id"],
+                data=v["data"],
+            )
             pm         = (row_pm["custo_total"] / row_pm["qty_total"]) if row_pm and row_pm["qty_total"] else None
             custo_base = (pm * v["quantidade"]) if pm is not None else None
             receita    = v["valor_liquido"]
@@ -566,10 +582,9 @@ def _section_ir(conn) -> str:
 
 def gerar_relatorio(todos: bool = False, com_cotacoes: bool = False) -> Path:
     """Build the markdown report and return the output path."""
-    init_db()
-
     with connect() as conn:
-        posicoes = calcular_posicoes(conn)
+        investidor_id = investidor_do_cli(conn)
+        posicoes = calcular_posicoes(conn, investidor_id)
 
         precos: dict[str, float | None] | None = None
         if com_cotacoes:
@@ -594,8 +609,8 @@ def gerar_relatorio(todos: bool = False, com_cotacoes: bool = False) -> Path:
             _section_resumo(posicoes, precos),
             _section_posicoes(posicoes, precos, todos),
             _section_renda_por_ativo(posicoes),
-            _section_historico(conn),
-            _section_ir(conn),
+            _section_historico(conn, investidor_id),
+            _section_ir(conn, investidor_id),
         ]
 
     content = "\n\n---\n\n".join(sections) + "\n"

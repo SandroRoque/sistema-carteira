@@ -1,189 +1,73 @@
-import os
-import sqlite3
-from contextlib import contextmanager
-from pathlib import Path
+"""PostgreSQL access layer.
 
-_project_root = Path(__file__).resolve().parent
-DB_PATH = Path(os.environ.get("CARTEIRA_DB", _project_root / "carteira.db"))
+The schema lives in tabelas.py and is managed by Alembic (`alembic upgrade head`).
+Queries are plain SQL with named parameters, run through the helpers below:
 
-_SCHEMA = """
-PRAGMA journal_mode=WAL;
-PRAGMA foreign_keys=ON;
+    with connect() as conn:
+        rows = fetch_all(conn, "SELECT * FROM ativos WHERE tipo = :tipo", tipo="fii")
+        rows[0]["ticker"]
 
-CREATE TABLE IF NOT EXISTS ativos (
-    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-    tipo                    TEXT    NOT NULL DEFAULT 'desconhecido',
-    subtipo                 TEXT,
-    ticker                  TEXT    UNIQUE,
-    nome                    TEXT,
-    cnpj_emissor            TEXT,
-    emissor                 TEXT,
-    indexador               TEXT,
-    taxa_prefixada          REAL,
-    percentual_do_indexador REAL,
-    emissao                 TEXT,
-    vencimento              TEXT,
-    revisado                INTEGER NOT NULL DEFAULT 0
-);
+`connect()` commits when the block exits normally and rolls back on error.
 
--- Maps the raw text found in PDFs to a canonical ativo.
--- Same raw_text always resolves to the same ativo_id.
--- Users can re-point aliases to a different ativo_id during review.
-CREATE TABLE IF NOT EXISTS ticker_aliases (
-    raw_text TEXT    PRIMARY KEY,
-    ativo_id INTEGER NOT NULL REFERENCES ativos(id)
-);
-
-CREATE TABLE IF NOT EXISTS notas (
-    nota_id         TEXT NOT NULL,
-    corretora_id    TEXT NOT NULL,
-    doc_type        TEXT NOT NULL,
-    data_pregao     TEXT NOT NULL,
-    data_de_liquidacao TEXT,
-    cpf_cliente     TEXT NOT NULL,
-    codigo_cliente  TEXT NOT NULL,
-    nome_cliente    TEXT,
-    assessor        TEXT,
-    folha           TEXT,
-    endereco        TEXT,
-    cidade          TEXT,
-    uf              TEXT,
-    cep             TEXT,
-    nota_de         TEXT,
-    local           TEXT,
-    emissor         TEXT,
-    cnpj_emissor    TEXT,
-    comando         TEXT,
-    mercado         TEXT,
-    status          TEXT,
-    liquido_para    REAL,
-    -- resumo dos negócios (NotaCorretagem only)
-    debentures      REAL,
-    vendas_a_vista  REAL,
-    compras_a_vista REAL,
-    opcoes_compras  REAL,
-    opcoes_vendas   REAL,
-    operacoes_a_termo REAL,
-    valor_das_operacoes_com_titulos_publicos REAL,
-    valor_das_operacoes REAL,
-    valor_liquido_das_operacoes REAL,
-    -- resumo financeiro (NotaCorretagem only)
-    taxa_de_liquidacao REAL,
-    taxa_de_registro REAL,
-    total_clearing_cblc REAL,
-    taxa_de_termo_opcoes REAL,
-    taxa_a_n_a REAL,
-    emolumentos REAL,
-    total_bolsa REAL,
-    corretagem REAL,
-    iss REAL,
-    irrf_sobre_operacoes REAL,
-    outras REAL,
-    total_corretagem_despesas REAL,
-    taxa_operacional REAL,
-    execucao REAL,
-    taxa_de_custodia REAL,
-    impostos REAL,
-    pis_cofins REAL,
-    taxa_de_transferencia_de_ativos REAL,
-    execucao_casa REAL,
-    filename        TEXT NOT NULL,
-    processado_em   TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (nota_id, corretora_id, doc_type)
-);
-
-CREATE TABLE IF NOT EXISTS negociacoes (
-    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-    nota_id                  TEXT    NOT NULL,
-    corretora_id             TEXT    NOT NULL,
-    doc_type                 TEXT    NOT NULL,
-    linha_na_nota            INTEGER NOT NULL DEFAULT 0,
-    ativo_id                 INTEGER NOT NULL REFERENCES ativos(id),
-    data                     TEXT    NOT NULL,
-    sentido                  TEXT    NOT NULL,
-    tipo                     TEXT    NOT NULL,
-    debito_credito           TEXT,
-    quantidade               REAL,
-    preco_unitario           REAL,
-    valor_bruto              REAL,
-    taxas_proporcionais      REAL    NOT NULL DEFAULT 0,
-    valor_liquido            REAL,
-    mercado                  TEXT,
-    tipo_de_mercado          TEXT,
-    prazo                    TEXT,
-    observacao               TEXT,
-    indexador                TEXT,
-    taxa_cupom_percentual    REAL,
-    percentual_do_indexador  REAL,
-    emissao                  TEXT,
-    vencimento               TEXT,
-    custodia                 TEXT,
-    tipo_emitente            TEXT,
-    conta_bancaria           TEXT,
-    rendimentos              TEXT,
-    imposto_de_renda_federal REAL,
-    iof                      REAL,
-    especificacao_observacao TEXT,
-    tx_bvmf                  REAL,
-    tx_agente_custodia       REAL,
-    FOREIGN KEY (nota_id, corretora_id, doc_type) REFERENCES notas(nota_id, corretora_id, doc_type),
-    UNIQUE (nota_id, corretora_id, doc_type, linha_na_nota)
-);
-
-CREATE TABLE IF NOT EXISTS b3_arquivos_processados (
-    arquivo       TEXT NOT NULL PRIMARY KEY,
-    processado_em TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- Raw rows from B3 movimentações Excel reports.
--- One row per Excel line; ativo_id is NULL when the product can't be resolved.
-CREATE TABLE IF NOT EXISTS b3_movimentacoes (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    sentido        TEXT    NOT NULL,
-    data           TEXT    NOT NULL,
-    movimentacao   TEXT    NOT NULL,
-    produto_raw    TEXT    NOT NULL,
-    ativo_id       INTEGER REFERENCES ativos(id),
-    instituicao    TEXT,
-    quantidade     REAL,
-    preco_unitario REAL,
-    valor          REAL,
-    arquivo        TEXT    NOT NULL REFERENCES b3_arquivos_processados(arquivo)
-);
-
--- Cost basis for bonus shares (Bonificação em Ativos).
--- One row per B3 movimentação of type "Bonificação em Ativos".
--- custo_por_cota is NULL until the user informs the acquisition cost declared
--- by the company (needed for correct average-cost calculation).
-CREATE TABLE IF NOT EXISTS bonificacoes (
-    b3_movimentacao_id INTEGER PRIMARY KEY
-        REFERENCES b3_movimentacoes(id) ON DELETE CASCADE,
-    custo_por_cota     REAL  -- NULL = cost unknown / not yet informed
-);
+NUMERIC values are loaded as Python floats for now: the calculation modules
+(posicoes, fechamento, imposto) still use float arithmetic. Storage is exact;
+moving the calculations to Decimal is a separate step.
 """
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
+
+from psycopg.types.numeric import FloatLoader
+from sqlalchemy import Connection, Engine, RowMapping, create_engine, event, text
+
+from settings import database_url
+
+_engine: Engine | None = None
+
+
+def _register_numeric_as_float(dbapi_connection, _connection_record) -> None:
+    dbapi_connection.adapters.register_loader("numeric", FloatLoader)
+
+
+def configure(url: str | None = None) -> Engine:
+    """(Re)create the engine. Without a url, reads DATABASE_URL (after loading .env)."""
+    global _engine
+    if _engine is not None:
+        _engine.dispose()
+    _engine = create_engine(url or database_url(), pool_pre_ping=True)
+    event.listen(_engine, "connect", _register_numeric_as_float)
+    return _engine
+
+
+def get_engine() -> Engine:
+    return _engine or configure()
 
 
 @contextmanager
-def connect(db_path: Path = DB_PATH):
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+def connect() -> Iterator[Connection]:
+    with get_engine().connect() as conn:
+        try:
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
 
 
-def init_db(db_path: Path = DB_PATH) -> None:
-    """Creates all tables if they don't exist. Safe to call on every run."""
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.executescript(_SCHEMA)
-        conn.commit()
-    finally:
-        conn.close()
+def fetch_all(conn: Connection, sql: str, **params: Any) -> list[RowMapping]:
+    return list(conn.execute(text(sql), params).mappings())
+
+
+def fetch_one(conn: Connection, sql: str, **params: Any) -> RowMapping | None:
+    return conn.execute(text(sql), params).mappings().first()
+
+
+def scalar(conn: Connection, sql: str, **params: Any) -> Any:
+    return conn.execute(text(sql), params).scalar()
+
+
+def execute(conn: Connection, sql: str, **params: Any) -> None:
+    conn.execute(text(sql), params)

@@ -2,8 +2,11 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+_PROJECT_ROOT = Path(__file__).resolve().parent
 
-def _load_dotenv_file(dotenv_path: Path) -> None:
+
+def load_dotenv(dotenv_path: Path = _PROJECT_ROOT / ".env") -> None:
+    """Populate os.environ from a .env file without overriding real env vars."""
     if not dotenv_path.exists():
         return
 
@@ -22,6 +25,17 @@ def _load_dotenv_file(dotenv_path: Path) -> None:
         os.environ.setdefault(key, value)
 
 
+def database_url() -> str:
+    load_dotenv()
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        raise ValueError(
+            "A variável de ambiente DATABASE_URL não está definida "
+            "(ex.: postgresql+psycopg://carteira:carteira@localhost:5432/carteira)."
+        )
+    return url
+
+
 @dataclass(frozen=True)
 class Settings:
     notas_dir: Path
@@ -29,8 +43,7 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    project_root = Path(__file__).resolve().parent
-    _load_dotenv_file(project_root / ".env")
+    load_dotenv()
 
     notas_dir_value = os.environ.get("NOTAS_DIR")
     if not notas_dir_value:

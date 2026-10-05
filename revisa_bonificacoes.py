@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import os
 
-from database import connect
+from contas import investidor_do_cli
+from database import connect, execute, fetch_all
 
 _SEP = "─" * 60
 
@@ -22,8 +23,9 @@ def _clear() -> None:
     os.system("clear")
 
 
-def _fetch_pending(conn) -> list:
-    return conn.execute(
+def _fetch_pending(conn, investidor_id: int) -> list:
+    return fetch_all(
+        conn,
         """
         SELECT
             b.b3_movimentacao_id,
@@ -35,10 +37,12 @@ def _fetch_pending(conn) -> list:
         FROM bonificacoes b
         JOIN b3_movimentacoes bm ON bm.id = b.b3_movimentacao_id
         JOIN ativos a ON a.id = bm.ativo_id
-        WHERE b.custo_por_cota IS NULL
+        WHERE bm.investidor_id = :investidor_id
+          AND b.custo_por_cota IS NULL
         ORDER BY a.ticker, bm.data
-        """
-    ).fetchall()
+        """,
+        investidor_id=investidor_id,
+    )
 
 
 def _show(row, idx: int, total: int) -> None:
@@ -61,7 +65,7 @@ def _show(row, idx: int, total: int) -> None:
 
 def main() -> None:
     with connect() as conn:
-        rows = _fetch_pending(conn)
+        rows = _fetch_pending(conn, investidor_do_cli(conn))
         total = len(rows)
 
         if not total:
@@ -102,9 +106,11 @@ def main() -> None:
                 input("  [Enter] continuar")
                 continue
 
-            conn.execute(
-                "UPDATE bonificacoes SET custo_por_cota = ? WHERE b3_movimentacao_id = ?",
-                (custo, row["b3_movimentacao_id"]),
+            execute(
+                conn,
+                "UPDATE bonificacoes SET custo_por_cota = :custo WHERE b3_movimentacao_id = :id",
+                custo=custo,
+                id=row["b3_movimentacao_id"],
             )
             conn.commit()
             print(f"  Salvo: R$ {custo:.4f} / cota")

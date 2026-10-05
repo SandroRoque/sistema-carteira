@@ -15,7 +15,8 @@ import sys
 from datetime import date
 
 from cotacoes import buscar_cotacoes
-from database import connect, init_db
+from contas import investidor_do_cli
+from database import connect, fetch_all
 from posicoes import calcular_posicoes
 
 # ---------------------------------------------------------------------------
@@ -149,7 +150,7 @@ def _print_equity_row(
 
 def _print_rf_row(pos: dict) -> None:
     status = "" if pos["is_open"] else " [resgatado]"
-    venc = pos["vencimento"] or "—"
+    venc = pos["vencimento"].isoformat() if pos["vencimento"] else "—"
     print(
         f"  {_display_name(pos):<30}  {venc:>12}  "
         f"{_brl(pos['custo_total'])}  {_brl(pos['total_income'])}  {_yoc(pos)}{status}"
@@ -198,9 +199,8 @@ def exibir_portfolio(
     mostrar_renda: bool = False,
     com_cotacoes: bool = False,
 ) -> None:
-    init_db()
     with connect() as conn:
-        posicoes = calcular_posicoes(conn)
+        posicoes = calcular_posicoes(conn, investidor_do_cli(conn))
 
     precos: dict[str, float | None] | None = None
     if com_cotacoes:
@@ -350,10 +350,11 @@ def _exibir_renda_detalhada(posicoes: list[dict]) -> None:
 def _exibir_historico_renda() -> None:
     """Monthly income timeline from b3_movimentacoes."""
     with connect() as conn:
-        rows = conn.execute(
+        rows = fetch_all(
+            conn,
             """
             SELECT
-                strftime('%Y-%m', data)                                           AS mes,
+                to_char(data, 'YYYY-MM')                                          AS mes,
                 SUM(CASE WHEN movimentacao = 'Rendimento'
                          THEN COALESCE(valor, 0) ELSE 0 END)                     AS rendimento,
                 SUM(CASE WHEN movimentacao = 'Dividendo'
@@ -375,15 +376,17 @@ def _exibir_historico_renda() -> None:
                     ELSE 0
                 END)                                                              AS total
             FROM b3_movimentacoes
-            WHERE movimentacao IN (
+            WHERE investidor_id = :investidor_id
+              AND movimentacao IN (
                 'Rendimento', 'Dividendo', 'Dividendo - Cancelado',
                 'Juros Sobre Capital Próprio', 'PAGAMENTO DE JUROS'
-            )
+              )
               AND ativo_id IS NOT NULL
             GROUP BY mes
             ORDER BY mes
-            """
-        ).fetchall()
+            """,
+            investidor_id=investidor_do_cli(conn),
+        )
 
     if not rows:
         print("Nenhum rendimento registrado.")
