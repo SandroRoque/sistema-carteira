@@ -4,6 +4,7 @@ from datetime import date
 
 from sqlalchemy import Connection
 
+import especificacoes_b3
 import tabelas
 from contas import get_or_create_investidor
 from database import execute, fetch_all, fetch_one, scalar
@@ -98,8 +99,15 @@ def resolve_ou_criar_ativo(
     percentual_do_indexador: float | None = None,
     emissao: date | None = None,
     vencimento: date | None = None,
+    data: date | None = None,
+    exercicio: bool = False,
 ) -> int:
     """Returns the ativo_id for raw_ticker, auto-creating an unreviewed ativo on first encounter.
+
+    Market-standard notas describe the security by name and specification
+    ("PETROBRAS PN N2"): that is resolved to the ticker traded under it on
+    `data` (especificacoes_b3). An option exercise (`exercicio`) is a trade
+    of the underlying shares, so it resolves to them.
 
     Canonical ticker extraction ("PETR4F PN N2" → "PETR4") prevents the same
     asset from being stored as multiple ativos due to ex-date or lot-size
@@ -119,7 +127,10 @@ def resolve_ou_criar_ativo(
         return row["ativo_id"]
 
     # 2. Extract canonical ticker (strips fractional-lot 'F' suffix and qualifiers).
-    ticker = _extrair_ticker(raw_ticker)
+    if exercicio:
+        ticker = especificacoes_b3.subjacente(raw_ticker, data)
+    else:
+        ticker = _extrair_ticker(raw_ticker) or especificacoes_b3.resolver(raw_ticker, data)
     tipo = _infer_tipo(ticker, doc_type)
 
     # 3. If we have a canonical ticker, reuse an existing ativo with that ticker
@@ -239,6 +250,8 @@ def carregar(
             percentual_do_indexador=neg.percentual_do_indexador,
             emissao=neg.emissao,
             vencimento=neg.vencimento,
+            data=neg.data,
+            exercicio=(neg.tipo_de_mercado or "").upper().startswith("EXERC"),
         )
         _inserir_negociacao(conn, investidor_id, neg, ativo_id)
 
