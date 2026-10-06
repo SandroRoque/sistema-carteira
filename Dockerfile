@@ -15,6 +15,8 @@ RUN useradd --create-home --uid 1000 carteira
 COPY --from=build --chown=carteira:carteira /app /app
 WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
+# Login shells (fly ssh console) reset PATH in /etc/profile; keep the venv first there too.
+RUN echo 'export PATH="/app/.venv/bin:$PATH"' > /etc/profile.d/venv.sh
 USER carteira
 EXPOSE 8080
 # One uvicorn process: the import worker is a thread in it, and parsing runs
