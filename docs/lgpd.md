@@ -60,9 +60,13 @@ retenção deles; a política de privacidade informa esse prazo.
 
 ## Retenção
 
-- Arquivos enviados: guardados apenas até o processamento terminar (prazo máximo
-  curto, aplicado por regra de ciclo de vida no storage). Depois disso fica só o hash
-  do conteúdo, para detectar reenvio do mesmo arquivo.
+- Arquivos enviados: guardados no banco (`uploads.conteudo`) apenas até o
+  processamento terminar, com sucesso ou erro — em geral segundos. Uma restrição do
+  banco (`ck_uploads_conteudo_so_ate_processar`) impede que o conteúdo continue
+  gravado depois disso. Ficam o nome do arquivo, o resultado e o hash SHA-256 do
+  conteúdo, para detectar reenvio do mesmo arquivo; somem com a conta.
+- A leitura dos arquivos roda num processo separado (`isolamento.py`); mensagens de
+  erro mostradas ou registradas nunca incluem o conteúdo do documento.
 - Dados da carteira: enquanto a conta existir.
 - Logs da aplicação: sem dados pessoais (ver Segurança); retenção do provedor.
 
@@ -82,7 +86,7 @@ retenção deles; a política de privacidade informa esse prazo.
 
 ## Operadores e transferência internacional
 
-A política de privacidade lista cada provedor (hospedagem, banco, storage, e-mail,
+A política de privacidade lista cada provedor (hospedagem, banco, e-mail,
 monitoramento de erros), a finalidade e o país. Preferimos regiões no Brasil quando o
 provedor oferece; quando não, a transferência internacional segue o art. 33.
 

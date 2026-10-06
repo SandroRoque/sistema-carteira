@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
@@ -25,6 +27,16 @@ def _qty(v: Decimal | None) -> str:
     return f"{v:.4f}".rstrip("0").rstrip(".")
 
 
+# Timestamps are stored in UTC; users read them in Brasília time.
+FUSO = ZoneInfo("America/Sao_Paulo")
+
+
+def _data_hora(v: datetime | None) -> str:
+    if v is None:
+        return "—"
+    return v.astimezone(FUSO).strftime("%d/%m/%Y %H:%M")
+
+
 TIPO_LABEL = {
     "acao": "Ações",
     "fii": "FIIs",
@@ -39,6 +51,7 @@ TIPO_LABEL = {
 templates = Jinja2Templates(directory=str(_HERE / "templates"))
 templates.env.filters["brl"] = _brl
 templates.env.filters["qty"] = _qty
+templates.env.filters["data_hora"] = _data_hora
 templates.env.filters["tipo_label"] = lambda v: TIPO_LABEL.get(v, v)
 
 

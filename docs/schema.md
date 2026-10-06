@@ -17,6 +17,7 @@ Dates are **DATE**; load timestamps are **TIMESTAMPTZ**.
 | `usuarios` | An account that logs in (unique e-mail, case-insensitive) |
 | `investidores` | One portfolio per CPF found on the account's notas. The CPF is never stored: only a keyed HMAC (`cpf_hash`, unique per usuario) and a masked form. See [lgpd.md](lgpd.md) |
 | `notas`, `negociacoes`, `b3_arquivos_processados`, `b3_movimentacoes` | Owned by one investidor (`investidor_id`); `bonificacoes` inherits it from its movimentação |
+| `uploads` | Owned by one usuario: uploaded documents and the import job queue (`importacao.py`). File bytes only until processed |
 | `ativos`, `ticker_aliases` | Shared catalog — the same instrument for every investidor |
 
 Every portfolio query must filter by `investidor_id`.
@@ -24,7 +25,8 @@ Every portfolio query must filter by `investidor_id`.
 ### Row-level security
 
 `investidores`, `notas`, `negociacoes`, `b3_arquivos_processados`, `b3_movimentacoes` and
-`bonificacoes` have Postgres RLS policies (migration `0003`). Web requests run as the
+`bonificacoes` have Postgres RLS policies (migration `0003`), and so does `uploads`
+(migration `0005`; the web role may only read and insert it). Web requests run as the
 restricted role `carteira_app` with `app.usuario_id` set to the logged-in account, and the
 policies only expose that account's rows. `carteira_app` has no access to `usuarios` or
 `sessoes`. The owner role (migrations, CLI, authentication) is not subject to the policies.
@@ -41,7 +43,8 @@ policies only expose that account's rows. `carteira_app` has no access to `usuar
 | Table | Populated by | Source |
 |---|---|---|
 | `usuarios` | sign-up / `migra_sqlite.py` | One row per account |
-| `investidores` | `carrega_notas.py` (from the CPF on each nota) | Auto-created on first nota of a CPF |
+| `uploads` | `/importar` page | One row per uploaded file; processed by the worker in `importacao.py` |
+| `investidores` | `carrega_notas.py` or the upload worker (from the CPF on each nota) | Auto-created on first nota of a CPF |
 | `ativos` | `carrega_notas.py`, `carrega_b3.py` | Auto-created on first encounter from PDFs and B3 reports |
 | `ticker_aliases` | `carrega_notas.py`, `carrega_b3.py` | Auto-created alongside `ativos` |
 | `notas` | `carrega_notas.py` | One row per source PDF (all doc types) |

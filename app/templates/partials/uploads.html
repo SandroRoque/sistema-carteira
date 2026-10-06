@@ -1,0 +1,35 @@
+{# Polls itself only while something is queued or processing. #}
+<div id="uploads"
+     {% if em_andamento %}hx-get="/importar/lista" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  {% if uploads %}
+  <figure>
+    <table>
+      <thead>
+        <tr>
+          <th>Arquivo</th>
+          <th>Tipo</th>
+          <th>Carteira</th>
+          <th>Enviado em</th>
+          <th>Situação</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in uploads %}
+        <tr class="upload-{{ u.status }}">
+          <td>{{ u.nome_arquivo }}</td>
+          <td>{{ "Nota" if u.tipo == "nota" else "B3" }}</td>
+          <td>{{ u.carteira or "—" }}</td>
+          <td>{{ u.criado_em | data_hora }}</td>
+          <td>
+            <strong>{{ u.status_label }}</strong>
+            {% if u.mensagem %}<br><small>{{ u.mensagem }}</small>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </figure>
+  {% else %}
+  <p class="muted">Nenhum envio ainda.</p>
+  {% endif %}
+</div>

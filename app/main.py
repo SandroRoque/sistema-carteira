@@ -8,12 +8,16 @@ so FastAPI runs them in its threadpool instead of on the event loop.
 
 Every portfolio route runs on connect(usuario_id): row-level security limits
 it to the logged-in account even if a query forgets its investidor_id filter.
+
+The document import worker (importacao.py) runs as a thread in this process,
+started with the app; set CARTEIRA_WORKER=false to run without it.
 """
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal
 import sys
 from collections import defaultdict
+from contextlib import asynccontextmanager
+from decimal import ROUND_HALF_UP, Decimal
 from datetime import date
 from pathlib import Path
 
@@ -26,7 +30,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import conta
+from app import conta, importar
 from app.seguranca import (
     InvestidorId,
     NaoAutenticado,
@@ -39,14 +43,28 @@ from app.seguranca import (
 )
 from app.templating import render, render_parcial
 from database import connect, execute, fetch_all, fetch_one, scalar
+from importacao import trabalhador, worker_habilitado
 from posicoes import calcular_posicoes
 
 _HERE = Path(__file__).parent
 
-app = FastAPI(title="Carteira", docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@asynccontextmanager
+async def _ciclo_de_vida(_app: FastAPI):
+    if worker_habilitado():
+        trabalhador.iniciar()
+    yield
+    trabalhador.parar()
+
+
+app = FastAPI(
+    title="Carteira", docs_url=None, redoc_url=None, openapi_url=None, lifespan=_ciclo_de_vida
+)
 app.add_middleware(SegurancaMiddleware)
 app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
 app.include_router(conta.router)
+app.include_router(importar.router)
 
 _TIPOS = [
     "acao", "fii", "bdr", "tesouro_direto", "renda_fixa",

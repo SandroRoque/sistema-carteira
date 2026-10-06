@@ -41,6 +41,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     MetaData,
     Numeric,
     PrimaryKeyConstraint,
@@ -119,6 +120,42 @@ sessoes = Table(
     Column("csrf_token", Text, nullable=False),
     _criado_em(),
     Column("expira_em", DateTime(timezone=True), nullable=False),
+)
+
+# Uploaded documents, which double as the import job queue (importacao.py).
+# conteudo holds the file only until it is processed — then it is set to NULL
+# (LGPD minimization); sha256 stays to recognize the same file sent again.
+uploads = Table(
+    "uploads",
+    metadata,
+    Column("id", BigInteger, primary_key=True),
+    Column("usuario_id", BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False),
+    # B3 reports: chosen at upload (they carry no CPF). Notas: the portfolio
+    # of the CPF printed on them, known after processing.
+    Column("investidor_id", BigInteger, ForeignKey("investidores.id", ondelete="CASCADE")),
+    Column("tipo", Text, nullable=False),
+    Column("nome_arquivo", Text, nullable=False),
+    Column("sha256", Text, nullable=False),
+    Column("conteudo", LargeBinary),
+    Column("status", Text, nullable=False, server_default="pendente"),
+    # Outcome shown to the user. Fixed texts only: never the parser's own
+    # error message, which may quote document content (a CPF, a name).
+    Column("mensagem", Text),
+    Column("tentativas", Integer, nullable=False, server_default="0"),
+    _criado_em(),
+    Column("iniciado_em", DateTime(timezone=True)),
+    Column("concluido_em", DateTime(timezone=True)),
+    CheckConstraint("tipo IN ('nota', 'b3')", name="tipo_valido"),
+    CheckConstraint(
+        "status IN ('pendente', 'processando', 'concluido', 'duplicado', 'erro')",
+        name="status_valido",
+    ),
+    CheckConstraint(
+        "conteudo IS NULL OR status IN ('pendente', 'processando')", name="conteudo_so_ate_processar"
+    ),
+    CheckConstraint("tipo = 'nota' OR investidor_id IS NOT NULL", name="b3_tem_carteira"),
+    Index("ix_uploads_usuario_sha256", "usuario_id", "sha256"),
+    Index("ix_uploads_fila", "id", postgresql_where="status IN ('pendente', 'processando')"),
 )
 
 # ---------------------------------------------------------------------------

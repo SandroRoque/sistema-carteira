@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Importar — Carteira{% endblock %}
+
+{% block content %}
+<h2>Importar documentos</h2>
+
+<p>
+  Envie <strong>notas de corretagem</strong> em PDF e <strong>relatórios de movimentação da B3</strong>
+  em .xlsx (Área do Investidor → Extratos → Movimentação). Cada nota vai para a carteira do CPF
+  impresso nela, criada no primeiro envio.
+</p>
+
+{% if recusados %}
+<article class="aviso" role="alert">
+  <strong>Alguns arquivos não foram aceitos:</strong>
+  <ul>
+    {% for nome, motivo in recusados %}
+    <li>{% if nome %}<code>{{ nome }}</code>: {% endif %}{{ motivo }}</li>
+    {% endfor %}
+  </ul>
+</article>
+{% endif %}
+
+<form method="post" action="/importar" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+  <label>
+    Arquivos
+    <input type="file" name="arquivos" multiple required
+           accept=".pdf,.xlsx,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+    <small>Até {{ max_arquivos }} arquivos por envio, {{ tamanho_maximo_mb }} MB cada.</small>
+  </label>
+  {% if carteiras %}
+  <label>
+    Carteira dos relatórios da B3
+    <select name="carteira_b3">
+      {% for c in carteiras %}
+      <option value="{{ c.id }}" {% if c.id == investidor_id %}selected{% endif %}>{{ c.label }}</option>
+      {% endfor %}
+    </select>
+    <small>Os relatórios da B3 não trazem CPF, então indique a carteira. Notas usam o CPF delas.</small>
+  </label>
+  {% else %}
+  <p class="muted">
+    Para importar relatórios da B3, envie antes ao menos uma nota: a carteira é criada a partir
+    do CPF dela.
+  </p>
+  {% endif %}
+  <button type="submit">Enviar</button>
+</form>
+
+<h3>Envios recentes</h3>
+{% include "partials/uploads.html" %}
+
+<p class="muted">
+  Os arquivos são apagados assim que processados. Guardamos só o nome, o resultado e uma impressão
+  digital do conteúdo (hash SHA-256), para reconhecer o mesmo arquivo enviado de novo.
+</p>
+{% endblock %}

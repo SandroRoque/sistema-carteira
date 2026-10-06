@@ -12,9 +12,13 @@ def _normalize_text(text: str) -> str:
     return "".join(char.lower() for char in text if char.isalnum())
 
 
-def prepara_pagina_unica(pdf_path) -> fitz.Document:
-    """Lê um PDF e retorna um Document em memória contendo uma única página fundida."""
-    doc = fitz.open(pdf_path)
+def prepara_pagina_unica(pdf) -> fitz.Document:
+    """Lê um PDF (caminho ou bytes) e retorna um Document em memória contendo
+    uma única página fundida."""
+    if isinstance(pdf, (bytes, bytearray)):
+        doc = fitz.open(stream=pdf, filetype="pdf")
+    else:
+        doc = fitz.open(pdf)
 
     if doc.page_count == 0:
         doc.close()
@@ -72,9 +76,9 @@ def identificar_corretora(pagina: fitz.Page, corretoras=None):
     return best_match
 
 
-def extrair(pdf_path) -> NotaCorretagem | TituloPublico | TituloPrivado:
-    """Orquestra a extração dos dados da nota de negociação."""
-    doc = prepara_pagina_unica(pdf_path)
+def extrair(pdf) -> NotaCorretagem | TituloPublico | TituloPrivado:
+    """Orquestra a extração dos dados da nota de negociação (caminho ou bytes do PDF)."""
+    doc = prepara_pagina_unica(pdf)
     pagina = doc[0]
 
     if eh_pdf_de_imagem(pagina):

@@ -99,3 +99,12 @@ nav button.link {
   border-radius: var(--pico-border-radius);
   padding: var(--pico-spacing);
 }
+
+/* Upload rejections */
+article.aviso {
+  border-left: 4px solid var(--pico-del-color, #e63946);
+}
+
+tr.upload-erro td:last-child {
+  color: var(--pico-del-color, #9d0208);
+}

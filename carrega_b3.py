@@ -10,41 +10,113 @@ Usage:
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pandas as pd
 from sqlalchemy import Connection
 
 from contas import investidor_do_cli
 from database import connect_sistema, execute, fetch_all, scalar
 from loader import resolve_ou_criar_ativo
 
+if TYPE_CHECKING:
+    import pandas as pd
+
 B3_REPORTS_DIR = Path(__file__).resolve().parent / "b3-reports"
 
+_N_COLUNAS = 8
 
-def _to_float(val) -> float | None:
-    """Return float or None for NaN / '-' / blank cells."""
+
+class RelatorioB3Invalido(ValueError):
+    """The spreadsheet does not have the layout of a B3 movimentação report."""
+
+
+@dataclass(frozen=True)
+class LinhaB3:
+    sentido: str
+    data: date
+    movimentacao: str
+    produto_raw: str
+    instituicao: str | None
+    quantidade: Decimal | None
+    preco_unitario: Decimal | None
+    valor: Decimal | None
+
+
+def _to_decimal(val) -> Decimal | None:
+    """Return Decimal or None for NaN / '-' / blank cells."""
     if val is None:
         return None
     if isinstance(val, float) and math.isnan(val):
         return None
+    # str() of a float is its shortest exact repr: 1.5 → "1.5", not 1.4999…
     s = str(val).strip()
     if s in ("", "-"):
         return None
     try:
-        return float(s)
-    except ValueError:
+        return Decimal(s)
+    except InvalidOperation:
         return None
 
 
-def _to_date(val: str) -> date:
+def _to_date(val) -> date:
     """Parse a 'DD/MM/YYYY' cell."""
+    if isinstance(val, datetime):
+        return val.date()
     return datetime.strptime(str(val).strip(), "%d/%m/%Y").date()
+
+
+def _texto(val) -> str | None:
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        return None
+    return str(val).strip()
+
+
+def linhas_do_relatorio(df: pd.DataFrame) -> list[LinhaB3]:
+    """Rows of a B3 movimentação report, typed. Raises RelatorioB3Invalido."""
+    if len(df.columns) != _N_COLUNAS:
+        raise RelatorioB3Invalido(f"esperadas {_N_COLUNAS} colunas, encontradas {len(df.columns)}")
+    linhas = []
+    for valores in df.itertuples(index=False, name=None):
+        sentido, data, movimentacao, produto, instituicao, quantidade, preco, valor = valores
+        try:
+            data = _to_date(data)
+        except (TypeError, ValueError):
+            raise RelatorioB3Invalido("data em formato inesperado") from None
+        linhas.append(LinhaB3(
+            sentido=str(sentido).strip(),
+            data=data,
+            movimentacao=str(movimentacao).strip(),
+            produto_raw=str(produto).strip(),
+            instituicao=_texto(instituicao),
+            quantidade=_to_decimal(quantidade),
+            preco_unitario=_to_decimal(preco),
+            valor=_to_decimal(valor),
+        ))
+    return linhas
+
+
+def ler_relatorio(conteudo: bytes) -> list[LinhaB3]:
+    """Parse the bytes of a B3 .xlsx report (run it isolated: see importacao)."""
+    import io
+
+    import pandas as pd
+
+    return linhas_do_relatorio(pd.read_excel(io.BytesIO(conteudo), header=0))
 
 
 def carregar_arquivo(
     conn: Connection, investidor_id: int, df: pd.DataFrame, filename: str
+) -> tuple[int, int]:
+    """Load a B3 report given as a DataFrame. See carregar_linhas."""
+    return carregar_linhas(conn, investidor_id, linhas_do_relatorio(df), filename)
+
+
+def carregar_linhas(
+    conn: Connection, investidor_id: int, linhas: list[LinhaB3], filename: str
 ) -> tuple[int, int]:
     """Insert rows from one B3 report for dates not yet loaded for this investidor.
 
@@ -55,12 +127,6 @@ def carregar_arquivo(
 
     Returns (inserted, skipped).
     """
-    df = df.copy()
-    df.columns = [
-        "sentido", "data", "movimentacao", "produto_raw",
-        "instituicao", "quantidade", "preco_unitario", "valor",
-    ]
-
     datas_existentes = {
         r["data"]
         for r in fetch_all(
@@ -90,16 +156,13 @@ def carregar_arquivo(
 
     inserted = 0
     skipped = 0
-    for _, r in df.iterrows():
-        data = _to_date(r["data"])
-        if data in datas_existentes:
+    for r in linhas:
+        if r.data in datas_existentes:
             skipped += 1
             continue
 
-        produto_raw = str(r["produto_raw"]).strip()
-        ativo_id = resolve_ou_criar_ativo(conn, produto_raw, doc_type="B3")
+        ativo_id = resolve_ou_criar_ativo(conn, r.produto_raw, doc_type="B3")
 
-        movimentacao = str(r["movimentacao"]).strip()
         mov_id = scalar(
             conn,
             """
@@ -113,20 +176,20 @@ def carregar_arquivo(
             """,
             investidor_id=investidor_id,
             arquivo_id=arquivo_id,
-            sentido=str(r["sentido"]).strip(),
-            data=data,
-            movimentacao=movimentacao,
-            produto_raw=produto_raw,
+            sentido=r.sentido,
+            data=r.data,
+            movimentacao=r.movimentacao,
+            produto_raw=r.produto_raw,
             ativo_id=ativo_id,
-            instituicao=str(r["instituicao"]).strip() if pd.notna(r["instituicao"]) else None,
-            quantidade=_to_float(r["quantidade"]),
-            preco_unitario=_to_float(r["preco_unitario"]),
-            valor=_to_float(r["valor"]),
+            instituicao=r.instituicao,
+            quantidade=r.quantidade,
+            preco_unitario=r.preco_unitario,
+            valor=r.valor,
         )
 
         # Every bonus-share event gets a placeholder row in bonificacoes so the
         # user can later fill in custo_por_cota for correct average-cost calc.
-        if movimentacao == "Bonificação em Ativos":
+        if r.movimentacao == "Bonificação em Ativos":
             execute(
                 conn,
                 "INSERT INTO bonificacoes (b3_movimentacao_id) VALUES (:id) ON CONFLICT DO NOTHING",
@@ -139,6 +202,8 @@ def carregar_arquivo(
 
 
 def main() -> None:
+    import pandas as pd
+
     with connect_sistema() as conn:
         investidor_id = investidor_do_cli(conn)
 

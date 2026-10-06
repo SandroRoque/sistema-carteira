@@ -16,6 +16,12 @@ from settings import cookie_secure
 
 COOKIE_SESSAO = "sessao"
 METODOS_SEGUROS = frozenset({"GET", "HEAD", "OPTIONS"})
+METODOS_COM_CORPO = frozenset({"POST", "PUT", "PATCH"})
+
+# Request body caps, checked from Content-Length before anything is read:
+# forms are tiny; only the upload page takes files.
+LIMITE_CORPO_PADRAO = 1024 * 1024
+LIMITES_CORPO = {"/importar": 25 * 1024 * 1024}
 
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
@@ -126,17 +132,34 @@ def _mesma_origem(request: Request) -> bool:
     return urlsplit(origem).netloc == request.headers.get("host", request.url.netloc)
 
 
+def _corpo_recusado(request: Request) -> Response | None:
+    """411/413 for bodies without a declared size or over the route's cap.
+
+    The server reads exactly Content-Length bytes, so checking the header
+    bounds what the multipart parser will ever spool."""
+    if request.method not in METODOS_COM_CORPO:
+        return None
+    tamanho = request.headers.get("content-length")
+    if tamanho is None or not tamanho.isdigit():
+        return PlainTextResponse("Tamanho do envio não informado.", status_code=411)
+    if int(tamanho) > LIMITES_CORPO.get(request.url.path, LIMITE_CORPO_PADRAO):
+        return PlainTextResponse("Envio grande demais.", status_code=413)
+    return None
+
+
 class SegurancaMiddleware(BaseHTTPMiddleware):
-    """Rejects cross-origin writes and sets security headers on every response.
+    """Rejects cross-origin writes and oversized bodies, and sets security
+    headers on every response.
 
     The Origin check also covers the login and sign-up forms, which have no
     session (and therefore no CSRF token) yet.
     """
 
     async def dispatch(self, request: Request, call_next):
+        response: Response | None
         if request.method not in METODOS_SEGUROS and not _mesma_origem(request):
-            response: Response = PlainTextResponse("Origem não permitida.", status_code=403)
-        else:
+            response = PlainTextResponse("Origem não permitida.", status_code=403)
+        elif (response := _corpo_recusado(request)) is None:
             response = await call_next(request)
         response.headers["Content-Security-Policy"] = CSP
         response.headers["X-Content-Type-Options"] = "nosniff"

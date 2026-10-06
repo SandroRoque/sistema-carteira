@@ -19,8 +19,9 @@ deduplication step that matches by `(cnpj_emissor, indexador, taxa_prefixada, pe
 ### Ingestion still parses numbers as float
 
 Calculations and reports use `Decimal` (NUMERIC is loaded as Decimal), but the
-extraction side — `parsers.py`, `models.py`, `transformer.py` (fee split),
-`carrega_b3.py` — still turns document text into float before it is stored.
+PDF extraction side — `parsers.py`, `models.py`, `transformer.py` (fee split) —
+still turns document text into float before it is stored. (B3 reports already
+parse straight to Decimal.)
 It is harmless today (values have at most 2 decimals and the fee split rounds
 to the cent; stored data checked on 2026-10-05), but parsing straight to
 `Decimal` would make the pipeline exact end to end.
@@ -37,6 +38,18 @@ of this nota sits under the right investidor; the CPF is no longer stored.)
 The legacy SQLite held B3 rows and aliases pointing at deleted ativos.
 `migra_sqlite.py` kept those rows with `ativo_id = NULL`, matching what the old
 reports showed. Re-attach them to an ativo if these positions should be tracked.
+
+### B3-only accounts cannot import
+
+A portfolio is created from the CPF on a nota, and B3 reports carry no CPF, so an
+account must upload at least one nota before it can import B3 reports. Offer a way
+to create a portfolio directly (asking for the CPF, stored only as HMAC + mask).
+
+### Import worker wakes only in its own process
+
+Uploads wake the worker thread of the process that received them. That covers one
+machine (any number of uvicorn workers drain the shared queue, claimed with SKIP
+LOCKED). With several machines, wake the others with Postgres LISTEN/NOTIFY.
 
 ### Password reset needs an e-mail provider
 

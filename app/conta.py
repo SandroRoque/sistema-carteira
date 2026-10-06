@@ -140,6 +140,9 @@ _EXPORTACAO = {
     "arquivos_b3": "SELECT * FROM b3_arquivos_processados ORDER BY investidor_id, id",
     "movimentacoes_b3": "SELECT * FROM b3_movimentacoes ORDER BY investidor_id, data, id",
     "bonificacoes": "SELECT * FROM bonificacoes ORDER BY b3_movimentacao_id",
+    # The file itself (conteudo) is never kept after processing; list the rest.
+    "envios": "SELECT id, investidor_id, tipo, nome_arquivo, sha256, status, mensagem, "
+              "criado_em, concluido_em FROM uploads ORDER BY id",
 }
 
 
