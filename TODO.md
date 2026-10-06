@@ -48,6 +48,27 @@ the current year's Receita material ("Perguntas e Respostas" and the IRPF progra
 before release, and again every year. Company/fund CNPJs come from a sourced
 catalog field, never typed from memory.
 
+### Monthly tax: open points
+
+`apuracao.py` applies the rules in `regras_fiscais.py`. Still to settle:
+
+- **Units**: taxed without the R$ 20 mil exemption per Solução de Consulta COSIT
+  145/2021, seen only through a secondary source; read the primary text
+  (`UNITS_SEM_ISENCAO.verificado` is False and the page says so).
+- **Catalog classification**: the loader infers any ticker ending in 11 as a FII,
+  so units (TAEE11) and ETFs (BOVA11) land as FIIs and get the 20% FII rate.
+  The catalog needs a reviewed `tipo`/`subtipo` for units and ETFs (ETFs: 15%,
+  no exemption). `apuracao.categoria` already treats a stock-type ticker ending
+  in 11 as a unit.
+- **Subscription rights** sold in bolsa are treated as regular operations without
+  exemption until confirmed (`DIREITOS_SEM_ISENCAO`).
+- **IRRF 0,005% left over** is carried only within the calendar year; confirm.
+- **31/12** is treated as a non-business day for DARF due dates (banks closed);
+  confirm against Receita's calendar.
+- **Day trade** is separated from the position (q.705) but not taxed (20%, own
+  loss pool, 1% IRRF): months with day trade are flagged instead.
+- Whether day-trade sales count toward the R$ 20 mil limit: currently they do not.
+
 ### B3-only accounts cannot import
 
 A portfolio is created from the CPF on a nota, and B3 reports carry no CPF, so an

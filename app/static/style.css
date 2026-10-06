@@ -478,3 +478,9 @@ label.botao:focus-within { outline: 3px solid var(--acento); outline-offset: 2px
 .linha-campos > p.texto { flex: 1 1 320px; }
 .linha-campos > label.curto { flex: 0 1 300px; }
 .linha-campos > label.curto + button { margin-bottom: 24px; }
+.card.card-aviso { background: var(--aviso-fundo); border-color: var(--aviso-borda); }
+.card.card-erro { background: var(--erro-fundo); border-color: #F3C4BF; }
+.card.card-aviso .sub, .card.card-aviso dt { color: #5C3A00; }
+.card .sub { margin-top: 4px; color: var(--tinta-2); }
+td small .icone { width: 14px; height: 14px; vertical-align: -2px; }
+.nota .icone { width: 16px; height: 16px; vertical-align: -3px; }

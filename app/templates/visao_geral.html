@@ -9,6 +9,13 @@
 </div>
 
 {% if carteira.vazia %}
+{% if darf %}
+<a href="/impostos?ano={{ darf.mes.year }}" class="aviso">
+  {{ m.icone_aviso() }}
+  <span class="texto"><strong>{{ "DARF vencido" if darf.vencimento < hoje else "DARF a pagar" }}: {{ darf.darf | brl }}</strong> · vendas de {{ darf.mes | mes_ano }}, {{ "venceu em" if darf.vencimento < hoje else "vence em" }} {{ darf.vencimento | data }}</span>
+  <span class="acao">Ver →</span>
+</a>
+{% endif %}
 <section class="card">
   <h2>Nenhuma posição aberta</h2>
   <p class="muted">As posições aparecem aqui depois que você importa notas de corretagem e o extrato da B3.</p>
@@ -34,6 +41,13 @@
     <strong class="valor">{{ proventos.total | brl }}</strong>
     <span class="detalhe">{% if retorno_12m is not none %}{{ retorno_12m | pct }} ao ano sobre o custo em renda variável{% else %}média de {{ proventos.media_mensal | brl }} por mês{% endif %}</span>
   </a>
+  {% if darf %}
+  <a class="stat alerta" href="/impostos?ano={{ darf.mes.year }}">
+    <span class="rotulo">{{ "DARF vencido" if darf.vencimento < hoje else "DARF a pagar" }}</span>
+    <strong class="valor">{{ darf.darf | brl }}</strong>
+    <span class="detalhe">Vendas de {{ darf.mes | mes_ano }} · {{ "venceu em" if darf.vencimento < hoje else "vence em" }} {{ darf.vencimento | data }} →</span>
+  </a>
+  {% endif %}
 </section>
 
 <section class="card" aria-labelledby="alocacao">

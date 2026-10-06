@@ -3,7 +3,8 @@ average cost, results and the tax return to be complete.
 
 Pendências (counted in the header badge, each fixable inline):
   bonificacao   bonus shares whose cost per share is not informed
-  sem_custo     an open position that arrived without a trade note
+  sem_custo     shares that arrived without a trade note and with no cost
+                (the whole position, or part of it when later bought too)
   vendido_mais  more sold than bought: a purchase note is missing
 
 Avisos (informational, not counted): a stale B3 statement, uploads that
@@ -18,6 +19,7 @@ from decimal import Decimal
 
 from sqlalchemy import Connection
 
+from custo_medio import saldos
 from database import execute, fetch_all, fetch_one, scalar
 from posicoes import calcular_posicoes
 
@@ -33,6 +35,8 @@ class Pendencia:
     rotulo: str
     data: date | None
     qtd: Decimal | None
+    # sem_custo: only part of the position (other shares were bought).
+    parcial: bool = False
 
 
 @dataclass(frozen=True)
@@ -62,30 +66,25 @@ def listar(conn: Connection, investidor_id: int) -> list[Pendencia]:
             i=investidor_id,
         )
     ]
+    replays = saldos(conn, investidor_id)
     for p in calcular_posicoes(conn, investidor_id):
-        if p["is_open"] and p["custo_sem_origem"]:
+        if p["is_open"] and (p["custo_sem_origem"] or p["custo_incompleto"]):
+            creditos = [
+                passo.evento for passo in replays[p["ativo_id"]].passos
+                if passo.evento.tipo in ("atualizacao", "transferencia_entrada")
+                and not passo.ignorado and passo.evento.custo is None
+            ]
             pendencias.append(Pendencia(
                 "sem_custo", p["ativo_id"], p["ativo_id"], p["ticker"] or p["nome"],
-                _primeiro_credito(conn, investidor_id, p["ativo_id"]), p["qty"],
+                creditos[0].data if creditos else None,
+                sum((e.quantidade for e in creditos), Decimal(0)) if creditos else p["qty"],
+                parcial=not p["custo_sem_origem"],
             ))
         elif p["qty"] < Decimal("-0.001"):
             pendencias.append(Pendencia(
                 "vendido_mais", p["ativo_id"], p["ativo_id"], p["ticker"] or p["nome"], None, -p["qty"],
             ))
     return pendencias
-
-
-def _primeiro_credito(conn: Connection, investidor_id: int, ativo_id: int) -> date | None:
-    return scalar(
-        conn,
-        """
-        SELECT MIN(data) FROM b3_movimentacoes
-        WHERE investidor_id = :i AND ativo_id = :a AND sentido = 'Credito'
-          AND movimentacao IN ('Transferência', 'Atualização')
-        """,
-        i=investidor_id,
-        a=ativo_id,
-    )
 
 
 def avisos(conn: Connection, investidor_id: int, hoje: date | None = None) -> list[Aviso]:

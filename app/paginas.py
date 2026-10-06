@@ -11,13 +11,15 @@ from datetime import date
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
+import apuracao
 import formato
 import graficos
 import painel
 import pendencias
+import regras_fiscais
 from app.seguranca import InvestidorId, Sessao, redirecionar
 from app.templating import render
-from database import connect
+from database import connect, execute
 
 router = APIRouter()
 
@@ -45,6 +47,7 @@ def visao_geral(request: Request, sessao: Sessao, investidor_id: InvestidorId):
         carteira = painel.carteira(conn, investidor_id)
         inicio, fim = painel.janela_12m()
         prov = painel.proventos(conn, investidor_id, inicio, fim)
+        darfs = apuracao.em_aberto(apuracao.apuracao(conn, investidor_id))
     alocacao = carteira.alocacao() if not carteira.vazia else []
     return render(request, "visao_geral.html", {
         "carteira": carteira,
@@ -53,6 +56,8 @@ def visao_geral(request: Request, sessao: Sessao, investidor_id: InvestidorId):
         "proventos": prov,
         "colunas": _colunas_proventos(prov, empilhar=False),
         "retorno_12m": painel.razao(prov.total_renda_variavel, carteira.custo_renda_variavel),
+        "darf": darfs[0] if darfs else None,
+        "hoje": date.today(),
     })
 
 
@@ -174,3 +179,89 @@ def resolver_custo(
 ):
     return _resolver(request, sessao, investidor_id, "sem_custo", ativo_id, custo_por_cota,
                      pendencias.informar_custo_sem_nota)
+
+
+# ---------------------------------------------------------------------------
+# Impostos
+# ---------------------------------------------------------------------------
+
+SICALC = "https://sicalc.receita.economia.gov.br/sicalc/principal"
+
+
+def _regras() -> list[tuple[str, regras_fiscais.Regra]]:
+    nomes = {
+        "ALIQUOTA_OPERACOES_COMUNS": "Ações, BDRs e units: 15% sobre o lucro",
+        "LIMITE_ISENCAO_ACOES": "Ações: isentas se as vendas de ações no mês somarem até R$ 20 mil",
+        "UNITS_SEM_ISENCAO": "Units (ex.: TAEE11) não têm a isenção de ações",
+        "DIREITOS_SEM_ISENCAO": "Direitos de subscrição vendidos: sem isenção",
+        "ALIQUOTA_FII": "FIIs: 20% sobre o lucro, sem isenção",
+        "COMPENSACAO_COMUNS": "Prejuízos de ações, BDRs e units abatem lucros futuros dessas operações",
+        "COMPENSACAO_FII": "Prejuízos com FIIs só abatem lucros com FIIs",
+        "IRRF_ALIQUOTA": "O 0,005% retido na fonte nas vendas é descontado do imposto",
+        "DARF_MINIMO": "Imposto abaixo de R$ 10,00 não gera DARF: soma ao do mês seguinte",
+        "VENCIMENTO": "Vencimento: último dia útil do mês seguinte, código 6015",
+        "DAY_TRADE": "Day trade (compra e venda no mesmo dia e corretora) não é calculado",
+    }
+    return [(texto, getattr(regras_fiscais, nome)) for nome, texto in nomes.items()]
+
+
+@router.get("/impostos", response_class=HTMLResponse)
+def impostos(request: Request, sessao: Sessao, investidor_id: InvestidorId, ano: int | None = None):
+    with connect(sessao.usuario_id) as conn:
+        meses = apuracao.apuracao(conn, investidor_id)
+    hoje = date.today()
+    anos = sorted({m.mes.year for m in meses}, reverse=True)
+    if ano not in anos:
+        ano = anos[0] if anos else hoje.year
+    do_ano = [m for m in reversed(meses) if m.mes.year == ano]
+    ultimo = meses[-1] if meses else None
+    return render(request, "impostos.html", {
+        "meses": do_ano,
+        "ano": ano,
+        "anos": anos,
+        "abertos": apuracao.em_aberto(meses),
+        "prejuizo_comum": ultimo.prejuizo_comum_saldo if ultimo else painel.ZERO,
+        "prejuizo_fii": ultimo.prejuizo_fii_saldo if ultimo else painel.ZERO,
+        "acumulado": ultimo.acumulado if ultimo else painel.ZERO,
+        "pago_no_ano": sum((m.valor_pago or 0 for m in meses if m.pago_em and m.pago_em.year == ano), painel.ZERO),
+        "hoje": hoje,
+        "mes_atual": date(hoje.year, hoje.month, 1),
+        "regras": _regras(),
+        "codigo_darf": regras_fiscais.CODIGO_DARF_RENDA_VARIAVEL.valor,
+        "sicalc": SICALC,
+    })
+
+
+def _mes_da_url(texto: str) -> date | None:
+    try:
+        ano, mes = (int(x) for x in texto.split("-"))
+        return date(ano, mes, 1)
+    except ValueError:
+        return None
+
+
+@router.post("/impostos/darfs/{mes}/pago")
+def marcar_pago(request: Request, mes: str, sessao: Sessao, investidor_id: InvestidorId):
+    inicio = _mes_da_url(mes)
+    with connect(sessao.usuario_id) as conn:
+        alvo = next((m for m in apuracao.apuracao(conn, investidor_id) if m.mes == inicio and m.darf > 0), None)
+        if alvo is None:
+            return HTMLResponse("Não há DARF a pagar neste mês.", status_code=404)
+        execute(
+            conn,
+            """
+            INSERT INTO darfs_pagos (investidor_id, mes, valor_pago, pago_em)
+            VALUES (:i, :mes, :valor, CURRENT_DATE)
+            ON CONFLICT (investidor_id, mes) DO UPDATE SET valor_pago = EXCLUDED.valor_pago, pago_em = EXCLUDED.pago_em
+            """,
+            i=investidor_id, mes=inicio, valor=alvo.darf,
+        )
+    return redirecionar(request, f"/impostos?ano={inicio.year}")
+
+
+@router.post("/impostos/darfs/{mes}/desfazer")
+def desfazer_pago(request: Request, mes: str, sessao: Sessao, investidor_id: InvestidorId):
+    inicio = _mes_da_url(mes)
+    with connect(sessao.usuario_id) as conn:
+        execute(conn, "DELETE FROM darfs_pagos WHERE investidor_id = :i AND mes = :mes", i=investidor_id, mes=inicio)
+    return redirecionar(request, f"/impostos?ano={inicio.year if inicio else ''}")

@@ -351,6 +351,21 @@ custos_informados = Table(
     CheckConstraint("custo_por_cota >= 0", name="custo_nao_negativo"),
 )
 
+# DARFs the user marked as paid (monthly variable-income tax). The amount
+# due is always recomputed; this only records what was paid and when.
+darfs_pagos = Table(
+    "darfs_pagos",
+    metadata,
+    Column("investidor_id", BigInteger, ForeignKey("investidores.id", ondelete="CASCADE"), nullable=False),
+    # First day of the month of the gains (período de apuração).
+    Column("mes", Date, nullable=False),
+    Column("valor_pago", Numeric, nullable=False),
+    Column("pago_em", Date, nullable=False),
+    PrimaryKeyConstraint("investidor_id", "mes"),
+    CheckConstraint("valor_pago >= 0", name="valor_nao_negativo"),
+    CheckConstraint("EXTRACT(DAY FROM mes) = 1", name="mes_primeiro_dia"),
+)
+
 # Cost basis for bonus shares (Bonificação em Ativos). custo_por_cota is NULL
 # until the user informs the acquisition cost declared by the company.
 bonificacoes = Table(

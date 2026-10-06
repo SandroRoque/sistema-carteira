@@ -51,3 +51,17 @@ document.addEventListener("drop", (event) => {
     area.requestSubmit();
   }
 });
+
+// Buttons with data-copiar copy their text to the clipboard.
+document.addEventListener("click", async (event) => {
+  const botao = event.target.closest?.("button[data-copiar]");
+  if (!botao) return;
+  try {
+    await navigator.clipboard.writeText(botao.dataset.copiar);
+    const original = botao.textContent;
+    botao.textContent = "Copiado";
+    setTimeout(() => { botao.textContent = original; }, 2000);
+  } catch {
+    botao.textContent = "Não foi possível copiar";
+  }
+});

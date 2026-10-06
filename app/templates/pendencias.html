@@ -42,14 +42,18 @@
     <h2 id="p-{{ loop.index }}">{{ p.qtd | qtd }} de {{ p.rotulo }} sem custo de compra</h2>
     {% if p.data %}<span class="muted">Extrato B3 · {{ p.data | data }}</span>{% endif %}
   </div>
+  {% if p.parcial %}
+  <p>Chegaram por crédito da B3 ou transferência, antes das compras com nota. Enquanto o custo falta, entram no preço médio a custo zero. Se foram gratuitas (programa de fidelidade, por exemplo), informe 0,00.</p>
+  {% else %}
   <p>Chegaram por transferência de custódia ou crédito da B3, e nenhum documento traz o preço pago. Sem ele não há preço médio, resultado nem valor para a declaração.</p>
+  {% endif %}
   <div class="botoes"><a href="/importar" class="botao">Enviar a nota de compra</a></div>
   <form method="post" action="/pendencias/custos/{{ p.chave }}" class="linha-campos">
     <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
     <label class="curto">
       Ou informe o custo por cota (R$)
       <input type="text" name="custo_por_cota" inputmode="decimal" placeholder="0,00" required autocomplete="off">
-      <small>O preço médio que você pagou, como na corretora de origem.</small>
+      <small>O preço médio que você pagou, como na corretora de origem. Gratuitas: 0,00.</small>
     </label>
     <button type="submit" class="primario">Salvar</button>
   </form>

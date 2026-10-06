@@ -15,9 +15,8 @@ Ações (acao):
 FIIs (fii):
   - All sales → 20% on gains (no exemption)
 
-BDRs (bdr):
-  - Monthly sales ≤ R$20.000 → exempt  (same rule as ações from 2023)
-  - Monthly sales  > R$20.000 → 15% on gains
+BDRs (bdr), units:
+  - 15% on gains, no exemption (only stocks have it: see regras_fiscais.py)
 
 Tesouro Direto / Renda Fixa:
   - IR withheld at source by broker/bank (regressiva: 22.5%→15%)
@@ -46,12 +45,12 @@ from datetime import date
 from sqlalchemy import Connection
 
 from contas import investidor_do_cli
+from apuracao import categoria
 from custo_medio import saldos
 from database import connect_sistema, fetch_all
 
 # Tax thresholds
 _LIMITE_ISENCAO_ACOES = Decimal(20_000)   # R$ / month
-_LIMITE_ISENCAO_BDRS  = Decimal(20_000)   # same rule since 2023
 
 # Tax rates (%)
 _ALIQUOTA_ACOES = Decimal(15)
@@ -417,7 +416,9 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
             # Determine exemption
             total_mes = vendas_por_mes_tipo.get((mes, tipo), 0)
             isento = False
-            if tipo in ("acao", "bdr") and total_mes <= _LIMITE_ISENCAO_ACOES:
+            # Only stocks (not BDRs, units or FIIs) have the R$ 20 mil exemption:
+            # see regras_fiscais.LIMITE_ISENCAO_ACOES.
+            if categoria(tipo, v["ticker"]) == "acao" and total_mes <= _LIMITE_ISENCAO_ACOES:
                 isento = True
 
             if ganho is not None and aliq is not None and not isento and ganho > 0:
@@ -457,7 +458,7 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
         for m in mens_vends:
             tipo  = m["tipo"]
             total = m["total_vendas"]
-            limite = _LIMITE_ISENCAO_ACOES if tipo in ("acao", "bdr") else None
+            limite = _LIMITE_ISENCAO_ACOES if tipo == "acao" else None
             if limite is not None:
                 situacao = "ISENTO" if total <= limite else "⚠ TRIBUTÁVEL"
             else:
@@ -477,7 +478,7 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
     rules = [
         ("Ações",       "Vendas ≤ R$20k/mês → ISENTO; acima → DARF 15%",    "compensar perdas acumuladas"),
         ("FIIs",        "Sempre DARF 20% sobre ganho",                       "sem isenção"),
-        ("BDRs",        "Vendas ≤ R$20k/mês → ISENTO; acima → DARF 15%",    "vigente desde 2023"),
+        ("BDRs",        "Sempre DARF 15% sobre ganho",                       "sem isenção (PR-IRPF q.707)"),
         ("JCP",         "15% retido na fonte",                               "declarar IRPF"),
         ("Dividendos",  "Isentos (PF)",                                      "legislação atual"),
         ("Rend. FII",   "Isentos (PF cota ≥ 10% fundo com 50+ cotistas)",    "verificar cada fundo"),

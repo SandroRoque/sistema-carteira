@@ -1,7 +1,8 @@
 {# Shared pieces of the portfolio pages. Import with: {% import "macros.html" as m %} #}
 
 {% macro classe_resultado(v) -%}
-{%- if v is not none and v > 0 %}ganho{% elif v is not none and v < 0 %}perda{% endif -%}
+{#- Compared at the cent shown: R$ 0,00 is neither gain nor loss. -#}
+{%- if v is not none and (v | float | round(2)) > 0 %}ganho{% elif v is not none and (v | float | round(2)) < 0 %}perda{% endif -%}
 {%- endmacro %}
 
 {# A gain/loss in money with its percentage below; arrows so it is not color-only. #}

@@ -136,3 +136,18 @@ def test_aviso_de_extrato_antigo(com_bonificacao):
 def test_contador_no_cabecalho(com_bonificacao, cliente):
     assert "1 pendência" in cliente.get("/").text
     assert cliente.get("/pendencias").status_code == 200
+
+
+def test_parte_da_posicao_sem_custo_vira_pendencia_e_aceita_zero(usuario_id, investidor_a, cliente):
+    _b3(investidor_a, ("Credito", "10/05/2023", "Atualização", "EFGH34 - EFGH INC", "NU", 1, "-", "-"))
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A, negociacao("EFGH34", "entrada", 7, 12.0, date(2025, 9, 15))), "1.pdf")
+
+    [p] = _listar(investidor_a)
+    assert (p.tipo, p.parcial, p.qtd, p.data) == ("sem_custo", True, 1, date(2023, 5, 10))
+
+    cliente.post(f"/pendencias/custos/{p.chave}", data={"csrf_token": cliente.csrf, "custo_por_cota": "0"})
+
+    assert _listar(investidor_a) == []
+    assert _posicao(investidor_a, "EFGH34")["preco_medio"] == D("10.5")

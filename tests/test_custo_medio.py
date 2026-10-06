@@ -55,10 +55,37 @@ def test_compras_posteriores_nao_afetam_custo_de_venda_anterior():
     assert baixa.custo == 500
 
 
-def test_compra_e_venda_no_mesmo_dia_compra_primeiro():
-    saldo = replay([venda(D1, 100), compra(D1, 100, 10)])
+def venda_valor(data, qty, preco, nid=None, corretora="nu_invest"):
+    return Evento(data, "venda", D(qty), D(qty) * D(preco), nid, (corretora, "1"))
 
-    assert saldo.qty == 0
+
+def compra_em(data, qty, preco, nid=None, corretora="nu_invest"):
+    return Evento(data, "compra", D(qty), D(qty) * D(preco), nid, (corretora, "1"))
+
+
+def test_day_trade_fica_fora_da_posicao():
+    saldo = replay([
+        compra_em(D1, 100, 10, nid=1),
+        compra_em(D2, 30, 12, nid=2),
+        venda_valor(D2, 50, 13, nid=3),  # 30 day trade + 20 from the position
+    ])
+
+    [dt] = saldo.day_trades
+    assert (dt.qtd, dt.custo_compra, dt.valor_venda, dt.resultado) == (30, 360, 390, 30)
+    assert saldo.qty == 80
+    assert saldo.preco_medio == 10  # the day's buy never entered the average
+    assert saldo.baixas[0].evento.quantidade == 20
+    assert saldo.baixas[0].custo == 200
+
+
+def test_mesmo_dia_em_corretoras_diferentes_nao_e_day_trade():
+    saldo = replay([
+        compra_em(D1, 100, 10, nid=1, corretora="xp"),
+        venda_valor(D1, 100, 12, nid=2, corretora="nu_invest"),
+    ])
+
+    assert saldo.day_trades == []
+    assert saldo.qty == 0  # the buy is applied before the sale
     assert saldo.baixas[0].custo == 1000
 
 
@@ -145,3 +172,25 @@ def test_aritmetica_exata():
 
     assert saldo.custo == Decimal("0.3")
     assert saldo.preco_medio == Decimal("0.1")
+
+
+def test_credito_sem_custo_em_posicao_vazia_fica_sem_preco_medio():
+    saldo = replay([ev(D1, "transferencia_entrada", 12.34), ev(D2, "fracao", 0.34)])
+
+    assert saldo.custo_desconhecido
+    assert saldo.baixas[0].custo is None  # the auction's result is unknown, not a pure gain
+
+
+def test_credito_sem_custo_seguido_de_compra_conta_como_custo_zero_e_sinaliza():
+    saldo = replay([ev(D1, "atualizacao", 1), compra(D2, 7, "15.5"), venda(D3, 5)])
+
+    assert saldo.custo_desconhecido
+    assert saldo.baixas[0].custo_incompleto
+    assert saldo.baixas[0].preco_medio == D("108.5") / 8
+
+
+def test_custo_informado_resolve_credito_sem_nota():
+    saldo = replay([ev(D1, "transferencia_entrada", 50, 1500)])
+
+    assert not saldo.custo_desconhecido
+    assert saldo.preco_medio == 30

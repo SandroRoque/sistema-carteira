@@ -248,6 +248,7 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
     is_open           – True if qty > 0
     tem_bonif_sem_custo – True if bonus shares in the position lack custo_por_cota
     custo_sem_origem  – True if position from custody transfer (cost unknown)
+    custo_incompleto  – True if some shares came in without cost (counted as zero)
     """
     ativos = ativos_do_investidor(conn, investidor_id)
 
@@ -280,6 +281,7 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
             "is_open":             False,
             "tem_bonif_sem_custo": False,
             "custo_sem_origem":    False,
+            "custo_incompleto":    False,
         }
 
         if tipo in _EQUITY_TIPOS:
@@ -302,6 +304,7 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
                 pos["custo_total"]         = saldo.custo if aberta else 0
                 pos["preco_medio"]         = saldo.preco_medio if aberta else None
                 pos["tem_bonif_sem_custo"] = saldo.tem_bonif_sem_custo
+                pos["custo_incompleto"]    = saldo.custo_desconhecido
                 pos["is_open"]             = saldo.qty > 0.001
 
         elif tipo == "renda_fixa":
