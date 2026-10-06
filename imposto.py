@@ -31,9 +31,10 @@ Dividendos:
   - Currently exempt (Brazil legislation as of 2026)
   - FII rendimentos: exempt for PF investors
 
-Cost-basis method: weighted average (custo médio ponderado), computed
-from all negociacoes with sentido='entrada' prior to each sale date.
-This is the method required by Receita Federal for variable income.
+Cost-basis method: weighted average (custo médio ponderado) at the moment
+of each sale, replaying purchases, sales, bonificações and desdobros in date
+order (custo_medio.py). This is the method required by Receita Federal for
+variable income.
 """
 
 from __future__ import annotations
@@ -44,7 +45,8 @@ from datetime import date
 from sqlalchemy import Connection
 
 from contas import investidor_do_cli
-from database import connect_sistema, fetch_all, fetch_one
+from custo_medio import saldos
+from database import connect_sistema, fetch_all
 
 # Tax thresholds
 _LIMITE_ISENCAO_ACOES = 20_000.0   # R$ / month
@@ -54,31 +56,6 @@ _LIMITE_ISENCAO_BDRS  = 20_000.0   # same rule since 2023
 _ALIQUOTA_ACOES = 15.0
 _ALIQUOTA_FII   = 20.0
 _ALIQUOTA_BDR   = 15.0
-
-
-def _custo_medio_antes_da_venda(
-    conn: Connection, investidor_id: int, ativo_id: int, data_venda: date
-) -> float | None:
-    """Weighted average cost per share from all purchases BEFORE the sale date."""
-    row = fetch_one(
-        conn,
-        """
-        SELECT
-            SUM(quantidade)    AS qty_total,
-            SUM(valor_liquido) AS custo_total
-        FROM negociacoes
-        WHERE investidor_id = :investidor_id
-          AND ativo_id = :ativo_id
-          AND sentido = 'entrada'
-          AND data < :data_venda
-        """,
-        investidor_id=investidor_id,
-        ativo_id=ativo_id,
-        data_venda=data_venda,
-    )
-    if row is None or not row["qty_total"]:
-        return None
-    return row["custo_total"] / row["qty_total"]
 
 
 def _buscar_vendas(conn: Connection, investidor_id: int, ano: int | None = None) -> list[dict]:
@@ -107,16 +84,26 @@ def _buscar_vendas(conn: Connection, investidor_id: int, ano: int | None = None)
         ano=ano,
     )
 
+    # Cost basis of every sale, replayed over the full history: a sale's
+    # average depends on everything before it, not only on the year shown.
+    baixas = {
+        b.evento.negociacao_id: b
+        for saldo in saldos(conn, investidor_id, tipos=None).values()
+        for b in saldo.baixas
+        if b.evento.negociacao_id is not None
+    }
+
     result = []
     for r in rows:
-        pm = _custo_medio_antes_da_venda(conn, investidor_id, r["ativo_id"], r["data"])
-        custo_venda = (pm * r["quantidade"]) if pm is not None else None
+        baixa = baixas[r["id"]]
+        custo_venda = baixa.custo
         ganho = (r["valor_liquido"] - custo_venda) if custo_venda is not None else None
         result.append({
             **dict(r),
-            "pm_custo": pm,
+            "pm_custo": baixa.preco_medio,
             "custo_venda": custo_venda,
             "ganho": ganho,
+            "tem_bonif_sem_custo": baixa.tem_bonif_sem_custo,
         })
     return result
 
@@ -443,6 +430,8 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
                 situacao = "sem ganho"
             elif ganho is None:
                 situacao = "sem custo base"
+            elif v["tem_bonif_sem_custo"]:
+                situacao = "custo da bonificação pendente"
             elif aliq is None:
                 situacao = "verificar"
             else:

@@ -38,11 +38,6 @@ def test_posicoes_isoladas_por_investidor(usuario_id, investidor_a, investidor_b
         assert calcular_posicoes(conn, investidor_b) == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Custo médio soma todas as compras sem respeitar a ordem cronológica "
-           "das vendas; a correção é o próximo passo.",
-)
 def test_custo_medio_reinicia_apos_zerar_posicao(usuario_id, investidor_a):
     _carregar(
         usuario_id,

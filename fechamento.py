@@ -10,6 +10,7 @@ Columns
 Ticker       : asset identifier
 Qtd          : quantity held at the closing date
 Preço Médio  : weighted average cost per share as of closing date
+               (replayed in date order, see custo_medio.py)
 Custo Total  : Preço Médio × Qtd  (cost of remaining position)
 Compras      : R$ spent on purchases within the calendar year
 Vendas       : R$ received from sales within the calendar year
@@ -23,7 +24,8 @@ from datetime import date
 from sqlalchemy import Connection
 
 from contas import investidor_do_cli
-from database import connect_sistema, fetch_all, fetch_one
+from database import connect_sistema, fetch_all
+from custo_medio import saldos
 from posicoes import ativos_do_investidor
 
 _EQUITY_TIPOS = {"acao", "fii", "bdr", "tesouro_direto"}
@@ -58,85 +60,6 @@ def _qty_str(v: float, width: int = 8) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Atualização Crédito — genuine credits only, date-capped
-# ---------------------------------------------------------------------------
-
-
-def _atualizacoes_credito_ate(conn: Connection, investidor_id: int, data_fim: date) -> dict[int, float]:
-    """Atualização Crédito genuine share credits up to data_fim.
-
-    Same algorithm as posicoes._atualizacoes_credito but capped at data_fim
-    so that post-date events don't pollute historical snapshots.
-    """
-    events = fetch_all(
-        conn,
-        """
-        SELECT b.ativo_id, b.data, b.quantidade
-        FROM b3_movimentacoes b
-        JOIN ativos a ON a.id = b.ativo_id
-        WHERE b.investidor_id = :investidor_id
-          AND b.movimentacao = 'Atualização'
-          AND b.sentido = 'Credito'
-          AND b.ativo_id IS NOT NULL
-          AND b.data <= :data_fim
-          AND a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
-        ORDER BY b.ativo_id, b.data
-        """,
-        investidor_id=investidor_id,
-        data_fim=data_fim,
-    )
-
-    result: dict[int, float] = {}
-
-    for ev in events:
-        ativo_id = ev["ativo_id"]
-        data     = ev["data"]
-        qty_ev   = ev["quantidade"] or 0.0
-        params   = {"investidor_id": investidor_id, "ativo_id": ativo_id, "data": data}
-
-        row = fetch_one(
-            conn,
-            """SELECT COALESCE(SUM(
-                CASE WHEN sentido = 'entrada' THEN quantidade ELSE -quantidade END
-            ), 0.0) AS qty FROM negociacoes
-            WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id AND data < :data""",
-            **params,
-        )
-        qty_negocios = row["qty"] if row else 0.0
-
-        row = fetch_one(
-            conn,
-            """SELECT
-                COALESCE(SUM(quantidade) FILTER (WHERE movimentacao = 'Bonificação em Ativos'), 0.0)
-                - COALESCE(SUM(quantidade) FILTER (WHERE movimentacao = 'Leilão de Fração'), 0.0)
-                  AS qty_bonif_net
-            FROM b3_movimentacoes
-            WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id AND data < :data""",
-            **params,
-        )
-        qty_bonif = row["qty_bonif_net"] if row else 0.0
-
-        row = fetch_one(
-            conn,
-            """SELECT COALESCE(SUM(quantidade), 0.0) AS qty FROM b3_movimentacoes
-               WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id
-                 AND movimentacao = 'Desdobro' AND sentido = 'Credito' AND data < :data""",
-            **params,
-        )
-        qty_desdobro = row["qty"] if row else 0.0
-
-        qty_prev = result.get(ativo_id, 0.0)
-        derived  = qty_negocios + qty_bonif + qty_desdobro + qty_prev
-
-        if abs(qty_ev - derived) < 0.001:
-            continue  # periodic snapshot — skip
-
-        result[ativo_id] = qty_prev + qty_ev
-
-    return result
-
-
-# ---------------------------------------------------------------------------
 # Position at a given date
 # ---------------------------------------------------------------------------
 
@@ -146,26 +69,7 @@ def calcular_posicao_em(conn: Connection, investidor_id: int, data_fim: date) ->
 
     ativos = ativos_do_investidor(conn, investidor_id)
 
-    # ── Negociacoes (equity) ──────────────────────────────────────────────
-    neg_rows = fetch_all(
-        conn,
-        """
-        SELECT
-            n.ativo_id,
-            SUM(CASE WHEN n.sentido = 'entrada' THEN n.quantidade    ELSE 0 END) AS qty_entrada,
-            SUM(CASE WHEN n.sentido = 'saida'   THEN n.quantidade    ELSE 0 END) AS qty_saida,
-            SUM(CASE WHEN n.sentido = 'entrada' THEN n.valor_liquido ELSE 0 END) AS custo_compras
-        FROM negociacoes n
-        JOIN ativos a ON a.id = n.ativo_id
-        WHERE n.investidor_id = :investidor_id
-          AND a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
-          AND n.data <= :data_fim
-        GROUP BY n.ativo_id
-        """,
-        investidor_id=investidor_id,
-        data_fim=data_fim,
-    )
-    neg_equity = {r["ativo_id"]: dict(r) for r in neg_rows}
+    saldos_equity = saldos(conn, investidor_id, ate=data_fim)
 
     # ── Negociacoes (renda_fixa) ──────────────────────────────────────────
     rf_rows = fetch_all(
@@ -189,58 +93,6 @@ def calcular_posicao_em(conn: Connection, investidor_id: int, data_fim: date) ->
     )
     neg_rf = {r["ativo_id"]: dict(r) for r in rf_rows}
 
-    # ── Corporate events (equity) ─────────────────────────────────────────
-    bonif_rows = fetch_all(
-        conn,
-        """
-        SELECT
-            b.ativo_id,
-            SUM(b.quantidade) AS qty_bonif,
-            SUM(CASE WHEN bc.custo_por_cota IS NOT NULL
-                     THEN b.quantidade * bc.custo_por_cota ELSE 0 END) AS custo_bonif
-        FROM b3_movimentacoes b
-        LEFT JOIN bonificacoes bc ON bc.b3_movimentacao_id = b.id
-        WHERE b.investidor_id = :investidor_id
-          AND b.movimentacao = 'Bonificação em Ativos'
-          AND b.ativo_id IS NOT NULL
-          AND b.data <= :data_fim
-        GROUP BY b.ativo_id
-        """,
-        investidor_id=investidor_id,
-        data_fim=data_fim,
-    )
-    bonifs = {r["ativo_id"]: dict(r) for r in bonif_rows}
-
-    desdobro_rows = fetch_all(
-        conn,
-        """
-        SELECT ativo_id, SUM(quantidade) AS qty_desdobro
-        FROM b3_movimentacoes
-        WHERE investidor_id = :investidor_id
-          AND movimentacao = 'Desdobro' AND sentido = 'Credito'
-          AND ativo_id IS NOT NULL AND data <= :data_fim
-        GROUP BY ativo_id
-        """,
-        investidor_id=investidor_id,
-        data_fim=data_fim,
-    )
-    desdobros = {r["ativo_id"]: r["qty_desdobro"] for r in desdobro_rows}
-
-    fracao_rows = fetch_all(
-        conn,
-        """
-        SELECT ativo_id, SUM(quantidade) AS qty_fracao
-        FROM b3_movimentacoes
-        WHERE investidor_id = :investidor_id
-          AND movimentacao = 'Leilão de Fração'
-          AND ativo_id IS NOT NULL AND data <= :data_fim
-        GROUP BY ativo_id
-        """,
-        investidor_id=investidor_id,
-        data_fim=data_fim,
-    )
-    fracoes = {r["ativo_id"]: r["qty_fracao"] for r in fracao_rows}
-
     rf_venc_rows = fetch_all(
         conn,
         """
@@ -256,60 +108,37 @@ def calcular_posicao_em(conn: Connection, investidor_id: int, data_fim: date) ->
     )
     rf_vencidos = {r["ativo_id"]: r["qty_vencida"] for r in rf_venc_rows}
 
-    atualizacoes = _atualizacoes_credito_ate(conn, investidor_id, data_fim)
-
     result: dict[int, dict] = {}
 
     for ativo_id, ativo in ativos.items():
         tipo = ativo["tipo"]
 
         if tipo in _EQUITY_TIPOS:
-            neq             = neg_equity.get(ativo_id)
-            qty_atualizacao = atualizacoes.get(ativo_id) or 0.0
+            saldo = saldos_equity.get(ativo_id)
+            if saldo is None:
+                continue
 
-            if neq is None:
-                if qty_atualizacao <= 0:
+            if not saldo.tem_negociacoes:
+                # Custody transfers / Atualização credits only: cost unknown.
+                if saldo.qty <= 0.001:
                     continue
-                result[ativo_id] = {
-                    "ativo_id": ativo_id,
-                    "ticker":   ativo["ticker"] or ativo["nome"],
-                    "nome":     ativo["nome"] or "",
-                    "tipo":     tipo,
-                    "qty":      qty_atualizacao,
-                    "custo_total": 0.0,
-                    "preco_medio": None,
-                }
-                continue
-
-            qty_comprada  = neq["qty_entrada"]   or 0.0
-            qty_vendida   = neq["qty_saida"]     or 0.0
-            custo_compras = neq["custo_compras"] or 0.0
-
-            b           = bonifs.get(ativo_id, {})
-            qty_bonif   = b.get("qty_bonif")  or 0.0
-            custo_bonif = b.get("custo_bonif") or 0.0
-
-            qty_fracao   = fracoes.get(ativo_id)  or 0.0
-            qty_desdobro = desdobros.get(ativo_id) or 0.0
-
-            qty_atual = (qty_comprada - qty_vendida + qty_bonif + qty_desdobro
-                         - qty_fracao + qty_atualizacao)
-
-            total_qty_entradas = qty_comprada + qty_bonif + qty_desdobro + qty_atualizacao
-            total_custo        = custo_compras + custo_bonif
-            avg_cost = total_custo / total_qty_entradas if total_qty_entradas > 0 else 0.0
-
-            if qty_atual <= -0.001 or (qty_atual < 0.001 and qty_comprada == 0):
-                continue
+                custo_total, preco_medio = 0.0, None
+            else:
+                # Positions closed during the year still show up (qty 0).
+                if saldo.qty <= -0.001:
+                    continue
+                aberta = saldo.qty > 0.001
+                custo_total = saldo.custo if aberta else 0.0
+                preco_medio = saldo.preco_medio if aberta else None
 
             result[ativo_id] = {
-                "ativo_id":   ativo_id,
-                "ticker":     ativo["ticker"] or ativo["nome"],
-                "nome":       ativo["nome"] or "",
-                "tipo":       tipo,
-                "qty":        qty_atual,
-                "custo_total": avg_cost * qty_atual if qty_atual > 0.001 else 0.0,
-                "preco_medio": avg_cost if qty_atual > 0.001 else None,
+                "ativo_id":    ativo_id,
+                "ticker":      ativo["ticker"] or ativo["nome"],
+                "nome":        ativo["nome"] or "",
+                "tipo":        tipo,
+                "qty":         saldo.qty,
+                "custo_total": custo_total,
+                "preco_medio": preco_medio,
             }
 
         elif tipo == "renda_fixa":

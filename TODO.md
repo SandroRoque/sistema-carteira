@@ -16,17 +16,10 @@ A manual review pass can detect duplicates and merge them by re-pointing the rel
 **Proper fix (future):** Normalize `titulo` strings at extraction time, or add a post-load
 deduplication step that matches by `(cnpj_emissor, indexador, taxa_prefixada, percentual_do_indexador, emissao, vencimento)`.
 
-### Average cost ignores trade order
+### Calculations use float
 
-`posicoes.py`, `fechamento.py` and `imposto.py` compute average cost as
-`SUM(all purchases) / SUM(all purchased qty)`. After a position is closed and
-reopened, old purchases still weigh in: buy 100 @ 10, sell 100, buy 100 @ 20
-reports R$ 15 instead of R$ 20. Pinned by the strict-xfail test
-`tests/test_posicoes.py::test_custo_medio_reinicia_apos_zerar_posicao`.
-
-**Fix:** replay events chronologically per ativo (buys, sells, bonificações,
-desdobros) and move the arithmetic to `Decimal` at the same time — NUMERIC is
-currently loaded as float (see `database.py`).
+NUMERIC is loaded as float (see `database.py`), so positions, average cost and
+taxes are computed in binary floating point. Move the arithmetic to `Decimal`.
 
 ### A Nu Invest nota has a misextracted CPF
 

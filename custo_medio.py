@@ -1,0 +1,230 @@
+"""Average cost (custo médio ponderado) by replaying events in date order.
+
+The Receita Federal method: every acquisition raises the total cost; every
+disposal removes shares at the average cost of that moment, leaving the
+average unchanged. When a position reaches zero the next purchase starts a
+fresh average — buy 100 @ 10, sell all, buy 100 @ 20 gives 20, not 15.
+
+Events per ativo
+----------------
+compra                 + qty, + valor líquido (negociacoes entrada)
+venda                  − qty at the current average (negociacoes saída)
+bonificacao            + qty, + qty × custo_por_cota (0 while unknown)
+desdobro, atualizacao  + qty at zero cost (dilutes the average)
+fracao, resgate        − qty at the current average (Leilão de Fração;
+                         B3 Resgate closing a fund absorbed in a merger)
+transferencia_entrada  + qty at the current average (custody transfer)
+transferencia_saida    − qty at the current average
+
+'Atualização' Crédito is ambiguous in B3 reports: usually it is a periodic
+confirmation of the whole position (qty equal to what is held), sometimes a
+genuine credit (e.g. a conversion). A confirmation is recognized by its qty
+matching the position held before that day, and ignored.
+
+Same-day order: atualizacao is compared against the previous day's position,
+then entries, then exits — so a same-day buy and sell never dips below zero.
+
+The replay itself (`replay`) is pure; `carregar_eventos` reads the events
+of one investidor from the database.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Iterable
+
+from sqlalchemy import Connection
+
+from database import fetch_all
+
+# Below this a quantity is treated as zero (position closed).
+_ZERO = 0.000001
+# Tolerance for recognizing an 'Atualização' that just confirms the position.
+_TOLERANCIA_ATUALIZACAO = 0.001
+
+_ENTRADAS = {"compra", "bonificacao", "desdobro", "transferencia_entrada"}
+_SAIDAS = {"venda", "fracao", "resgate", "transferencia_saida"}
+_ORDEM_NO_DIA = {"atualizacao": 0, **{t: 1 for t in _ENTRADAS}, **{t: 2 for t in _SAIDAS}}
+
+EQUITY_TIPOS = ("acao", "fii", "bdr", "tesouro_direto")
+
+
+@dataclass(frozen=True)
+class Evento:
+    data: date
+    tipo: str
+    quantidade: float
+    # compra: valor líquido paid; bonificacao: qty × custo_por_cota, None while unknown.
+    custo: float | None = None
+    # negociacoes.id for compra / venda.
+    negociacao_id: int | None = None
+
+
+@dataclass(frozen=True)
+class Baixa:
+    """Shares leaving the position, with the cost basis they carried out."""
+
+    evento: Evento
+    # Average cost at that moment; None when nothing was held (cost unknown).
+    preco_medio: float | None
+    custo: float | None
+    # Some bonus shares in the average still lack their acquisition cost.
+    tem_bonif_sem_custo: bool
+
+
+@dataclass
+class Saldo:
+    qty: float = 0
+    custo: float = 0
+    # Unknown-cost bonus shares are part of the current position.
+    tem_bonif_sem_custo: bool = False
+    tem_negociacoes: bool = False
+    baixas: list[Baixa] = field(default_factory=list)
+
+    @property
+    def preco_medio(self) -> float | None:
+        return self.custo / self.qty if self.qty > _ZERO else None
+
+
+def _ordenar(eventos: Iterable[Evento]) -> list[Evento]:
+    return sorted(eventos, key=lambda e: (e.data, _ORDEM_NO_DIA[e.tipo], e.negociacao_id or 0))
+
+
+def replay(eventos: Iterable[Evento]) -> Saldo:
+    """Apply one ativo's events in date order and return the resulting position."""
+    saldo = Saldo()
+    eventos = _ordenar(eventos)
+    qty_no_inicio_do_dia = 0
+    dia = None
+
+    for ev in eventos:
+        if ev.data != dia:
+            dia, qty_no_inicio_do_dia = ev.data, saldo.qty
+        q = ev.quantidade or 0
+
+        if ev.tipo in ("compra", "venda"):
+            saldo.tem_negociacoes = True
+
+        if ev.tipo == "atualizacao":
+            if abs(q - qty_no_inicio_do_dia) < _TOLERANCIA_ATUALIZACAO:
+                continue  # confirmation of the position, not a credit
+            saldo.qty += q
+        elif ev.tipo == "compra":
+            saldo.qty += q
+            saldo.custo += ev.custo or 0
+        elif ev.tipo == "bonificacao":
+            saldo.qty += q
+            if ev.custo is None:
+                saldo.tem_bonif_sem_custo = True
+            else:
+                saldo.custo += ev.custo
+        elif ev.tipo == "desdobro":
+            saldo.qty += q
+        elif ev.tipo == "transferencia_entrada":
+            pm = saldo.preco_medio
+            saldo.qty += q
+            if pm is not None:
+                saldo.custo += pm * q
+        elif ev.tipo in _SAIDAS:
+            _baixar(saldo, ev, q)
+        else:
+            raise ValueError(f"tipo de evento desconhecido: {ev.tipo}")
+
+    return saldo
+
+
+def _baixar(saldo: Saldo, ev: Evento, q: float) -> None:
+    pm = saldo.preco_medio
+    if pm is None:
+        custo = None
+    elif q >= saldo.qty:
+        custo = saldo.custo  # whole position: no rounding residue left behind
+    else:
+        custo = pm * q
+    saldo.baixas.append(Baixa(ev, pm, custo, saldo.tem_bonif_sem_custo))
+
+    saldo.qty -= q
+    if saldo.qty <= _ZERO:
+        # Closed (or sold more than recorded): the next purchase starts afresh.
+        saldo.custo = 0
+        saldo.tem_bonif_sem_custo = False
+    elif custo is not None:
+        saldo.custo -= custo
+
+
+# ---------------------------------------------------------------------------
+# Loading
+# ---------------------------------------------------------------------------
+
+
+def carregar_eventos(
+    conn: Connection,
+    investidor_id: int,
+    ate: date | None = None,
+    tipos: Iterable[str] | None = EQUITY_TIPOS,
+) -> dict[int, list[Evento]]:
+    """{ativo_id: events} for the investidor's ativos of the given tipos
+    (None = all), optionally only up to (and including) `ate`."""
+    rows = fetch_all(
+        conn,
+        """
+        SELECT n.ativo_id, n.data, n.id AS negociacao_id,
+               CASE WHEN n.sentido = 'entrada' THEN 'compra' ELSE 'venda' END AS tipo,
+               COALESCE(n.quantidade, 0) AS quantidade,
+               n.valor_liquido AS custo
+        FROM negociacoes n
+        JOIN ativos a ON a.id = n.ativo_id
+        WHERE n.investidor_id = :investidor_id
+          AND (CAST(:tipos AS text[]) IS NULL OR a.tipo = ANY(:tipos))
+          AND (CAST(:ate AS date) IS NULL OR n.data <= :ate)
+
+        UNION ALL
+
+        SELECT b.ativo_id, b.data, NULL,
+               CASE
+                   WHEN b.movimentacao = 'Bonificação em Ativos' THEN 'bonificacao'
+                   WHEN b.movimentacao = 'Desdobro'              THEN 'desdobro'
+                   WHEN b.movimentacao = 'Atualização'           THEN 'atualizacao'
+                   WHEN b.movimentacao = 'Leilão de Fração'      THEN 'fracao'
+                   WHEN b.movimentacao = 'Resgate'               THEN 'resgate'
+                   WHEN b.sentido = 'Credito'                    THEN 'transferencia_entrada'
+                   ELSE 'transferencia_saida'
+               END,
+               COALESCE(b.quantidade, 0),
+               b.quantidade * bc.custo_por_cota
+        FROM b3_movimentacoes b
+        JOIN ativos a ON a.id = b.ativo_id
+        LEFT JOIN bonificacoes bc ON bc.b3_movimentacao_id = b.id
+        WHERE b.investidor_id = :investidor_id
+          AND (CAST(:tipos AS text[]) IS NULL OR a.tipo = ANY(:tipos))
+          AND (CAST(:ate AS date) IS NULL OR b.data <= :ate)
+          AND (
+              b.movimentacao IN ('Bonificação em Ativos', 'Leilão de Fração', 'Transferência')
+              OR (b.movimentacao IN ('Desdobro', 'Atualização', 'Resgate') AND b.sentido = 'Credito')
+          )
+        """,
+        investidor_id=investidor_id,
+        tipos=None if tipos is None else list(tipos),
+        ate=ate,
+    )
+    eventos: dict[int, list[Evento]] = defaultdict(list)
+    for r in rows:
+        eventos[r["ativo_id"]].append(
+            Evento(r["data"], r["tipo"], r["quantidade"], r["custo"], r["negociacao_id"])
+        )
+    return dict(eventos)
+
+
+def saldos(
+    conn: Connection,
+    investidor_id: int,
+    ate: date | None = None,
+    tipos: Iterable[str] | None = EQUITY_TIPOS,
+) -> dict[int, Saldo]:
+    """{ativo_id: position} replayed from every event up to `ate`."""
+    return {
+        ativo_id: replay(evs)
+        for ativo_id, evs in carregar_eventos(conn, investidor_id, ate, tipos).items()
+    }

@@ -13,8 +13,9 @@ acao / fii / bdr / tesouro_direto
             − leilão_de_fração
             + custody transfers (Transferência Crédito − Débito)
               only for ativos with NO negociacoes entry (e.g. a BDR received by custody transfer)
-    custo = custo médio ponderado × qty_atual
-            (desdobramento adds qty with zero marginal cost, diluting avg)
+    custo = custo médio ponderado, replayed in date order (custo_medio.py):
+            sales leave the average unchanged, a closed position starts
+            afresh, desdobramento adds qty at zero cost (diluting the avg)
 
 renda_fixa
     qty       = qty_entrada_negociacoes − qty_saida_negociacoes
@@ -45,7 +46,8 @@ from __future__ import annotations
 
 from sqlalchemy import Connection
 
-from database import fetch_all, fetch_one
+from custo_medio import saldos
+from database import fetch_all
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -58,28 +60,6 @@ _SUBSCRICAO_TIPOS = {"direito_subscricao", "recibo_subscricao"}
 # ---------------------------------------------------------------------------
 # Per-source aggregations
 # ---------------------------------------------------------------------------
-
-
-def _negocios_equity(conn: Connection, investidor_id: int) -> dict[int, dict]:
-    """Qty and cost from negociacoes for equity/fii/bdr/tesouro_direto ativos."""
-    rows = fetch_all(
-        conn,
-        """
-        SELECT
-            n.ativo_id,
-            SUM(CASE WHEN n.sentido = 'entrada' THEN n.quantidade   ELSE 0 END) AS qty_entrada,
-            SUM(CASE WHEN n.sentido = 'saida'   THEN n.quantidade   ELSE 0 END) AS qty_saida,
-            SUM(CASE WHEN n.sentido = 'entrada' THEN n.valor_liquido ELSE 0 END) AS custo_compras,
-            SUM(CASE WHEN n.sentido = 'saida'   THEN n.valor_liquido ELSE 0 END) AS receita_vendas
-        FROM negociacoes n
-        JOIN ativos a ON a.id = n.ativo_id
-        WHERE n.investidor_id = :investidor_id
-          AND a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
-        GROUP BY n.ativo_id
-        """,
-        investidor_id=investidor_id,
-    )
-    return {r["ativo_id"]: dict(r) for r in rows}
 
 
 def _negocios_rf(conn: Connection, investidor_id: int) -> dict[int, dict]:
@@ -102,221 +82,6 @@ def _negocios_rf(conn: Connection, investidor_id: int) -> dict[int, dict]:
         investidor_id=investidor_id,
     )
     return {r["ativo_id"]: dict(r) for r in rows}
-
-
-def _bonificacoes(conn: Connection, investidor_id: int) -> dict[int, dict]:
-    """Bonificação qty and cost from B3, joined with bonificacoes cost table."""
-    rows = fetch_all(
-        conn,
-        """
-        SELECT
-            b.ativo_id,
-            SUM(b.quantidade)                                                         AS qty_bonif,
-            SUM(CASE WHEN bc.custo_por_cota IS NOT NULL
-                     THEN b.quantidade * bc.custo_por_cota ELSE 0 END)                AS custo_bonif,
-            BOOL_OR(bc.custo_por_cota IS NULL)                                        AS tem_bonif_sem_custo
-        FROM b3_movimentacoes b
-        LEFT JOIN bonificacoes bc ON bc.b3_movimentacao_id = b.id
-        WHERE b.investidor_id = :investidor_id
-          AND b.movimentacao = 'Bonificação em Ativos'
-          AND b.ativo_id IS NOT NULL
-        GROUP BY b.ativo_id
-        """,
-        investidor_id=investidor_id,
-    )
-    return {r["ativo_id"]: dict(r) for r in rows}
-
-
-def _atualizacoes_credito(conn: Connection, investidor_id: int) -> dict[int, float]:
-    """Atualização Crédito events that are genuine share credits (not position snapshots).
-
-    B3 uses 'Atualização' for two distinct purposes:
-    a) Periodic position confirmations — B3 records the current position size
-       (qty == total position at that point in time); these must be ignored.
-    b) Genuine share credits — corporate action adjustments, conversion credits
-       (qty ≠ total position at that point in time); these must be counted.
-
-    We distinguish them per event: compute the independently-derived position
-    at each event's date (from negociacoes + bonifs + desdobros + prior genuine
-    Atualização credits); if the event qty equals that derived position it is a
-    snapshot and is skipped, otherwise it is a genuine credit and is included.
-    """
-    events = fetch_all(
-        conn,
-        """
-        SELECT b.ativo_id, b.data, b.quantidade
-        FROM b3_movimentacoes b
-        JOIN ativos a ON a.id = b.ativo_id
-        WHERE b.investidor_id = :investidor_id
-          AND b.movimentacao = 'Atualização'
-          AND b.sentido = 'Credito'
-          AND b.ativo_id IS NOT NULL
-          AND a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
-        ORDER BY b.ativo_id, b.data
-        """,
-        investidor_id=investidor_id,
-    )
-
-    result: dict[int, float] = {}
-
-    for ev in events:
-        ativo_id = ev["ativo_id"]
-        data     = ev["data"]
-        qty_ev   = ev["quantidade"] or 0.0
-        params   = {"investidor_id": investidor_id, "ativo_id": ativo_id, "data": data}
-
-        # Negociacoes-derived qty strictly before this event date
-        row = fetch_one(
-            conn,
-            """
-            SELECT COALESCE(SUM(
-                CASE WHEN sentido = 'entrada' THEN quantidade ELSE -quantidade END
-            ), 0.0) AS qty
-            FROM negociacoes
-            WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id AND data < :data
-            """,
-            **params,
-        )
-        qty_negocios = row["qty"] if row else 0.0
-
-        # Bonificações net of leilão de fração strictly before this date
-        row = fetch_one(
-            conn,
-            """
-            SELECT
-                COALESCE(SUM(quantidade) FILTER (WHERE movimentacao = 'Bonificação em Ativos'), 0.0)
-                - COALESCE(SUM(quantidade) FILTER (WHERE movimentacao = 'Leilão de Fração'), 0.0)
-                  AS qty_bonif_net
-            FROM b3_movimentacoes
-            WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id AND data < :data
-            """,
-            **params,
-        )
-        qty_bonif = row["qty_bonif_net"] if row else 0.0
-
-        # Desdobros strictly before this date
-        row = fetch_one(
-            conn,
-            """
-            SELECT COALESCE(SUM(quantidade), 0.0) AS qty
-            FROM b3_movimentacoes
-            WHERE investidor_id = :investidor_id AND ativo_id = :ativo_id
-              AND movimentacao = 'Desdobro' AND sentido = 'Credito' AND data < :data
-            """,
-            **params,
-        )
-        qty_desdobro = row["qty"] if row else 0.0
-
-        # Prior genuine Atualização credits already confirmed for this ativo
-        qty_prev = result.get(ativo_id, 0.0)
-
-        derived = qty_negocios + qty_bonif + qty_desdobro + qty_prev
-
-        # If event qty matches derived position → periodic snapshot → skip
-        if abs(qty_ev - derived) < 0.001:
-            continue
-
-        # Otherwise it is a genuine credit
-        result[ativo_id] = qty_prev + qty_ev
-
-    return result
-
-
-def _fracoes(conn: Connection, investidor_id: int) -> dict[int, float]:
-    """Leilão de Fração: fractional shares sold after bonificação (reduce qty)."""
-    rows = fetch_all(
-        conn,
-        """
-        SELECT ativo_id, SUM(quantidade) AS qty_fracao
-        FROM b3_movimentacoes
-        WHERE investidor_id = :investidor_id
-          AND movimentacao = 'Leilão de Fração'
-          AND ativo_id IS NOT NULL
-        GROUP BY ativo_id
-        """,
-        investidor_id=investidor_id,
-    )
-    return {r["ativo_id"]: r["qty_fracao"] for r in rows}
-
-
-def _desdobramentos(conn: Connection, investidor_id: int) -> dict[int, float]:
-    """Desdobro (stock split): free shares credited, zero marginal cost.
-
-    The total cost basis stays the same but is spread over more shares,
-    so avg_cost per share decreases proportionally.
-    """
-    rows = fetch_all(
-        conn,
-        """
-        SELECT ativo_id, SUM(quantidade) AS qty_desdobro
-        FROM b3_movimentacoes
-        WHERE investidor_id = :investidor_id
-          AND movimentacao = 'Desdobro'
-          AND sentido = 'Credito'
-          AND ativo_id IS NOT NULL
-        GROUP BY ativo_id
-        """,
-        investidor_id=investidor_id,
-    )
-    return {r["ativo_id"]: r["qty_desdobro"] for r in rows}
-
-
-def _transferencias_custody(conn: Connection, investidor_id: int) -> dict[int, float]:
-    """Net qty from custody transfers ('Transferência') per ativo.
-
-    Used only for ativos that have no negociacoes entry — e.g. BDRs
-    received via broker-to-broker transfer rather than a trade note.
-    Cost is unknown (set to zero in the position).
-    """
-    rows = fetch_all(
-        conn,
-        """
-        SELECT ativo_id, qty_net
-        FROM (
-            SELECT
-                ativo_id,
-                SUM(CASE WHEN sentido = 'Credito' THEN COALESCE(quantidade, 0) ELSE 0 END)
-                - SUM(CASE WHEN sentido = 'Debito'  THEN COALESCE(quantidade, 0) ELSE 0 END)
-                  AS qty_net
-            FROM b3_movimentacoes
-            WHERE investidor_id = :investidor_id
-              AND movimentacao = 'Transferência'
-              AND ativo_id IS NOT NULL
-            GROUP BY ativo_id
-        ) t
-        WHERE qty_net != 0
-        """,
-        investidor_id=investidor_id,
-    )
-    return {r["ativo_id"]: r["qty_net"] for r in rows}
-
-
-def _b3_resgates_equity(conn: Connection, investidor_id: int) -> dict[int, float]:
-    """B3 'Resgate' Crédito events that close equity/FII positions.
-
-    Fund incorporações (mergers) generate a Resgate event in B3 as the
-    only record of position exit — no brokerage note is issued for these.
-    The qty in this event reduces the open position to zero.
-
-    Regular sales appear in negociacoes (not as B3 Resgate), so there is
-    no double-counting risk in practice.
-    """
-    rows = fetch_all(
-        conn,
-        """
-        SELECT b.ativo_id, SUM(COALESCE(b.quantidade, 0)) AS qty_resgatada
-        FROM b3_movimentacoes b
-        JOIN ativos a ON a.id = b.ativo_id
-        WHERE b.investidor_id = :investidor_id
-          AND b.movimentacao = 'Resgate'
-          AND b.sentido = 'Credito'
-          AND a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
-          AND b.ativo_id IS NOT NULL
-        GROUP BY b.ativo_id
-        """,
-        investidor_id=investidor_id,
-    )
-    return {r["ativo_id"]: r["qty_resgatada"] for r in rows}
 
 
 def _rf_b3_vencimentos(conn: Connection, investidor_id: int) -> dict[int, float]:
@@ -480,20 +245,14 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
     pagamento_juros   – interest paid at maturity (renda_fixa) (R$)
     total_income      – sum of all income types above (R$)
     is_open           – True if qty > 0
-    tem_bonif_sem_custo – True if any bonus-share event lacks custo_por_cota
+    tem_bonif_sem_custo – True if bonus shares in the position lack custo_por_cota
     custo_sem_origem  – True if position from custody transfer (cost unknown)
     """
     ativos = ativos_do_investidor(conn, investidor_id)
 
-    neg_equity     = _negocios_equity(conn, investidor_id)
+    saldos_equity  = saldos(conn, investidor_id)
     neg_rf         = _negocios_rf(conn, investidor_id)
-    bonifs         = _bonificacoes(conn, investidor_id)
-    fracoes        = _fracoes(conn, investidor_id)
-    desdobros      = _desdobramentos(conn, investidor_id)
-    transferencias = _transferencias_custody(conn, investidor_id)
-    atualizacoes   = _atualizacoes_credito(conn, investidor_id)
     rf_vencidos    = _rf_b3_vencimentos(conn, investidor_id)
-    b3_resgates    = _b3_resgates_equity(conn, investidor_id)
     subscricoes    = _subscricao_posicoes(conn, investidor_id)
     rendimentos    = _rendimentos_por_ativo(conn, investidor_id)
 
@@ -523,62 +282,26 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
         }
 
         if tipo in _EQUITY_TIPOS:
-            neq = neg_equity.get(ativo_id)
+            saldo = saldos_equity.get(ativo_id)
+            if saldo is None:
+                continue
 
-            # Ativos received via custody transfer with no purchase note
-            qty_transfer    = transferencias.get(ativo_id) or 0.0
-            qty_atualizacao = atualizacoes.get(ativo_id)   or 0.0
-
-            if neq is None:
-                # No negociacoes — position comes from custody transfer and/or
-                # genuine Atualização credits (e.g. corporate-action conversions)
-                qty_pos = qty_transfer + qty_atualizacao
-                if qty_pos <= 0:
+            if not saldo.tem_negociacoes:
+                # No trade notes: the position comes from custody transfers
+                # and/or genuine Atualização credits (e.g. corporate-action
+                # conversions). Its cost is unknown.
+                if saldo.qty <= 0:
                     continue
-                pos["qty"]              = qty_pos
-                pos["custo_total"]      = 0.0
-                pos["preco_medio"]      = None
+                pos["qty"]              = saldo.qty
                 pos["custo_sem_origem"] = True
                 pos["is_open"]          = True
             else:
-                qty_comprada   = neq["qty_entrada"]   or 0.0
-                qty_vendida    = neq["qty_saida"]     or 0.0
-                custo_compras  = neq["custo_compras"] or 0.0
-
-                b              = bonifs.get(ativo_id, {})
-                qty_bonif      = b.get("qty_bonif")  or 0.0
-                custo_bonif    = b.get("custo_bonif") or 0.0
-                tem_bonif_sem  = bool(b.get("tem_bonif_sem_custo", False))
-
-                qty_fracao     = fracoes.get(ativo_id) or 0.0
-
-                # Desdobro (split): free shares, zero marginal cost → dilutes avg
-                qty_desdobro     = desdobros.get(ativo_id) or 0.0
-
-                # Fund incorporação / absorption: B3 Resgate Crédito closes position
-                qty_resgatada_b3 = b3_resgates.get(ativo_id) or 0.0
-
-                qty_atual = (qty_comprada - qty_vendida
-                             + qty_bonif + qty_desdobro
-                             - qty_fracao + qty_transfer
-                             + qty_atualizacao
-                             - qty_resgatada_b3)
-
-                # Weighted average cost per share
-                # Desdobro and Atualização credits add to denominator but NOT
-                # numerator (zero marginal cost), diluting avg cost per share.
-                total_qty_entradas = qty_comprada + qty_bonif + qty_desdobro + qty_atualizacao
-                total_custo        = custo_compras + custo_bonif
-                if total_qty_entradas > 0:
-                    avg_cost = total_custo / total_qty_entradas
-                else:
-                    avg_cost = 0.0
-
-                pos["qty"]                 = qty_atual
-                pos["custo_total"]         = avg_cost * qty_atual if qty_atual > 0 else 0.0
-                pos["preco_medio"]         = avg_cost if qty_atual > 0 else None
-                pos["tem_bonif_sem_custo"] = tem_bonif_sem
-                pos["is_open"]             = qty_atual > 0.001
+                aberta = saldo.qty > 0
+                pos["qty"]                 = saldo.qty
+                pos["custo_total"]         = saldo.custo if aberta else 0.0
+                pos["preco_medio"]         = saldo.preco_medio if aberta else None
+                pos["tem_bonif_sem_custo"] = saldo.tem_bonif_sem_custo
+                pos["is_open"]             = saldo.qty > 0.001
 
         elif tipo == "renda_fixa":
             rf = neg_rf.get(ativo_id)

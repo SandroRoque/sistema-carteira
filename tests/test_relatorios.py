@@ -37,7 +37,10 @@ def test_imposto(carteira, investidor_b):
     with connect_sistema() as conn:
         vendas = imposto._buscar_vendas(conn, carteira, ano=2025)
         assert len(vendas) == 1
-        assert vendas[0]["ganho"] == pytest.approx(50 * 15.0 - 50 * 10.0)
+        # The 10 bonus shares (20/05, cost not informed yet) dilute the
+        # average before the sale: 1000 / 110 per share.
+        assert vendas[0]["ganho"] == pytest.approx(50 * 15.0 - 50 * 1000 / 110)
+        assert vendas[0]["tem_bonif_sem_custo"]
         assert imposto._buscar_vendas(conn, carteira, ano=2024) == []
         assert len(imposto._buscar_vendas(conn, carteira)) == 1
         assert imposto._buscar_vendas(conn, investidor_b) == []
@@ -80,3 +83,31 @@ def test_reconcilia(carteira, investidor_b):
         assert reconcilia._check_bonif_sem_custo(conn, investidor_b) == []
         assert len(reconcilia._check_nao_revisados(conn, carteira)) == 1
         assert reconcilia._check_sem_negociacoes(conn, carteira) == []
+
+
+def test_imposto_usa_custo_medio_desde_que_a_posicao_reabriu(usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A,
+            negociacao("PETR4", "entrada", 100, 10.0, date(2025, 1, 10), linha=1),
+            negociacao("PETR4", "saida", 100, 12.0, date(2025, 2, 10), linha=2),
+            negociacao("PETR4", "entrada", 100, 20.0, date(2025, 3, 10), linha=3),
+            negociacao("PETR4", "saida", 50, 25.0, date(2025, 4, 10), linha=4),
+        ), "1001.pdf")
+        vendas = imposto._buscar_vendas(conn, investidor_a, ano=2025)
+
+    assert [v["pm_custo"] for v in vendas] == pytest.approx([10.0, 20.0])
+    assert [v["ganho"] for v in vendas] == pytest.approx([200.0, 250.0])
+
+
+def test_fechamento_considera_resgate_por_incorporacao(carteira):
+    with connect_sistema() as conn:
+        carregar_arquivo(conn, carteira, pd.DataFrame([
+            ("Credito", "30/06/2025", "Resgate", "PETR4 - PETROBRAS", "NU", 50, "-", "-"),
+        ], columns=_COLUNAS), "incorporacao.xlsx")
+
+        antes = fechamento.calcular_posicao_em(conn, carteira, date(2025, 6, 29))
+        depois = fechamento.calcular_posicao_em(conn, carteira, date(2025, 12, 31))
+
+    assert [p["qty"] for p in antes.values()] == [60]
+    assert [(p["qty"], p["preco_medio"]) for p in depois.values()] == [(10, pytest.approx(1000 / 110))]
