@@ -17,7 +17,7 @@ import pandas as pd
 from sqlalchemy import Connection
 
 from contas import investidor_do_cli
-from database import connect, execute, fetch_all, scalar
+from database import connect_sistema, execute, fetch_all, scalar
 from loader import resolve_ou_criar_ativo
 
 B3_REPORTS_DIR = Path(__file__).resolve().parent / "b3-reports"
@@ -139,7 +139,7 @@ def carregar_arquivo(
 
 
 def main() -> None:
-    with connect() as conn:
+    with connect_sistema() as conn:
         investidor_id = investidor_do_cli(conn)
 
         arquivos = sorted(B3_REPORTS_DIR.glob("*.xlsx"))

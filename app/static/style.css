@@ -58,3 +58,44 @@ details form label {
 figure {
   overflow-x: auto;
 }
+
+/* Utility classes (inline style attributes are blocked by the CSP) */
+.sem-margem {
+  margin: 0;
+}
+
+.espaco-direita {
+  margin-right: 0.25rem;
+}
+
+.erro {
+  color: var(--pico-del-color, #9d0208);
+}
+
+.aviso {
+  color: var(--pico-muted-color);
+}
+
+/* Portfolio switcher in the nav */
+nav form.inline {
+  display: inline;
+  margin: 0;
+}
+
+nav select {
+  margin: 0;
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}
+
+nav button.link {
+  all: unset;
+  cursor: pointer;
+  color: var(--pico-primary);
+}
+
+.zona-perigo {
+  border: 1px solid var(--pico-del-color, #e63946);
+  border-radius: var(--pico-border-radius);
+  padding: var(--pico-spacing);
+}

@@ -44,35 +44,39 @@ def db(database_url):
     yield engine
     with engine.begin() as conn:
         conn.exec_driver_sql(
-            "TRUNCATE usuarios, investidores, ativos, ticker_aliases, notas, negociacoes, "
+            "TRUNCATE usuarios, sessoes, investidores, ativos, ticker_aliases, notas, negociacoes, "
             "b3_arquivos_processados, b3_movimentacoes, bonificacoes RESTART IDENTITY CASCADE"
         )
 
 
+SENHA = "senha-de-teste-123"
+
+
 @pytest.fixture
 def usuario_id(db):
-    from contas import get_or_create_usuario
-    from database import connect
+    import auth
+    from database import connect_sistema
 
-    with connect() as conn:
-        return get_or_create_usuario(conn, "ana@example.com")
+    with connect_sistema() as conn:
+        return auth.criar_usuario(conn, "ana@example.com", SENHA)
 
 
 @pytest.fixture
 def investidor_a(db, usuario_id):
     from contas import get_or_create_investidor
-    from database import connect
+    from database import connect_sistema
 
-    with connect() as conn:
+    with connect_sistema() as conn:
         return get_or_create_investidor(conn, usuario_id, CPF_A, "Ana")
 
 
 @pytest.fixture
 def investidor_b(db):
-    """An investidor owned by a different usuario."""
-    from contas import get_or_create_investidor, get_or_create_usuario
-    from database import connect
+    """An investidor owned by a different usuario (bruno@example.com)."""
+    import auth
+    from contas import get_or_create_investidor
+    from database import connect_sistema
 
-    with connect() as conn:
-        outro = get_or_create_usuario(conn, "bruno@example.com")
+    with connect_sistema() as conn:
+        outro = auth.criar_usuario(conn, "bruno@example.com", SENHA)
         return get_or_create_investidor(conn, outro, CPF_B, "Bruno")

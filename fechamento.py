@@ -23,7 +23,7 @@ from datetime import date
 from sqlalchemy import Connection
 
 from contas import investidor_do_cli
-from database import connect, fetch_all, fetch_one
+from database import connect_sistema, fetch_all, fetch_one
 from posicoes import ativos_do_investidor
 
 _EQUITY_TIPOS = {"acao", "fii", "bdr", "tesouro_direto"}
@@ -427,7 +427,7 @@ def _parse_data(arg: str) -> tuple[date, date, str]:
 
 
 def exibir_fechamento(data_fim: date, data_inicio_ano: date, label: str) -> None:
-    with connect() as conn:
+    with connect_sistema() as conn:
         investidor_id = investidor_do_cli(conn)
 
         # Opening position (start of year, i.e. end of previous year)

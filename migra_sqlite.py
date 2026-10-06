@@ -22,7 +22,7 @@ from sqlalchemy import Connection
 
 import tabelas
 from contas import get_or_create_investidor, get_or_create_usuario
-from database import connect, execute, scalar
+from database import connect_sistema, execute, scalar
 from parsers import cpf_parser
 
 _DATE_COLUMNS = {"data", "data_pregao", "data_de_liquidacao", "emissao", "vencimento"}
@@ -174,7 +174,7 @@ def main() -> None:
     src.row_factory = sqlite3.Row
     cpf = cpf_parser(args.cpf) if args.cpf else _cpf_predominante(src)
 
-    with connect() as conn:
+    with connect_sistema() as conn:
         investidor_id = migrar(src, conn, args.email, cpf)
         print(f"Migrado para investidor_id={investidor_id}")
         _contagens(src, conn, investidor_id)

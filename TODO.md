@@ -41,7 +41,13 @@ The legacy SQLite held B3 rows and aliases pointing at deleted ativos.
 `migra_sqlite.py` kept those rows with `ativo_id = NULL`, matching what the old
 reports showed. Re-attach them to an ativo if these positions should be tracked.
 
-### Catalog edits are not yet restricted
+### Password reset needs an e-mail provider
 
-`ativos` is shared by every investidor; `PATCH /ativos/{id}` and `revisa_ativos.py`
-must become admin-only once authentication exists.
+There is no "forgot password" flow yet; `admin.py definir-senha` is the only way to
+reset a password. Needs a transactional e-mail provider before launch (also for e-mail
+verification at sign-up).
+
+### Login throttling is per account only
+
+Lockout counts failures per e-mail. An attacker spraying one password across many
+e-mails is not throttled; add per-IP rate limiting at the edge (proxy/CDN) or in the app.

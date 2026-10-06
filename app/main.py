@@ -1,10 +1,13 @@
-"""FastAPI web app for portfolio CRUD.
+"""FastAPI web app.
 
 Run with:
     uvicorn app.main:app --reload
 
 Routes are plain `def` (not `async def`): they do blocking database I/O,
 so FastAPI runs them in its threadpool instead of on the event loop.
+
+Every portfolio route runs on connect(usuario_id): row-level security limits
+it to the logged-in account even if a query forgets its investidor_id filter.
 """
 from __future__ import annotations
 
@@ -12,68 +15,37 @@ import sys
 from collections import defaultdict
 from datetime import date
 from pathlib import Path
-from typing import Annotated
 
 # Make project root importable when running from the project root directory.
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from fastapi import Depends, FastAPI, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
-from contas import investidor_do_cli
+from app import conta
+from app.seguranca import (
+    InvestidorId,
+    NaoAutenticado,
+    SegurancaMiddleware,
+    SemCarteira,
+    SemPermissao,
+    Sessao,
+    SessaoAdmin,
+    redirecionar,
+)
+from app.templating import render, render_parcial
 from database import connect, execute, fetch_all, fetch_one, scalar
 from posicoes import calcular_posicoes
 
 _HERE = Path(__file__).parent
 
-# ---------------------------------------------------------------------------
-# Jinja2 filters
-# ---------------------------------------------------------------------------
-
-def _brl(v: float | None) -> str:
-    if v is None:
-        return "—"
-    return f"R$ {v:,.2f}"
-
-
-def _qty(v: float | None) -> str:
-    if v is None:
-        return "—"
-    s = f"{v:.4f}".rstrip("0").rstrip(".")
-    return s
-
-
-_TIPO_LABEL = {
-    "acao": "Ações",
-    "fii": "FIIs",
-    "bdr": "BDRs",
-    "tesouro_direto": "Tesouro Direto",
-    "renda_fixa": "Renda Fixa",
-    "recibo_subscricao": "Recibos de Subscrição",
-    "direito_subscricao": "Direitos de Subscrição",
-    "desconhecido": "Desconhecido",
-}
-
-
-def _tipo_label(v: str) -> str:
-    return _TIPO_LABEL.get(v, v)
-
-
-# ---------------------------------------------------------------------------
-# App setup
-# ---------------------------------------------------------------------------
-
-app = FastAPI(title="Carteira")
+app = FastAPI(title="Carteira", docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(SegurancaMiddleware)
 app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
-
-templates = Jinja2Templates(directory=str(_HERE / "templates"))
-templates.env.filters["brl"] = _brl
-templates.env.filters["qty"] = _qty
-templates.env.filters["tipo_label"] = _tipo_label
+app.include_router(conta.router)
 
 _TIPOS = [
     "acao", "fii", "bdr", "tesouro_direto", "renda_fixa",
@@ -82,17 +54,19 @@ _TIPOS = [
 _TIPO_ORDER = _TIPOS  # same order for display
 
 
-def investidor_atual() -> int:
-    """The investidor whose portfolio this request reads and writes.
-
-    Until authentication exists this is the local investidor
-    (CARTEIRA_INVESTIDOR_ID, or the only one); it will come from the session.
-    """
-    with connect() as conn:
-        return investidor_do_cli(conn)
+@app.exception_handler(NaoAutenticado)
+def _nao_autenticado(request: Request, _exc: NaoAutenticado):
+    return redirecionar(request, "/entrar")
 
 
-InvestidorId = Annotated[int, Depends(investidor_atual)]
+@app.exception_handler(SemPermissao)
+def _sem_permissao(_request: Request, exc: SemPermissao):
+    return PlainTextResponse(str(exc), status_code=403)
+
+
+@app.exception_handler(SemCarteira)
+def _sem_carteira(request: Request, _exc: SemCarteira):
+    return render(request, "sem_carteira.html")
 
 
 def _erro(msg: str, status_code: int = 422) -> HTMLResponse:
@@ -104,8 +78,8 @@ def _erro(msg: str, status_code: int = 422) -> HTMLResponse:
 # ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, investidor_id: InvestidorId):
-    with connect() as conn:
+def dashboard(request: Request, sessao: Sessao, investidor_id: InvestidorId):
+    with connect(sessao.usuario_id) as conn:
         posicoes = calcular_posicoes(conn, investidor_id)
 
     grupos: dict[str, list] = defaultdict(list)
@@ -116,10 +90,11 @@ def dashboard(request: Request, investidor_id: InvestidorId):
     custo_total = sum(p["custo_total"] or 0.0 for p in posicoes if p["is_open"])
     rendimentos_total = sum(p["total_income"] or 0.0 for p in posicoes)
 
-    return templates.TemplateResponse(request, "dashboard.html", {
+    return render(request, "dashboard.html", {
         "grupos": [(t, grupos[t]) for t in _TIPO_ORDER if t in grupos],
         "custo_total": custo_total,
         "rendimentos_total": rendimentos_total,
+        "investidor_id": investidor_id,
     })
 
 
@@ -154,14 +129,15 @@ def _list_ativos_select(conn) -> list[dict]:
 
 
 @app.get("/negociacoes", response_class=HTMLResponse)
-def negociacoes_list(request: Request, investidor_id: InvestidorId):
-    with connect() as conn:
+def negociacoes_list(request: Request, sessao: Sessao, investidor_id: InvestidorId):
+    with connect(sessao.usuario_id) as conn:
         negociacoes = _list_negociacoes(conn, investidor_id)
         ativos = _list_ativos_select(conn)
-    return templates.TemplateResponse(request, "negociacoes.html", {
+    return render(request, "negociacoes.html", {
         "negociacoes": negociacoes,
         "ativos": ativos,
         "today": date.today().isoformat(),
+        "investidor_id": investidor_id,
     })
 
 
@@ -196,6 +172,7 @@ def _next_linha(conn, investidor_id: int, nota_id: str) -> int:
 @app.post("/negociacoes", response_class=HTMLResponse)
 def negociacoes_create(
     request: Request,
+    sessao: Sessao,
     investidor_id: InvestidorId,
     ativo_id: int = Form(...),
     data: date = Form(...),
@@ -219,7 +196,7 @@ def negociacoes_create(
 
     nota_id = f"MANUAL-{data.isoformat()}"
 
-    with connect() as conn:
+    with connect(sessao.usuario_id) as conn:
         ativo = fetch_one(
             conn,
             "SELECT tipo, COALESCE(ticker, nome) AS label FROM ativos WHERE id = :id",
@@ -269,12 +246,12 @@ def negociacoes_create(
         "ativo_label": ativo["label"],
         "tipo": ativo["tipo"],
     }
-    return templates.TemplateResponse(request, "partials/negociacao_row.html", {"n": row})
+    return render_parcial(request, "partials/negociacao_row.html", {"n": row})
 
 
 @app.delete("/negociacoes/{neg_id}", response_class=HTMLResponse)
-def negociacoes_delete(neg_id: int, investidor_id: InvestidorId):
-    with connect() as conn:
+def negociacoes_delete(neg_id: int, sessao: Sessao, investidor_id: InvestidorId):
+    with connect(sessao.usuario_id) as conn:
         deleted = scalar(
             conn,
             """
@@ -293,9 +270,8 @@ def negociacoes_delete(neg_id: int, investidor_id: InvestidorId):
 # ---------------------------------------------------------------------------
 # Ativos
 #
-# ativos is the catalog shared by all investidores. Listings are scoped to the
-# investidor's own activity; editing the catalog will be restricted to
-# administrators once authentication exists.
+# ativos is the catalog shared by all accounts. Listings are scoped to the
+# portfolio's own activity; changing the catalog is restricted to admins.
 # ---------------------------------------------------------------------------
 
 _ATIVO_ROW_SQL = """
@@ -316,9 +292,15 @@ def _get_ativo_row(conn, investidor_id: int, ativo_id: int) -> dict:
     return dict(row) if row else {}
 
 
+def _ativo_row(request: Request, a: dict, sessao) -> HTMLResponse:
+    return render_parcial(
+        request, "partials/ativo_row.html", {"a": a, "tipos": _TIPOS, "pode_editar": sessao.e_admin}
+    )
+
+
 @app.get("/ativos", response_class=HTMLResponse)
-def ativos_list(request: Request, investidor_id: InvestidorId):
-    with connect() as conn:
+def ativos_list(request: Request, sessao: Sessao, investidor_id: InvestidorId):
+    with connect(sessao.usuario_id) as conn:
         rows = fetch_all(
             conn,
             _ATIVO_ROW_SQL
@@ -333,34 +315,36 @@ def ativos_list(request: Request, investidor_id: InvestidorId):
             """,
             investidor_id=investidor_id,
         )
-    return templates.TemplateResponse(request, "ativos.html", {
+    return render(request, "ativos.html", {
         "ativos": [dict(r) for r in rows],
         "tipos": _TIPOS,
+        "pode_editar": sessao.e_admin,
     })
 
 
 @app.get("/ativos/{ativo_id}/row", response_class=HTMLResponse)
-def ativo_row(request: Request, ativo_id: int, investidor_id: InvestidorId):
-    with connect() as conn:
+def ativo_row(request: Request, ativo_id: int, sessao: Sessao, investidor_id: InvestidorId):
+    with connect(sessao.usuario_id) as conn:
         a = _get_ativo_row(conn, investidor_id, ativo_id)
     if not a:
         return _erro("Ativo não encontrado", 404)
-    return templates.TemplateResponse(request, "partials/ativo_row.html", {"a": a, "tipos": _TIPOS})
+    return _ativo_row(request, a, sessao)
 
 
 @app.get("/ativos/{ativo_id}/edit", response_class=HTMLResponse)
-def ativo_edit_form(request: Request, ativo_id: int, investidor_id: InvestidorId):
-    with connect() as conn:
+def ativo_edit_form(request: Request, ativo_id: int, sessao: SessaoAdmin, investidor_id: InvestidorId):
+    with connect(sessao.usuario_id) as conn:
         a = _get_ativo_row(conn, investidor_id, ativo_id)
     if not a:
         return _erro("Ativo não encontrado", 404)
-    return templates.TemplateResponse(request, "partials/ativo_edit_row.html", {"a": a, "tipos": _TIPOS})
+    return render_parcial(request, "partials/ativo_edit_row.html", {"a": a, "tipos": _TIPOS})
 
 
 @app.patch("/ativos/{ativo_id}", response_class=HTMLResponse)
 def ativo_update(
     request: Request,
     ativo_id: int,
+    sessao: SessaoAdmin,
     investidor_id: InvestidorId,
     tipo: str = Form(...),
     nome: str = Form(default=""),
@@ -368,7 +352,7 @@ def ativo_update(
 ):
     if tipo not in _TIPOS:
         return _erro("Tipo inválido")
-    with connect() as conn:
+    with connect(sessao.usuario_id) as conn:
         execute(
             conn,
             """
@@ -384,4 +368,4 @@ def ativo_update(
         a = _get_ativo_row(conn, investidor_id, ativo_id)
     if not a:
         return _erro("Ativo não encontrado", 404)
-    return templates.TemplateResponse(request, "partials/ativo_row.html", {"a": a, "tipos": _TIPOS})
+    return _ativo_row(request, a, sessao)

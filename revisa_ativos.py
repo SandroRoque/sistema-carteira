@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import sys
 
-from database import connect, execute, fetch_all, fetch_one, scalar
+from database import connect_sistema, execute, fetch_all, fetch_one, scalar
 
 # Fields the user can edit (in display order)
 _EDIT_FIELDS = [
@@ -127,7 +127,7 @@ def _edit(conn, ativo) -> bool:
 
 
 def main() -> None:
-    with connect() as conn:
+    with connect_sistema() as conn:
         ativos = _fetch_unreviewed(conn)
         total = len(ativos)
 

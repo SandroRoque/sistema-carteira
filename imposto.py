@@ -44,7 +44,7 @@ from datetime import date
 from sqlalchemy import Connection
 
 from contas import investidor_do_cli
-from database import connect, fetch_all, fetch_one
+from database import connect_sistema, fetch_all, fetch_one
 
 # Tax thresholds
 _LIMITE_ISENCAO_ACOES = 20_000.0   # R$ / month
@@ -373,7 +373,7 @@ def _exibir_rendimentos_secao(
 
 def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) -> None:
     ano_atual = date.today().year
-    with connect() as conn:
+    with connect_sistema() as conn:
         investidor_id = investidor_do_cli(conn)
         ano_filtro   = None if todos else (ano_override or ano_atual)
         vendas       = _buscar_vendas(conn, investidor_id, ano=ano_filtro)

@@ -50,9 +50,9 @@ no repositório), e o dado continua sendo pessoal para fins da LGPD.
 | Direito | Como é atendido |
 |---|---|
 | Confirmação e acesso | o próprio app mostra tudo o que está guardado |
-| Portabilidade | exportação completa da conta (JSON/CSV) em um clique |
+| Portabilidade | exportação completa da conta em JSON (`/conta/exportar`) |
 | Correção | edição de negociações, apelidos e cadastro |
-| Eliminação | excluir conta apaga tudo em cascata (`ON DELETE CASCADE` desde `usuarios`), na hora |
+| Eliminação | excluir conta (`/conta`, confirmada com a senha) apaga tudo em cascata (`ON DELETE CASCADE` desde `usuarios`), na hora |
 | Informação | política de privacidade pública, com operadores e prazos abaixo |
 
 Após a exclusão, os dados só persistem nos backups do provedor até o fim da janela de
@@ -70,8 +70,11 @@ retenção deles; a política de privacidade informa esse prazo.
 
 - TLS em todo o tráfego; criptografia em repouso do provedor de banco.
 - Isolamento entre contas: todo acesso filtra por `investidor_id`, e o banco reforça
-  isso com row-level security, para que um filtro esquecido no código não vaze dados.
-- Senhas com Argon2; sessões com cookie `HttpOnly`/`Secure`/`SameSite`, proteção CSRF.
+  isso com row-level security (papel `carteira_app`), para que um filtro esquecido no
+  código não vaze dados. Testado em `tests/test_rls.py`.
+- Senhas com Argon2id e bloqueio após tentativas erradas; sessões com cookie
+  `HttpOnly`/`Secure`/`SameSite=Lax`, guardadas só como hash; CSRF por token e mesma origem.
+- CSP restrita a `'self'`: nenhum script de terceiros roda nas páginas.
 - Nada de dados pessoais em logs ou mensagens de erro (`cpf_parser` não ecoa o valor;
   Sentry com `send_default_pii=False`).
 - Conta demo pública usa apenas dados sintéticos e CPFs fictícios.

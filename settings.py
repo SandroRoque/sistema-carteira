@@ -52,6 +52,12 @@ def cpf_hmac_key() -> bytes:
     return key.encode()
 
 
+def cookie_secure() -> bool:
+    """Session cookie only over HTTPS. Set COOKIE_SECURE=false for local http."""
+    load_dotenv()
+    return os.environ.get("COOKIE_SECURE", "true").lower() not in ("0", "false", "no")
+
+
 @dataclass(frozen=True)
 class Settings:
     notas_dir: Path

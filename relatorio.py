@@ -21,7 +21,7 @@ from cotacoes import buscar_cotacoes
 from sqlalchemy import Connection
 
 from contas import investidor_do_cli
-from database import connect, fetch_all, fetch_one
+from database import connect_sistema, fetch_all, fetch_one
 from posicoes import calcular_posicoes
 
 # ---------------------------------------------------------------------------
@@ -582,7 +582,7 @@ def _section_ir(conn: Connection, investidor_id: int) -> str:
 
 def gerar_relatorio(todos: bool = False, com_cotacoes: bool = False) -> Path:
     """Build the markdown report and return the output path."""
-    with connect() as conn:
+    with connect_sistema() as conn:
         investidor_id = investidor_do_cli(conn)
         posicoes = calcular_posicoes(conn, investidor_id)
 

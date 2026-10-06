@@ -41,6 +41,17 @@ notas, porque posição e IR são por pessoa. Toda consulta é filtrada por `inv
 O cadastro de **ativos** é compartilhado: PETR4 é o mesmo instrumento para todos.
 Detalhes em [docs/schema.md](docs/schema.md).
 
+### Segurança
+
+- Senhas com Argon2id; bloqueio de 15 min após 5 tentativas erradas; sessões em cookie
+  `HttpOnly`/`SameSite=Lax`, guardadas no banco só como hash.
+- Toda escrita exige mesma origem e token CSRF (enviado pelo HTMX em header).
+- **Row-level security**: requisições web rodam no papel restrito `carteira_app`, e as
+  políticas do Postgres só expõem linhas da conta logada — um `WHERE` esquecido devolve
+  vazio, não dados de outra conta. Ferramentas de linha de comando usam a conexão de
+  sistema (`connect_sistema()`).
+- CSP `'self'` (htmx e Pico servidos localmente, sem CDN), `X-Frame-Options: DENY`.
+
 ### Dados pessoais
 
 O CPF nunca é gravado: só um HMAC com segredo do servidor (para reconhecer o mesmo CPF
@@ -55,7 +66,9 @@ são descartados na extração. Inventário, retenção e direitos do titular em
 | `tabelas.py` | Schema (SQLAlchemy Core) — fonte da verdade das migrações |
 | `migrations/` | Migrações Alembic |
 | `database.py` | Engine, `connect()` transacional e helpers de consulta |
-| `contas.py` | Usuários e investidores (fronteira de tenancy) |
+| `contas.py` | Investidores e pseudonimização do CPF (fronteira de tenancy) |
+| `auth.py` / `admin.py` | Senhas, sessões, bloqueio; administração de contas pela linha de comando |
+| `app/seguranca.py` | Sessão, CSRF, mesma origem e headers de segurança |
 | `carrega_notas.py` | Entry point: itera PDFs, extrai, transforma e carrega |
 | `carrega_b3.py` | Carrega relatórios de movimentações da B3 |
 | `loader.py` | Escrita: resolução de ativos, idempotência por nota |
@@ -78,6 +91,15 @@ docker compose up -d              # Postgres em localhost:5433
 uv run alembic upgrade head       # cria/atualiza o schema
 uv run uvicorn app.main:app --reload
 ```
+
+Crie uma conta em `/cadastrar`, ou pela linha de comando (a senha é pedida interativamente):
+
+```bash
+uv run python admin.py criar-usuario voce@exemplo.com --admin
+uv run python admin.py definir-senha voce@exemplo.com   # ex.: conta importada do SQLite
+```
+
+Administradores podem editar o catálogo compartilhado de ativos.
 
 Carregar dados:
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 
 from contas import investidor_do_cli
-from database import connect, execute, fetch_all
+from database import connect_sistema, execute, fetch_all
 
 _SEP = "─" * 60
 
@@ -64,7 +64,7 @@ def _show(row, idx: int, total: int) -> None:
 
 
 def main() -> None:
-    with connect() as conn:
+    with connect_sistema() as conn:
         rows = _fetch_pending(conn, investidor_do_cli(conn))
         total = len(rows)
 

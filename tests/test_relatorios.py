@@ -11,7 +11,7 @@ import reconcilia
 import relatorio
 from carrega_b3 import carregar_arquivo
 from conftest import CPF_A
-from database import connect
+from database import connect_sistema
 from fabricas import documento, negociacao
 from loader import carregar
 from test_carrega_b3 import _COLUNAS
@@ -19,7 +19,7 @@ from test_carrega_b3 import _COLUNAS
 
 @pytest.fixture
 def carteira(usuario_id, investidor_a):
-    with connect() as conn:
+    with connect_sistema() as conn:
         carregar(conn, usuario_id, documento(
             CPF_A,
             negociacao("PETR4", "entrada", 100, 10.0, date(2025, 1, 10), linha=1),
@@ -34,7 +34,7 @@ def carteira(usuario_id, investidor_a):
 
 
 def test_imposto(carteira, investidor_b):
-    with connect() as conn:
+    with connect_sistema() as conn:
         vendas = imposto._buscar_vendas(conn, carteira, ano=2025)
         assert len(vendas) == 1
         assert vendas[0]["ganho"] == pytest.approx(50 * 15.0 - 50 * 10.0)
@@ -53,7 +53,7 @@ def test_imposto(carteira, investidor_b):
 
 
 def test_fechamento(carteira, investidor_b):
-    with connect() as conn:
+    with connect_sistema() as conn:
         pos = fechamento.calcular_posicao_em(conn, carteira, date(2025, 12, 31))
         assert [p["qty"] for p in pos.values()] == [60]  # 100 - 50 + 10 bonificadas
 
@@ -69,13 +69,13 @@ def test_fechamento(carteira, investidor_b):
 
 
 def test_relatorio_secoes(carteira):
-    with connect() as conn:
+    with connect_sistema() as conn:
         assert "2025-03" in relatorio._section_historico(conn, carteira)
         assert "PETR4" in relatorio._section_ir(conn, carteira)
 
 
 def test_reconcilia(carteira, investidor_b):
-    with connect() as conn:
+    with connect_sistema() as conn:
         assert len(reconcilia._check_bonif_sem_custo(conn, carteira)) == 1
         assert reconcilia._check_bonif_sem_custo(conn, investidor_b) == []
         assert len(reconcilia._check_nao_revisados(conn, carteira)) == 1

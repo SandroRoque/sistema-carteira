@@ -16,7 +16,7 @@ from datetime import date
 
 from cotacoes import buscar_cotacoes
 from contas import investidor_do_cli
-from database import connect, fetch_all
+from database import connect_sistema, fetch_all
 from posicoes import calcular_posicoes
 
 # ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ def exibir_portfolio(
     mostrar_renda: bool = False,
     com_cotacoes: bool = False,
 ) -> None:
-    with connect() as conn:
+    with connect_sistema() as conn:
         posicoes = calcular_posicoes(conn, investidor_do_cli(conn))
 
     precos: dict[str, float | None] | None = None
@@ -349,7 +349,7 @@ def _exibir_renda_detalhada(posicoes: list[dict]) -> None:
 
 def _exibir_historico_renda() -> None:
     """Monthly income timeline from b3_movimentacoes."""
-    with connect() as conn:
+    with connect_sistema() as conn:
         rows = fetch_all(
             conn,
             """

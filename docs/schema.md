@@ -21,6 +21,19 @@ Dates are **DATE**; load timestamps are **TIMESTAMPTZ**.
 
 Every portfolio query must filter by `investidor_id`.
 
+### Row-level security
+
+`investidores`, `notas`, `negociacoes`, `b3_arquivos_processados`, `b3_movimentacoes` and
+`bonificacoes` have Postgres RLS policies (migration `0003`). Web requests run as the
+restricted role `carteira_app` with `app.usuario_id` set to the logged-in account, and the
+policies only expose that account's rows. `carteira_app` has no access to `usuarios` or
+`sessoes`. The owner role (migrations, CLI, authentication) is not subject to the policies.
+
+| Table | Scope |
+|---|---|
+| `usuarios` | Account: e-mail, Argon2id `senha_hash`, `e_admin`, login lockout counters |
+| `sessoes` | Login sessions: SHA-256 of the cookie token, CSRF token, selected portfolio, expiry |
+
 ---
 
 ## Data Sources

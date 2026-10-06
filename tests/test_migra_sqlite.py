@@ -3,7 +3,7 @@ from datetime import date
 from pathlib import Path
 
 from conftest import CPF_A
-from database import connect, fetch_one, scalar
+from database import connect_sistema, fetch_one, scalar
 from migra_sqlite import migrar
 
 _LEGACY_SCHEMA = (Path(__file__).parent / "legacy_sqlite_schema.sql").read_text()
@@ -42,7 +42,7 @@ def _sqlite_legado() -> sqlite3.Connection:
 
 def test_migra_banco_legado(db):
     src = _sqlite_legado()
-    with connect() as conn:
+    with connect_sistema() as conn:
         investidor_id = migrar(src, conn, "ana@example.com", CPF_A)
 
         assert scalar(

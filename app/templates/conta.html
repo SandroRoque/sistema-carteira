@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Conta — Carteira{% endblock %}
+
+{% block content %}
+<h2>Conta</h2>
+<p>{{ sessao.email }}{% if sessao.e_admin %} <small class="muted">(administrador)</small>{% endif %}</p>
+
+<h3>Carteiras</h3>
+<p class="muted">
+  Uma carteira por CPF encontrado nas notas enviadas. O CPF não é guardado — só a forma mascarada.
+</p>
+{% if carteiras %}
+<figure>
+  <table>
+    <thead><tr><th>CPF</th><th>Apelido</th><th></th></tr></thead>
+    <tbody>
+      {% for c in carteiras %}
+      <tr>
+        <td>{{ c.cpf_mascarado }}</td>
+        <td>
+          <form method="post" action="/carteiras/{{ c.id }}/apelido" id="apelido-{{ c.id }}" class="sem-margem">
+            <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+            <input type="text" name="apelido" value="{{ c.apelido or '' }}" maxlength="60"
+                   placeholder="ex.: Eu, Esposa" class="sem-margem" aria-label="Apelido">
+          </form>
+        </td>
+        <td><button type="submit" form="apelido-{{ c.id }}" class="outline small sem-margem">Salvar</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</figure>
+{% else %}
+<p>Nenhuma carteira ainda.</p>
+{% endif %}
+
+<h3>Seus dados</h3>
+<p>Baixe tudo o que está guardado sobre a sua conta, em JSON.</p>
+<p><a href="/conta/exportar" role="button" class="outline">Exportar meus dados</a></p>
+
+<h3>Excluir conta</h3>
+<div class="zona-perigo">
+  <p>
+    Apaga imediatamente a conta e todos os dados dela: carteiras, notas, negociações e
+    movimentações. Não há como desfazer.
+  </p>
+  {% if erro_exclusao %}<p class="erro" role="alert">{{ erro_exclusao }}</p>{% endif %}
+  <form method="post" action="/conta/excluir">
+    <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+    <label>
+      Confirme com sua senha
+      <input type="password" name="senha" autocomplete="current-password" required>
+    </label>
+    <button type="submit" class="outline danger">Excluir minha conta</button>
+  </form>
+</div>
+{% endblock %}

@@ -4,25 +4,55 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Carteira{% endblock %}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.classless.min.css">
-  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+  {# htmx must not evaluate code from attributes nor inject <style>: the CSP forbids both. #}
+  <meta name="htmx-config" content='{"allowEval": false, "includeIndicatorStyles": false}'>
+  <link rel="stylesheet" href="/static/vendor/pico-2.1.1.classless.min.css">
   <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/vendor/htmx-2.0.4.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
 </head>
-<body>
+<body{% if sessao %} hx-headers='{"X-CSRF-Token": "{{ sessao.csrf_token }}"}'{% endif %}>
   <header>
     <nav>
       <ul>
         <li><strong><a href="/" class="plain">Carteira</a></strong></li>
+        {% if sessao and carteiras|length > 1 %}
+        <li>
+          <form method="post" class="inline">
+            <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+            <select data-trocar-carteira aria-label="Carteira">
+              {% for c in carteiras %}
+              <option value="{{ c.id }}" {% if c.id == investidor_id %}selected{% endif %}>{{ c.label }}</option>
+              {% endfor %}
+            </select>
+          </form>
+        </li>
+        {% endif %}
       </ul>
       <ul>
+        {% if sessao %}
         <li><a href="/">Posições</a></li>
         <li><a href="/negociacoes">Negociações</a></li>
         <li><a href="/ativos">Ativos</a></li>
+        <li><a href="/conta">Conta</a></li>
+        <li>
+          <form method="post" action="/sair" class="inline">
+            <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+            <button type="submit" class="link">Sair</button>
+          </form>
+        </li>
+        {% else %}
+        <li><a href="/entrar">Entrar</a></li>
+        <li><a href="/cadastrar">Criar conta</a></li>
+        {% endif %}
       </ul>
     </nav>
   </header>
   <main class="container">
     {% block content %}{% endblock %}
   </main>
+  <footer class="container">
+    <small><a href="/privacidade">Privacidade</a></small>
+  </footer>
 </body>
 </html>

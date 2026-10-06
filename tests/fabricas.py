@@ -53,5 +53,7 @@ def negociacao(
 
 
 def documento(cpf: str, *negociacoes: NegociacaoRecord, nota_id: str = "1001", data: date = date(2025, 3, 10)):
-    negs = list(negociacoes) or [negociacao(nota_id=nota_id, data=data)]
+    negs = [dataclasses.replace(n, nota_id=nota_id) for n in negociacoes] or [
+        negociacao(nota_id=nota_id, data=data)
+    ]
     return DocumentoTransformado(nota=nota(cpf, nota_id=nota_id, data=data), negociacoes=negs)

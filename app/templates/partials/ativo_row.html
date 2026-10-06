@@ -5,11 +5,13 @@
   <td class="num">{{ a.num_negociacoes }}</td>
   <td>{% if a.revisado %}✓{% else %}<span class="muted">pendente</span>{% endif %}</td>
   <td>
+    {% if pode_editar %}
     <button
       class="outline small"
       hx-get="/ativos/{{ a.id }}/edit"
       hx-target="#ativo-{{ a.id }}"
       hx-swap="outerHTML"
     >Editar</button>
+    {% endif %}
   </td>
 </tr>

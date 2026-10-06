@@ -3,19 +3,19 @@ from datetime import date
 import pytest
 
 from conftest import CPF_A
-from database import connect
+from database import connect_sistema
 from fabricas import documento, negociacao
 from loader import carregar
 from posicoes import calcular_posicoes
 
 
 def _carregar(usuario_id, *negs, nota_id="1001"):
-    with connect() as conn:
+    with connect_sistema() as conn:
         carregar(conn, usuario_id, documento(CPF_A, *negs, nota_id=nota_id), f"{nota_id}.pdf")
 
 
 def _posicao(investidor_id, ticker):
-    with connect() as conn:
+    with connect_sistema() as conn:
         posicoes = calcular_posicoes(conn, investidor_id)
     return next(p for p in posicoes if p["ticker"] == ticker)
 
@@ -34,7 +34,7 @@ def test_compra_simples(usuario_id, investidor_a):
 def test_posicoes_isoladas_por_investidor(usuario_id, investidor_a, investidor_b):
     _carregar(usuario_id, negociacao("PETR4", quantidade=100, preco=10.0))
 
-    with connect() as conn:
+    with connect_sistema() as conn:
         assert calcular_posicoes(conn, investidor_b) == []
 
 

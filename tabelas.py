@@ -10,6 +10,12 @@ investidores  : one portfolio per CPF found on the account's notas (positions
 Every portfolio fact (notas, negociacoes, b3_movimentacoes, ...) belongs to
 exactly one investidor and must always be queried with an investidor_id filter.
 
+Row-level security: the tenant-owned tables below have Postgres RLS policies
+(created in migration 0003, not expressible here). Web requests run as the
+restricted role carteira_app with app.usuario_id set, so a query that forgets
+its investidor_id filter still only sees the logged-in account's rows. See
+database.connect().
+
 Data minimization (LGPD art. 6, III): identity data printed on the documents —
 CPF, name, address, broker client code — is read during extraction and
 discarded; only what the reports need is persisted.
@@ -73,6 +79,13 @@ usuarios = Table(
     Column("id", BigInteger, primary_key=True),
     Column("email", Text, nullable=False),
     Column("nome", Text),
+    # Argon2id hash. NULL = cannot log in (e.g. account imported by migra_sqlite
+    # until a password is set with admin.py).
+    Column("senha_hash", Text),
+    # Administrators curate the shared ativos catalog.
+    Column("e_admin", Boolean, nullable=False, server_default="false"),
+    Column("falhas_login", Integer, nullable=False, server_default="0"),
+    Column("bloqueado_ate", DateTime(timezone=True)),
     _criado_em(),
 )
 Index("uq_usuarios_email_lower", func.lower(usuarios.c.email), unique=True)
@@ -91,6 +104,20 @@ investidores = Table(
     Column("apelido", Text),
     _criado_em(),
     UniqueConstraint("usuario_id", "cpf_hash", name="uq_investidores_usuario_cpf_hash"),
+)
+
+# Login sessions. The cookie holds a random token; only its SHA-256 is stored,
+# so a database leak does not hand out live sessions.
+sessoes = Table(
+    "sessoes",
+    metadata,
+    Column("token_hash", Text, primary_key=True),
+    Column("usuario_id", BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False, index=True),
+    # Portfolio currently selected in the UI.
+    Column("investidor_id", BigInteger, ForeignKey("investidores.id", ondelete="SET NULL")),
+    Column("csrf_token", Text, nullable=False),
+    _criado_em(),
+    Column("expira_em", DateTime(timezone=True), nullable=False),
 )
 
 # ---------------------------------------------------------------------------

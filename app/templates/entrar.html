@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Entrar — Carteira{% endblock %}
+
+{% block content %}
+<article>
+  <h2>Entrar</h2>
+  {% if request.query_params.get("conta_excluida") %}
+  <p class="aviso">Sua conta e todos os dados dela foram excluídos.</p>
+  {% endif %}
+  {% if erro %}<p class="erro" role="alert">{{ erro }}</p>{% endif %}
+  <form method="post" action="/entrar">
+    <label>
+      E-mail
+      <input type="email" name="email" value="{{ email or '' }}" autocomplete="username" required autofocus>
+    </label>
+    <label>
+      Senha
+      <input type="password" name="senha" autocomplete="current-password" required>
+    </label>
+    <button type="submit">Entrar</button>
+  </form>
+  <p>Não tem conta? <a href="/cadastrar">Criar conta</a></p>
+</article>
+{% endblock %}

@@ -1,7 +1,7 @@
 import pandas as pd
 
 from carrega_b3 import carregar_arquivo
-from database import connect, fetch_all, scalar
+from database import connect_sistema, fetch_all, scalar
 
 _COLUNAS = [
     "Entrada/Saída", "Data", "Movimentação", "Produto",
@@ -19,7 +19,7 @@ _BONIFICACAO = ("Credito", "20/03/2025", "Bonificação em Ativos", "ITSA4 - ITA
 
 def test_carrega_e_deduplica_por_data(investidor_a):
     df = _relatorio(_DIVIDENDO, _BONIFICACAO)
-    with connect() as conn:
+    with connect_sistema() as conn:
         assert carregar_arquivo(conn, investidor_a, df, "mov-1.xlsx") == (2, 0)
         assert carregar_arquivo(conn, investidor_a, df, "mov-2.xlsx") == (0, 2)
         assert scalar(conn, "SELECT COUNT(*) FROM b3_movimentacoes") == 2
@@ -29,13 +29,13 @@ def test_carrega_e_deduplica_por_data(investidor_a):
 def test_deduplicacao_e_por_investidor(investidor_a, investidor_b):
     """A date already loaded for one investidor must not block another."""
     df = _relatorio(_DIVIDENDO)
-    with connect() as conn:
+    with connect_sistema() as conn:
         assert carregar_arquivo(conn, investidor_a, df, "mov.xlsx") == (1, 0)
         assert carregar_arquivo(conn, investidor_b, df, "mov.xlsx") == (1, 0)
 
 
 def test_bonificacao_gera_placeholder_de_custo(investidor_a):
-    with connect() as conn:
+    with connect_sistema() as conn:
         carregar_arquivo(conn, investidor_a, _relatorio(_BONIFICACAO), "mov.xlsx")
         rows = fetch_all(conn, "SELECT custo_por_cota FROM bonificacoes")
 
@@ -43,7 +43,7 @@ def test_bonificacao_gera_placeholder_de_custo(investidor_a):
 
 
 def test_celulas_traco_viram_null(investidor_a):
-    with connect() as conn:
+    with connect_sistema() as conn:
         carregar_arquivo(conn, investidor_a, _relatorio(_BONIFICACAO), "mov.xlsx")
         row = fetch_all(conn, "SELECT quantidade, preco_unitario, valor FROM b3_movimentacoes")[0]
 

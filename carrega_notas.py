@@ -9,7 +9,7 @@ Usage:
 """
 
 from contas import usuario_do_cli
-from database import connect
+from database import connect_sistema
 from extrai_nota_de_negociacao import PdfImagemError, extrair
 from loader import carregar
 from settings import load_settings
@@ -22,7 +22,7 @@ def main() -> None:
     parsed = skipped_image = skipped_duplicate = failed = 0
     negociacoes_total = 0
 
-    with connect() as conn:
+    with connect_sistema() as conn:
         usuario_id = usuario_do_cli(conn)
 
         for pdf_path in sorted(settings.notas_dir.glob("*.pdf")):

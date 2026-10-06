@@ -30,7 +30,7 @@ from __future__ import annotations
 from sqlalchemy import Connection
 
 from contas import investidor_do_cli
-from database import connect, fetch_all
+from database import connect_sistema, fetch_all
 from posicoes import calcular_posicoes
 
 _SEP = "─" * 80
@@ -128,7 +128,7 @@ def _section(title: str) -> None:
 
 
 def main() -> None:
-    with connect() as conn:
+    with connect_sistema() as conn:
         investidor_id = investidor_do_cli(conn)
         sem_neg    = _check_sem_negociacoes(conn, investidor_id)
         bonif_pend = _check_bonif_sem_custo(conn, investidor_id)
