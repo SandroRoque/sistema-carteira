@@ -80,3 +80,56 @@ def test_valores_e_datas_preservam_tipos(usuario_id):
     assert row["data"] == date(2024, 12, 31)
     assert row["quantidade"] == 3
     assert row["preco_unitario"] == Decimal("12.345")
+
+
+# ---------------------------------------------------------------------------
+# Notas without a CPF (some XP notas leave the field blank)
+# ---------------------------------------------------------------------------
+
+def _sem_cpf(nota_id="9001"):
+    import dataclasses
+
+    doc = documento(CPF_A, nota_id=nota_id)
+    return dataclasses.replace(doc, nota=dataclasses.replace(doc.nota, cpf_cliente=None))
+
+
+def _investidor_da_nota(conn, nota_id):
+    return scalar(conn, "SELECT investidor_id FROM notas WHERE nota_id = :n", n=nota_id)
+
+
+def test_nota_sem_cpf_vai_para_a_unica_carteira(usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        assert carregar(conn, usuario_id, _sem_cpf(), "sem-cpf.pdf")
+        assert _investidor_da_nota(conn, "9001") == investidor_a
+
+
+def test_nota_sem_cpf_usa_a_carteira_escolhida(usuario_id, investidor_a):
+    from contas import get_or_create_investidor
+
+    with connect_sistema() as conn:
+        outra = get_or_create_investidor(conn, usuario_id, CPF_B, "Outra")
+        assert carregar(conn, usuario_id, _sem_cpf(), "sem-cpf.pdf", carteira=outra)
+        assert _investidor_da_nota(conn, "9001") == outra
+
+
+def test_nota_sem_cpf_sem_como_decidir_a_carteira(usuario_id, investidor_a, investidor_b):
+    import pytest
+
+    from contas import get_or_create_investidor
+    from loader import NotaSemCpf
+
+    with connect_sistema() as conn:
+        get_or_create_investidor(conn, usuario_id, CPF_B, "Outra")
+        # Several portfolios, and the one offered belongs to another account.
+        with pytest.raises(NotaSemCpf, match="Escolha a carteira"):
+            carregar(conn, usuario_id, _sem_cpf(), "sem-cpf.pdf", carteira=investidor_b)
+
+
+def test_nota_sem_cpf_numa_conta_sem_carteira(usuario_id):
+    import pytest
+
+    from loader import NotaSemCpf
+
+    with connect_sistema() as conn:
+        with pytest.raises(NotaSemCpf, match="nota com CPF"):
+            carregar(conn, usuario_id, _sem_cpf(), "sem-cpf.pdf")

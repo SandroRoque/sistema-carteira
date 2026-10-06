@@ -6,7 +6,7 @@ from sqlalchemy import Connection
 
 import tabelas
 from contas import get_or_create_investidor
-from database import execute, fetch_one, scalar
+from database import execute, fetch_all, fetch_one, scalar
 from transformer import DocumentoTransformado, NegociacaoRecord, NotaRecord
 
 # Matches canonical B3 tickers: a letter followed by 2-3 alphanumeric chars
@@ -185,7 +185,31 @@ def _inserir_negociacao(
     )
 
 
-def carregar(conn: Connection, usuario_id: int, doc: DocumentoTransformado, filename: str) -> bool:
+class NotaSemCpf(ValueError):
+    """A nota without a CPF, and no way to tell which portfolio it belongs to."""
+
+
+def investidor_da_nota(conn: Connection, usuario_id: int, nota: NotaRecord, carteira: int | None = None) -> int:
+    """The portfolio of a nota: the one of the CPF printed on it. A nota
+    without a CPF goes to `carteira` (picked at upload) or, failing that, to
+    the account's only portfolio."""
+    if nota.cpf_cliente:
+        return get_or_create_investidor(conn, usuario_id, nota.cpf_cliente)
+    if carteira is not None and fetch_one(
+        conn, "SELECT 1 FROM investidores WHERE id = :id AND usuario_id = :u", id=carteira, u=usuario_id
+    ):
+        return carteira
+    ids = [r["id"] for r in fetch_all(conn, "SELECT id FROM investidores WHERE usuario_id = :u", u=usuario_id)]
+    if len(ids) == 1:
+        return ids[0]
+    if not ids:
+        raise NotaSemCpf("A nota não traz o CPF. Envie antes uma nota com CPF para criar a carteira.")
+    raise NotaSemCpf("A nota não traz o CPF. Escolha a carteira dela no envio e mande de novo.")
+
+
+def carregar(
+    conn: Connection, usuario_id: int, doc: DocumentoTransformado, filename: str, carteira: int | None = None
+) -> bool:
     """Inserts a DocumentoTransformado into the database.
 
     The nota is filed under the investidor for the CPF printed on it,
@@ -197,7 +221,7 @@ def carregar(conn: Connection, usuario_id: int, doc: DocumentoTransformado, file
     (idempotent — safe to call multiple times for the same nota).
     """
     nota = doc.nota
-    investidor_id = get_or_create_investidor(conn, usuario_id, nota.cpf_cliente)
+    investidor_id = investidor_da_nota(conn, usuario_id, nota, carteira)
     if ja_processado(conn, investidor_id, nota.nota_id, nota.corretora_id, nota.doc_type):
         return False
 

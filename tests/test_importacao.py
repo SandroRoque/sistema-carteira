@@ -454,3 +454,45 @@ def test_relatorio_b3_avisa_compras_sem_nota(usuario_id, investidor_a):
     assert _upload()["mensagem"] == (
         "2 movimentações importadas. 1 compra ou venda sem nota de corretagem: veja Pendências."
     )
+
+
+def _nota_sem_cpf(_funcao, _conteudo):
+    """Executor returning one parsed nota without a CPF."""
+    import dataclasses
+
+    doc = documento(CPF_A, negociacao(), nota_id="7001")
+    return [dataclasses.replace(doc, nota=dataclasses.replace(doc.nota, cpf_cliente=None))]
+
+
+def test_nota_sem_cpf_vai_para_a_carteira_escolhida_no_envio(usuario_id, investidor_a):
+    from contas import get_or_create_investidor
+
+    with connect_sistema() as conn:
+        outra = get_or_create_investidor(conn, usuario_id, CPF_B, "Outra")
+    _registrar(usuario_id, _pdf("nota sem cpf"), carteira_b3=outra, nome="nota.pdf")
+    processar_pendentes(_nota_sem_cpf)
+
+    assert _upload()["status"] == "concluido"
+    assert _upload()["investidor_id"] == outra
+
+
+def test_nota_sem_cpf_sem_carteira_explica_o_erro(usuario_id, investidor_a):
+    from contas import get_or_create_investidor
+
+    with connect_sistema() as conn:
+        get_or_create_investidor(conn, usuario_id, CPF_B, "Outra")
+    _registrar(usuario_id, _pdf("nota sem cpf"), nome="nota.pdf")
+    processar_pendentes(_nota_sem_cpf)
+
+    assert _upload()["status"] == "erro"
+    assert "não traz o CPF" in _upload()["mensagem"]
+
+
+def test_nota_repetida_e_duplicada_mesmo_com_outra_carteira(usuario_id, investidor_a, investidor_b):
+    from contas import get_or_create_investidor
+
+    with connect_sistema() as conn:
+        outra = get_or_create_investidor(conn, usuario_id, CPF_B, "Outra")
+    pdf = _pdf("uma nota")
+    assert _registrar(usuario_id, pdf, carteira_b3=investidor_a) == "pendente"
+    assert _registrar(usuario_id, pdf, carteira_b3=outra) == "duplicado"

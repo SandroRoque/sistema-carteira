@@ -97,7 +97,8 @@ class Movimentacao:
 
     def validate(self) -> None:
         missing = [
-            f for f in ["mercado", "compra_venda", "tipo_de_mercado", "especificacao_do_titulo", "debito_credito"]
+            # tipo_de_mercado may be blank: newer XP notas leave it empty for regular trades.
+            f for f in ["mercado", "compra_venda", "especificacao_do_titulo", "debito_credito"]
             if not getattr(self, f)
         ]
         if self.quantidade is None:
@@ -115,7 +116,9 @@ class NotaCorretagem:
     corretora_id: str
     numero_da_nota: str
     data_pregao: date
-    cpf_cliente: str
+    # None when the nota leaves it blank (some XP notas): the loader then
+    # needs the portfolio from elsewhere (loader.investidor_da_nota).
+    cpf_cliente: str | None
     codigo_cliente: str
     # optional header fields
     folha: str | None = None
@@ -167,8 +170,6 @@ class NotaCorretagem:
             missing.append("numero_da_nota")
         if not self.data_pregao:
             missing.append("data_pregao")
-        if not self.cpf_cliente:
-            missing.append("cpf_cliente")
         if not self.codigo_cliente:
             missing.append("codigo_cliente")
         if not self.movimentacoes:

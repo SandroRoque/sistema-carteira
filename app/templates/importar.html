@@ -65,7 +65,7 @@
         <option value="{{ c.id }}" {% if c.id == investidor_id %}selected{% endif %}>{{ c.label }}</option>
         {% endfor %}
       </select>
-      <small>O extrato da B3 não traz CPF, então indique a carteira. Notas usam o CPF delas.</small>
+      <small>O extrato da B3 não traz CPF, então indique a carteira. Notas usam o CPF delas; uma nota sem CPF vai para esta carteira.</small>
     </label>
   </div>
   {% else %}

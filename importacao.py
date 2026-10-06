@@ -103,11 +103,16 @@ def registrar(
     tipo = identificar_tipo(conteudo)
 
     investidor_id = None
+    carteira_valida = carteira_b3 is not None and fetch_one(
+        conn, "SELECT 1 FROM investidores WHERE id = :id", id=carteira_b3
+    )
     if tipo == "b3":
-        if carteira_b3 is None or not fetch_one(
-            conn, "SELECT 1 FROM investidores WHERE id = :id", id=carteira_b3
-        ):
+        if not carteira_valida:
             raise ArquivoRecusado("Escolha a carteira para o relatório da B3.")
+        investidor_id = carteira_b3
+    elif carteira_valida:
+        # Notas use the CPF printed on them; the chosen portfolio only takes
+        # a nota that has none (see loader.investidor_da_nota).
         investidor_id = carteira_b3
 
     pendentes = scalar(
@@ -126,7 +131,7 @@ def registrar(
         """
         SELECT criado_em FROM uploads
         WHERE usuario_id = :u AND sha256 = :sha256 AND status <> 'erro'
-          AND investidor_id IS NOT DISTINCT FROM CAST(:investidor_id AS bigint)
+          AND (tipo <> 'b3' OR investidor_id IS NOT DISTINCT FROM CAST(:investidor_id AS bigint))
         ORDER BY id LIMIT 1
         """,
         u=usuario_id,
@@ -267,6 +272,8 @@ def _processar(t: _Trabalho, executar: Executor) -> None:
         _finalizar(t.id, "erro", _mensagem_de_falha(t.tipo, falha.motivo))
         return
 
+    from loader import NotaSemCpf
+
     try:
         with connect_sistema() as conn:
             if t.tipo == "nota":
@@ -274,6 +281,8 @@ def _processar(t: _Trabalho, executar: Executor) -> None:
             else:
                 status, mensagem, investidor_id = _gravar_b3(conn, t, resultado)
             _finalizar_em(conn, t.id, status, mensagem, investidor_id)
+    except NotaSemCpf as exc:
+        _finalizar(t.id, "erro", str(exc))
     except Exception as exc:
         # Only the class name: database errors carry the parameters, which
         # include document data.
@@ -282,16 +291,15 @@ def _processar(t: _Trabalho, executar: Executor) -> None:
 
 
 def _gravar_nota(conn: Connection, t: _Trabalho, docs) -> tuple[str, str, int]:
-    from contas import get_or_create_investidor
-    from loader import carregar
+    from loader import carregar, investidor_da_nota
 
     novas = negocios = 0
     investidor_id = None
     for doc in docs:
-        if carregar(conn, t.usuario_id, doc, t.nome_arquivo):
+        if carregar(conn, t.usuario_id, doc, t.nome_arquivo, t.investidor_id):
             novas += 1
             negocios += len(doc.negociacoes)
-        investidor_id = get_or_create_investidor(conn, t.usuario_id, doc.nota.cpf_cliente)
+        investidor_id = investidor_da_nota(conn, t.usuario_id, doc.nota, t.investidor_id)
     if not novas:
         return ("duplicado", "Nota já importada anteriormente." if len(docs) == 1
                 else f"As {len(docs)} notas do arquivo já tinham sido importadas.", investidor_id)

@@ -11,7 +11,7 @@ class NotaRecord:
     doc_type: str
     data_pregao: date
     data_de_liquidacao: date | None
-    cpf_cliente: str
+    cpf_cliente: str | None
     codigo_cliente: str
     nome_cliente: str | None
     assessor: str | None

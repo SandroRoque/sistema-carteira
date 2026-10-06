@@ -37,40 +37,64 @@ def _abrir(pdf) -> fitz.Document:
 
 
 def _fundir(doc: fitz.Document, paginas: list[int]) -> fitz.Document:
-    """A Document with the given pages stacked into one tall page."""
+    """A Document with the given pages stacked into one tall page, upright.
+
+    Pages with a /Rotate (a nota printed from the browser in landscape) are
+    drawn turned back, so their text reads left to right like any other."""
     doc_mesclado = fitz.open()
-    if len(paginas) == 1:
+    rotacoes = {i: doc[i].rotation for i in paginas}
+    if len(paginas) == 1 and not rotacoes[paginas[0]]:
         doc_mesclado.insert_pdf(doc, from_page=paginas[0], to_page=paginas[0])
         return doc_mesclado
-    altura_total = sum(doc[i].rect.height for i in paginas)
-    largura_maxima = max(doc[i].rect.width for i in paginas)
+    exibidas = {i: doc[i].rect for i in paginas}  # size as displayed, rotation applied
+    altura_total = sum(r.height for r in exibidas.values())
+    largura_maxima = max(r.width for r in exibidas.values())
     pagina = doc_mesclado.new_page(width=largura_maxima, height=altura_total)
     y_offset = 0
-    for i in paginas:
-        rect_destino = fitz.Rect(0, y_offset, doc[i].rect.width, y_offset + doc[i].rect.height)
-        pagina.show_pdf_page(rect_destino, doc, i)
-        y_offset += doc[i].rect.height
+    try:
+        for i in paginas:
+            if rotacoes[i]:
+                doc[i].set_rotation(0)
+            r = exibidas[i]
+            pagina.show_pdf_page(fitz.Rect(0, y_offset, r.width, y_offset + r.height), doc, i, rotate=-rotacoes[i])
+            y_offset += r.height
+    finally:
+        for i, rotacao in rotacoes.items():
+            if rotacao:
+                doc[i].set_rotation(rotacao)
     return doc_mesclado
+
+
+def _fecha_a_nota(page: fitz.Page) -> bool:
+    """The page prints the nota's final amount ('Líquido para'): a following
+    page, even with the same number, is another nota (XP issues stock and
+    options trades of a day as separate notas under one number)."""
+    from extractors.sinacor import FINANCEIRO, linhas_da_pagina, valores_do_resumo
+
+    resumo = valores_do_resumo(linhas_da_pagina(page), {"liquido_para": FINANCEIRO["liquido_para"]})
+    return resumo["liquido_para"] is not None
 
 
 def agrupar_paginas(doc: fitz.Document) -> list[list[int]]:
     """Pages grouped by nota: brokers bundle several notas (one per trading
     day) in one PDF. A page without a recognizable number continues the
-    previous nota; with fewer than two numbers the whole PDF is one nota."""
+    previous nota, and so does a page with the same number while that nota
+    has not printed its final amount yet."""
     numeros = []
     for page in doc:
         m = _NUMERO_DA_NOTA.search(page.get_text())
         numeros.append(m.group(1) if m else None)
-    if len({n for n in numeros if n}) < 2:
-        return [list(range(doc.page_count))]
     grupos: list[list[int]] = []
     atual = None
+    fechada = False
     for i, numero in enumerate(numeros):
-        if grupos and (numero is None or numero == atual):
+        continua = numero is None or (numero == atual and not fechada)
+        if grupos and continua:
             grupos[-1].append(i)
         else:
             grupos.append([i])
-            atual = numero
+            atual = numero if numero is not None else atual
+        fechada = _fecha_a_nota(doc[i])
     return grupos
 
 
