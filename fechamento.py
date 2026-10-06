@@ -119,7 +119,7 @@ def calcular_posicao_em(conn: Connection, investidor_id: int, data_fim: date) ->
             if saldo is None:
                 continue
 
-            if not saldo.tem_negociacoes:
+            if not saldo.tem_negociacoes and not saldo.tem_custo_informado:
                 # Custody transfers / Atualização credits only: cost unknown.
                 if saldo.qty <= 0.001:
                     continue

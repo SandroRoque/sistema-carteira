@@ -287,7 +287,7 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
             if saldo is None:
                 continue
 
-            if not saldo.tem_negociacoes:
+            if not saldo.tem_negociacoes and not saldo.tem_custo_informado:
                 # No trade notes: the position comes from custody transfers
                 # and/or genuine Atualização credits (e.g. corporate-action
                 # conversions). Its cost is unknown.

@@ -337,6 +337,20 @@ b3_movimentacoes = Table(
     Index("ix_b3_movimentacoes_investidor_ativo", "investidor_id", "ativo_id", "movimentacao"),
 )
 
+# Cost per share the user informs for shares that arrived without a trade
+# note (custody transfer, B3 credit): no document carries it. custo_medio
+# applies it to those credit events of the ativo.
+custos_informados = Table(
+    "custos_informados",
+    metadata,
+    Column("investidor_id", BigInteger, ForeignKey("investidores.id", ondelete="CASCADE"), nullable=False),
+    Column("ativo_id", BigInteger, ForeignKey("ativos.id"), nullable=False),
+    Column("custo_por_cota", Numeric, nullable=False),
+    Column("informado_em", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    PrimaryKeyConstraint("investidor_id", "ativo_id"),
+    CheckConstraint("custo_por_cota >= 0", name="custo_nao_negativo"),
+)
+
 # Cost basis for bonus shares (Bonificação em Ativos). custo_por_cota is NULL
 # until the user informs the acquisition cost declared by the company.
 bonificacoes = Table(

@@ -475,3 +475,6 @@ label.botao:focus-within { outline: 3px solid var(--acento); outline-offset: 2px
   table.compacta .ativo-nome { display: none; }
   h1 { font-size: 24px; }
 }
+.linha-campos > p.texto { flex: 1 1 320px; }
+.linha-campos > label.curto { flex: 0 1 300px; }
+.linha-campos > label.curto + button { margin-bottom: 24px; }

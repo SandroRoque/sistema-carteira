@@ -53,3 +53,17 @@ def test_quando():
     v = datetime(2026, 10, 6, 18, 42, tzinfo=timezone.utc)
     assert formato.quando(v, hoje=date(2026, 10, 6)) == "hoje, 15:42"
     assert formato.quando(v, hoje=date(2026, 10, 7)) == "06/10/2026 15:42"
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    ("18,04", D("18.04")), ("1.234,56", D("1234.56")), ("R$ 2,5", D("2.5")),
+    ("18.04", D("18.04")), ("1.234", D("1234")), ("0", D("0")),
+])
+def test_ler_decimal(texto, esperado):
+    assert formato.ler_decimal(texto) == esperado
+
+
+@pytest.mark.parametrize("texto", ["", "abc", "NaN", "Infinity", "1,2,3"])
+def test_ler_decimal_recusa(texto):
+    with pytest.raises(ValueError):
+        formato.ler_decimal(texto)

@@ -10,10 +10,13 @@ Events per ativo
 compra                 + qty, + valor líquido (negociacoes entrada)
 venda                  − qty at the current average (negociacoes saída)
 bonificacao            + qty, + qty × custo_por_cota (0 while unknown)
-desdobro, atualizacao  + qty at zero cost (dilutes the average)
+desdobro               + qty at zero cost (dilutes the average)
+atualizacao            + qty at the cost the user informed for shares received
+                         without a note (custos_informados), else zero
 fracao, resgate        − qty at the current average (Leilão de Fração;
                          B3 Resgate closing a fund absorbed in a merger)
-transferencia_entrada  + qty at the current average (custody transfer)
+transferencia_entrada  + qty at the current average (custody transfer); with
+                         nothing held, at the informed cost if there is one
 transferencia_saida    − qty at the current average
 
 'Atualização' Crédito is ambiguous in B3 reports: usually it is a periodic
@@ -57,7 +60,8 @@ class Evento:
     data: date
     tipo: str
     quantidade: Decimal
-    # compra: valor líquido paid; bonificacao: qty × custo_por_cota, None while unknown.
+    # compra / venda: valor líquido; bonificacao: qty × custo_por_cota, None while
+    # unknown; atualizacao / transferencia_entrada: qty × informed cost, or None.
     custo: Decimal | None = None
     # negociacoes.id for compra / venda.
     negociacao_id: int | None = None
@@ -95,6 +99,8 @@ class Saldo:
     # Unknown-cost bonus shares are part of the current position.
     tem_bonif_sem_custo: bool = False
     tem_negociacoes: bool = False
+    # Some shares came in without a note and their cost was informed.
+    tem_custo_informado: bool = False
     baixas: list[Baixa] = field(default_factory=list)
     passos: list[Passo] = field(default_factory=list)
 
@@ -128,6 +134,9 @@ def replay(eventos: Iterable[Evento]) -> Saldo:
                 saldo.passos.append(Passo(ev, saldo.qty, saldo.preco_medio, ignorado=True))
                 continue
             saldo.qty += q
+            if ev.custo is not None:
+                saldo.custo += ev.custo
+                saldo.tem_custo_informado = True
         elif ev.tipo == "compra":
             saldo.qty += q
             saldo.custo += ev.custo or 0
@@ -144,6 +153,9 @@ def replay(eventos: Iterable[Evento]) -> Saldo:
             saldo.qty += q
             if pm is not None:
                 saldo.custo += pm * q
+            elif ev.custo is not None:
+                saldo.custo += ev.custo
+                saldo.tem_custo_informado = True
         elif ev.tipo in _SAIDAS:
             _baixar(saldo, ev, q)
         else:
@@ -211,10 +223,15 @@ def carregar_eventos(
                    ELSE 'transferencia_saida'
                END,
                COALESCE(b.quantidade, 0),
-               b.quantidade * bc.custo_por_cota
+               CASE
+                   WHEN b.movimentacao = 'Bonificação em Ativos' THEN b.quantidade * bc.custo_por_cota
+                   WHEN b.sentido = 'Credito' AND b.movimentacao IN ('Atualização', 'Transferência')
+                       THEN b.quantidade * ci.custo_por_cota
+               END
         FROM b3_movimentacoes b
         JOIN ativos a ON a.id = b.ativo_id
         LEFT JOIN bonificacoes bc ON bc.b3_movimentacao_id = b.id
+        LEFT JOIN custos_informados ci ON ci.investidor_id = b.investidor_id AND ci.ativo_id = b.ativo_id
         WHERE b.investidor_id = :investidor_id
           AND (CAST(:tipos AS text[]) IS NULL OR a.tipo = ANY(:tipos))
           AND (CAST(:ate AS date) IS NULL OR b.data <= :ate)

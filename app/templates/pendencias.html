@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}Pendências — Carteira{% endblock %}
+{% block largura %} estreito{% endblock %}
+
+{% macro erro_do_item(tipo, chave) -%}
+{%- if erro and erro[0] == tipo and erro[1] == chave %}<p class="mensagem-erro" role="alert">{{ erro[2] }}</p>{% endif -%}
+{%- endmacro %}
+
+{% block content %}
+<div>
+  <h1>Pendências</h1>
+  <p class="cabecalho sub">Dados que faltam nos documentos e deixam preço médio, resultado ou declaração incompletos. Cada um leva cerca de um minuto.</p>
+</div>
+
+{% if resolvido %}
+<p class="ok" role="status">{{ m.icone_ok() }}<span class="texto">Salvo. Preço médio e resultados já foram recalculados.</span></p>
+{% endif %}
+
+{% for p in pendencias %}
+<section class="card" aria-labelledby="p-{{ loop.index }}">
+  {% if p.tipo == "bonificacao" %}
+  <div class="card-titulo">
+    <h2 id="p-{{ loop.index }}">Custo da bonificação de {{ p.rotulo }}</h2>
+    <span class="muted">Extrato B3 · {{ p.data | data }}</span>
+  </div>
+  <p>Você recebeu <strong>{{ p.qtd | qtd }} ações de {{ p.rotulo }}</strong> como bonificação. A empresa informa o custo atribuído a cada ação no aviso aos acionistas; enquanto ele falta, essas ações entram no preço médio a custo zero.</p>
+  <p class="muted">Afeta: preço médio de {{ p.rotulo }} · lucro das próximas vendas · Bens e Direitos</p>
+  <form method="post" action="/pendencias/bonificacoes/{{ p.chave }}" class="linha-campos">
+    <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+    <label class="curto">
+      Custo por ação (R$)
+      <input type="text" name="custo_por_cota" inputmode="decimal" placeholder="0,00" required autocomplete="off">
+      <small>Procure “custo atribuído” no aviso de bonificação da empresa.</small>
+    </label>
+    <button type="submit" class="primario">Salvar</button>
+  </form>
+  {{ erro_do_item("bonificacao", p.chave) }}
+
+  {% elif p.tipo == "sem_custo" %}
+  <div class="card-titulo">
+    <h2 id="p-{{ loop.index }}">{{ p.qtd | qtd }} de {{ p.rotulo }} sem custo de compra</h2>
+    {% if p.data %}<span class="muted">Extrato B3 · {{ p.data | data }}</span>{% endif %}
+  </div>
+  <p>Chegaram por transferência de custódia ou crédito da B3, e nenhum documento traz o preço pago. Sem ele não há preço médio, resultado nem valor para a declaração.</p>
+  <div class="botoes"><a href="/importar" class="botao">Enviar a nota de compra</a></div>
+  <form method="post" action="/pendencias/custos/{{ p.chave }}" class="linha-campos">
+    <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+    <label class="curto">
+      Ou informe o custo por cota (R$)
+      <input type="text" name="custo_por_cota" inputmode="decimal" placeholder="0,00" required autocomplete="off">
+      <small>O preço médio que você pagou, como na corretora de origem.</small>
+    </label>
+    <button type="submit" class="primario">Salvar</button>
+  </form>
+  {{ erro_do_item("sem_custo", p.chave) }}
+
+  {% elif p.tipo == "vendido_mais" %}
+  <div class="card-titulo">
+    <h2 id="p-{{ loop.index }}">Vendas de {{ p.rotulo }} maiores que as compras</h2>
+  </div>
+  <p>Há {{ p.qtd | qtd }} a mais vendidas do que compradas. Provavelmente falta a nota de uma compra antiga; sem ela, o custo dessas vendas fica desconhecido.</p>
+  <div class="botoes">
+    <a href="/importar" class="botao primario">Enviar a nota de compra</a>
+    <a href="/negociacoes?ativo={{ p.ativo_id }}" class="botao">Lançar a compra à mão</a>
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
+
+{% if not pendencias %}
+<p class="ok">{{ m.icone_ok() }}<span class="texto"><strong>Tudo em dia.</strong> Preços médios, resultados e declaração estão completos com os documentos enviados.</span></p>
+{% endif %}
+
+{% if avisos %}
+<section aria-labelledby="avisos" class="formulario">
+  <h2 id="avisos">Para manter atualizado</h2>
+  {% for a in avisos %}
+  <div class="card">
+    {% if a.tipo == "extrato_antigo" %}
+    <div class="linha-campos">
+      <p class="texto">O último extrato da B3 vai até <strong>{{ a.data | data }}</strong>. Proventos e eventos depois disso aparecem quando você enviar o próximo.</p>
+      <a href="/importar" class="botao">Importar extrato</a>
+    </div>
+    {% else %}
+    <div class="linha-campos">
+      <p class="texto">Um arquivo enviado em {{ a.data | data }} não pôde ser lido: {{ a.texto }}</p>
+      <a href="/importar" class="botao">Ver importação</a>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

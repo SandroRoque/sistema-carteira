@@ -9,7 +9,7 @@ own formatting rounds half to even). Negative values use the minus sign
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 FUSO = ZoneInfo("America/Sao_Paulo")
@@ -101,3 +101,23 @@ def hora(v: datetime | None) -> str:
 
 def mes_ano(v: date) -> str:
     return f"{MESES[v.month - 1]}/{v.year}"
+
+
+def ler_decimal(texto: str) -> Decimal:
+    """Parse what a person types: '1.234,56', '1234,56', '18.04', 'R$ 2,5'.
+    A lone '.' with up to two decimals is read as the decimal point; dots
+    otherwise group thousands. Raises ValueError on anything else."""
+    t = texto.strip().removeprefix("R$").strip().replace(" ", "")
+    if "," in t:
+        t = t.replace(".", "").replace(",", ".")
+    elif t.count(".") == 1 and len(t.split(".")[1]) <= 2:
+        pass
+    else:
+        t = t.replace(".", "")
+    try:
+        valor = Decimal(t)
+    except InvalidOperation:
+        raise ValueError(f"valor inválido: {texto!r}") from None
+    if not valor.is_finite():
+        raise ValueError(f"valor inválido: {texto!r}")
+    return valor

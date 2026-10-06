@@ -8,6 +8,7 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
 import formato
+import pendencias
 from database import connect, fetch_all
 
 _HERE = Path(__file__).parent
@@ -49,6 +50,9 @@ def render(request: Request, template: str, contexto: dict | None = None, status
         if "carteiras" not in contexto:
             contexto["carteiras"] = carteiras_do_usuario(sessao.usuario_id)
         contexto.setdefault("investidor_id", sessao.investidor_id)
+        if "n_pendencias" not in contexto and contexto["investidor_id"] is not None:
+            with connect(sessao.usuario_id) as conn:
+                contexto["n_pendencias"] = pendencias.contar(conn, contexto["investidor_id"])
     return templates.TemplateResponse(request, template, contexto, status_code=status_code)
 
 

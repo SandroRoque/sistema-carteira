@@ -8,13 +8,14 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
 import formato
 import graficos
 import painel
-from app.seguranca import InvestidorId, Sessao
+import pendencias
+from app.seguranca import InvestidorId, Sessao, redirecionar
 from app.templating import render
 from database import connect
 
@@ -123,3 +124,53 @@ def proventos(request: Request, sessao: Sessao, investidor_id: InvestidorId, per
             painel.razao(prov.total_renda_variavel, carteira.custo_renda_variavel) if periodo == "12m" else None
         ),
     })
+
+
+# ---------------------------------------------------------------------------
+# Pendências
+# ---------------------------------------------------------------------------
+
+
+def _pagina_pendencias(request: Request, sessao, investidor_id: int, erro: tuple[str, int, str] | None = None):
+    with connect(sessao.usuario_id) as conn:
+        itens = pendencias.listar(conn, investidor_id)
+        avisos = pendencias.avisos(conn, investidor_id)
+    return render(request, "pendencias.html", {
+        "pendencias": itens,
+        "avisos": avisos,
+        "n_pendencias": len(itens),
+        "erro": erro,
+        "resolvido": request.query_params.get("resolvido"),
+    }, 422 if erro else 200)
+
+
+@router.get("/pendencias", response_class=HTMLResponse)
+def pendencias_lista(request: Request, sessao: Sessao, investidor_id: InvestidorId):
+    return _pagina_pendencias(request, sessao, investidor_id)
+
+
+def _resolver(request, sessao, investidor_id, tipo: str, chave: int, texto: str, acao) -> HTMLResponse:
+    try:
+        custo = formato.ler_decimal(texto)
+        with connect(sessao.usuario_id) as conn:
+            acao(conn, investidor_id, chave, custo)
+    except (ValueError, pendencias.PendenciaInvalida) as exc:
+        mensagem = str(exc) if isinstance(exc, pendencias.PendenciaInvalida) else "Informe um valor como 18,04."
+        return _pagina_pendencias(request, sessao, investidor_id, (tipo, chave, mensagem))
+    return redirecionar(request, f"/pendencias?resolvido={tipo}")
+
+
+@router.post("/pendencias/bonificacoes/{mov_id}")
+def resolver_bonificacao(
+    request: Request, mov_id: int, sessao: Sessao, investidor_id: InvestidorId, custo_por_cota: str = Form(...)
+):
+    return _resolver(request, sessao, investidor_id, "bonificacao", mov_id, custo_por_cota,
+                     pendencias.informar_custo_bonificacao)
+
+
+@router.post("/pendencias/custos/{ativo_id}")
+def resolver_custo(
+    request: Request, ativo_id: int, sessao: Sessao, investidor_id: InvestidorId, custo_por_cota: str = Form(...)
+):
+    return _resolver(request, sessao, investidor_id, "sem_custo", ativo_id, custo_por_cota,
+                     pendencias.informar_custo_sem_nota)
