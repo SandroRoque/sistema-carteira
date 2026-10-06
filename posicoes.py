@@ -38,6 +38,8 @@ Atualização
     → administrative (ticker rename), no financial impact
 Fração em Ativos (Débito)
     → paired with Leilão de Fração (Crédito); only the latter is processed
+Recibo de Subscrição
+    → closed when its shares are credited (subscricoes.py); B3 has no debit
 
 Every query is scoped to a single investidor_id.
 """
@@ -47,6 +49,7 @@ from __future__ import annotations
 from decimal import Decimal
 from sqlalchemy import Connection
 
+import subscricoes as subscricoes_
 from custo_medio import saldos
 from database import fetch_all
 
@@ -256,6 +259,13 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
     neg_rf         = _negocios_rf(conn, investidor_id)
     rf_vencidos    = _rf_b3_vencimentos(conn, investidor_id)
     subscricoes    = _subscricao_posicoes(conn, investidor_id)
+    # Receipts already turned into shares (B3 never debits them).
+    recibos_convertidos: dict[int, Decimal] = {}
+    for s in subscricoes_.carregar(conn, investidor_id):
+        if s.recibo:
+            recibos_convertidos[s.recibo.ativo_id] = (
+                recibos_convertidos.get(s.recibo.ativo_id, Decimal(0)) + s.recibo.quantidade
+            )
     rendimentos    = _rendimentos_por_ativo(conn, investidor_id)
 
     posicoes: list[dict] = []
@@ -335,7 +345,7 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
             qty_saida      = sub.get("qty_saida")      or 0
             custo_exerc    = sub.get("custo_exercicio") or 0
 
-            qty_atual      = qty_entrada - qty_saida
+            qty_atual      = qty_entrada - qty_saida - recibos_convertidos.get(ativo_id, 0)
             pos["qty"]       = qty_atual
             pos["custo_total"] = custo_exerc
             pos["is_open"]   = qty_atual > 0.001

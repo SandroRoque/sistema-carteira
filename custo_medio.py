@@ -11,8 +11,10 @@ compra                 + qty, + valor líquido (negociacoes entrada)
 venda                  − qty at the current average (negociacoes saída)
 bonificacao            + qty, + qty × custo_por_cota (0 while unknown)
 desdobro               + qty at zero cost (dilutes the average)
-atualizacao            + qty at the cost the user informed for shares received
-                         without a note (custos_informados), else zero
+atualizacao            + qty at the price paid when it is the credit of an
+                         exercised subscription (subscricoes.py), else at the
+                         cost the user informed for shares received without
+                         a note (custos_informados), else zero
 fracao, resgate        − qty at the current average (Leilão de Fração;
                          B3 Resgate closing a fund absorbed in a merger)
 transferencia_entrada  + qty at the current average (custody transfer); with
@@ -57,6 +59,7 @@ from typing import Iterable
 from sqlalchemy import Connection
 
 import cobertura
+import subscricoes
 from database import fetch_all
 
 # Below this a quantity is treated as zero (position closed).
@@ -93,6 +96,8 @@ class Evento:
     sem_nota: bool = False
     # conversao_*: the ativo on the other side.
     contraparte: int | None = None
+    # atualizacao: shares from an exercised subscription; custo is the price paid.
+    subscricao: bool = False
 
 
 @dataclass(frozen=True)
@@ -373,6 +378,15 @@ def carregar_eventos(
                 r["b3_id"],
             )
         )
+    # Shares from an exercised subscription cost what was paid for them
+    # (unless the user informed a cost for that ativo).
+    pagas = {s.credito.b3_id: s.custo for s in subscricoes.carregar(conn, investidor_id, ate)}
+    if pagas:
+        for evs in eventos.values():
+            for i, e in enumerate(evs):
+                if e.b3_id in pagas and e.tipo == "atualizacao" and e.custo is None:
+                    evs[i] = Evento(e.data, e.tipo, e.quantidade, pagas[e.b3_id], b3_id=e.b3_id, subscricao=True)
+
     sem_nota, _ = cobertura.carregar(conn, investidor_id, ate)
     if sem_nota and tipos is not None:
         do_tipo = {

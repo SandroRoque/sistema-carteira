@@ -67,6 +67,11 @@ Events travel in lifecycle order: grant → (exercise | expiry).
 | `Solicitação de Subscrição` | Credito | Subscription request lodged |
 | `Recibo de Subscrição` | Credito | Subscription receipt (shares pending) |
 
+The new shares arrive later as an `Atualização` Credito on the stock itself;
+B3 never debits the receipt. `subscricoes.py` matches each exercise with the
+next credit of the same company and quantity (within 180 days): the amount
+paid becomes the cost of those shares and the receipt closes.
+
 ### Trade events — reconciled with the notes
 
 These rows describe the same purchases and sales captured from the PDF notas de

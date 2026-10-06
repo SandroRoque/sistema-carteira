@@ -576,6 +576,8 @@ def ativo(conn: Connection, investidor_id: int, ativo_id: int, hoje: date | None
         if ev.nota:
             corretora, nota_id = ev.nota
             detalhe = f"Nota {nota_id} · {CORRETORAS.get(corretora, corretora)}"
+        elif ev.subscricao:
+            detalhe = f"Subscrição exercida: {formato.brl(ev.custo)} pagos"
         elif ev.sem_nota:
             detalhe = "Extrato B3, sem nota: valor sem taxas"
         elif ev.contraparte:
@@ -594,10 +596,10 @@ def ativo(conn: Connection, investidor_id: int, ativo_id: int, hoje: date | None
                 )
         historico.append(ItemHistorico(
             data=ev.data,
-            rotulo=_EVENTO_ROTULO[ev.tipo],
+            rotulo="Subscrição" if ev.subscricao else _EVENTO_ROTULO[ev.tipo],
             categoria=categoria,
             qtd=ev.quantidade,
-            valor=ev.custo if ev.tipo in ("compra", "venda") else None,
+            valor=ev.custo if ev.tipo in ("compra", "venda") or ev.subscricao else None,
             qtd_apos=p.qty,
             preco_medio_apos=p.preco_medio,
             detalhe=detalhe,
