@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 from conftest import CPF_A, CPF_B
 from contas import get_or_create_usuario
@@ -78,4 +79,4 @@ def test_valores_e_datas_preservam_tipos(usuario_id):
 
     assert row["data"] == date(2024, 12, 31)
     assert row["quantidade"] == 3
-    assert row["preco_unitario"] == 12.345
+    assert row["preco_unitario"] == Decimal("12.345")

@@ -11,6 +11,7 @@ it to the logged-in account even if a query forgets its investidor_id filter.
 """
 from __future__ import annotations
 
+from decimal import ROUND_HALF_UP, Decimal
 import sys
 from collections import defaultdict
 from datetime import date
@@ -87,8 +88,8 @@ def dashboard(request: Request, sessao: Sessao, investidor_id: InvestidorId):
         if p["is_open"]:
             grupos[p["tipo"]].append(p)
 
-    custo_total = sum(p["custo_total"] or 0.0 for p in posicoes if p["is_open"])
-    rendimentos_total = sum(p["total_income"] or 0.0 for p in posicoes)
+    custo_total = sum(p["custo_total"] or 0 for p in posicoes if p["is_open"])
+    rendimentos_total = sum(p["total_income"] or 0 for p in posicoes)
 
     return render(request, "dashboard.html", {
         "grupos": [(t, grupos[t]) for t in _TIPO_ORDER if t in grupos],
@@ -169,6 +170,11 @@ def _next_linha(conn, investidor_id: int, nota_id: str) -> int:
     )
 
 
+def _centavos(valor: Decimal) -> Decimal:
+    """Money rounded to the cent, half up (round() on Decimal is half-even)."""
+    return valor.quantize(Decimal("0.01"), ROUND_HALF_UP)
+
+
 @app.post("/negociacoes", response_class=HTMLResponse)
 def negociacoes_create(
     request: Request,
@@ -177,9 +183,9 @@ def negociacoes_create(
     ativo_id: int = Form(...),
     data: date = Form(...),
     sentido: str = Form(...),
-    quantidade: float = Form(...),
-    preco_unitario: float = Form(...),
-    taxas: float = Form(default=0.0),
+    quantidade: Decimal = Form(...),
+    preco_unitario: Decimal = Form(...),
+    taxas: Decimal = Form(default=0),
 ):
     if sentido not in ("entrada", "saida"):
         return _erro("Sentido inválido")
@@ -188,11 +194,11 @@ def negociacoes_create(
     if preco_unitario < 0 or taxas < 0:
         return _erro("Preço e taxas não podem ser negativos")
 
-    valor_bruto = round(quantidade * preco_unitario, 2)
+    valor_bruto = _centavos(quantidade * preco_unitario)
     if sentido == "entrada":
-        valor_liquido = round(valor_bruto + taxas, 2)
+        valor_liquido = _centavos(valor_bruto + taxas)
     else:
-        valor_liquido = round(valor_bruto - taxas, 2)
+        valor_liquido = _centavos(valor_bruto - taxas)
 
     nota_id = f"MANUAL-{data.isoformat()}"
 

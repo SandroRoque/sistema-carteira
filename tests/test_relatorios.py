@@ -1,6 +1,7 @@
 """Smoke tests: every report query runs on PostgreSQL and respects tenancy."""
 
 from datetime import date
+from decimal import Decimal
 
 import pandas as pd
 import pytest
@@ -39,7 +40,7 @@ def test_imposto(carteira, investidor_b):
         assert len(vendas) == 1
         # The 10 bonus shares (20/05, cost not informed yet) dilute the
         # average before the sale: 1000 / 110 per share.
-        assert vendas[0]["ganho"] == pytest.approx(50 * 15.0 - 50 * 1000 / 110)
+        assert vendas[0]["ganho"] == pytest.approx(750 - 50 * Decimal(1000) / 110)
         assert vendas[0]["tem_bonif_sem_custo"]
         assert imposto._buscar_vendas(conn, carteira, ano=2024) == []
         assert len(imposto._buscar_vendas(conn, carteira)) == 1
@@ -110,4 +111,4 @@ def test_fechamento_considera_resgate_por_incorporacao(carteira):
         depois = fechamento.calcular_posicao_em(conn, carteira, date(2025, 12, 31))
 
     assert [p["qty"] for p in antes.values()] == [60]
-    assert [(p["qty"], p["preco_medio"]) for p in depois.values()] == [(10, pytest.approx(1000 / 110))]
+    assert [(p["qty"], p["preco_medio"]) for p in depois.values()] == [(10, pytest.approx(Decimal(1000) / 110))]

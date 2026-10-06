@@ -30,6 +30,7 @@ of one investidor from the database.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
@@ -40,9 +41,9 @@ from sqlalchemy import Connection
 from database import fetch_all
 
 # Below this a quantity is treated as zero (position closed).
-_ZERO = 0.000001
+_ZERO = Decimal("0.000001")
 # Tolerance for recognizing an 'Atualização' that just confirms the position.
-_TOLERANCIA_ATUALIZACAO = 0.001
+_TOLERANCIA_ATUALIZACAO = Decimal("0.001")
 
 _ENTRADAS = {"compra", "bonificacao", "desdobro", "transferencia_entrada"}
 _SAIDAS = {"venda", "fracao", "resgate", "transferencia_saida"}
@@ -55,9 +56,9 @@ EQUITY_TIPOS = ("acao", "fii", "bdr", "tesouro_direto")
 class Evento:
     data: date
     tipo: str
-    quantidade: float
+    quantidade: Decimal
     # compra: valor líquido paid; bonificacao: qty × custo_por_cota, None while unknown.
-    custo: float | None = None
+    custo: Decimal | None = None
     # negociacoes.id for compra / venda.
     negociacao_id: int | None = None
 
@@ -68,23 +69,23 @@ class Baixa:
 
     evento: Evento
     # Average cost at that moment; None when nothing was held (cost unknown).
-    preco_medio: float | None
-    custo: float | None
+    preco_medio: Decimal | None
+    custo: Decimal | None
     # Some bonus shares in the average still lack their acquisition cost.
     tem_bonif_sem_custo: bool
 
 
 @dataclass
 class Saldo:
-    qty: float = 0
-    custo: float = 0
+    qty: Decimal = 0
+    custo: Decimal = 0
     # Unknown-cost bonus shares are part of the current position.
     tem_bonif_sem_custo: bool = False
     tem_negociacoes: bool = False
     baixas: list[Baixa] = field(default_factory=list)
 
     @property
-    def preco_medio(self) -> float | None:
+    def preco_medio(self) -> Decimal | None:
         return self.custo / self.qty if self.qty > _ZERO else None
 
 
@@ -135,7 +136,7 @@ def replay(eventos: Iterable[Evento]) -> Saldo:
     return saldo
 
 
-def _baixar(saldo: Saldo, ev: Evento, q: float) -> None:
+def _baixar(saldo: Saldo, ev: Evento, q: Decimal) -> None:
     pm = saldo.preco_medio
     if pm is None:
         custo = None

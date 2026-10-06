@@ -44,6 +44,7 @@ Every query is scoped to a single investidor_id.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from sqlalchemy import Connection
 
 from custo_medio import saldos
@@ -84,7 +85,7 @@ def _negocios_rf(conn: Connection, investidor_id: int) -> dict[int, dict]:
     return {r["ativo_id"]: dict(r) for r in rows}
 
 
-def _rf_b3_vencimentos(conn: Connection, investidor_id: int) -> dict[int, float]:
+def _rf_b3_vencimentos(conn: Connection, investidor_id: int) -> dict[int, Decimal]:
     """Qty returned via B3 VENCIMENTO/RESGATE events (no brokerage note issued).
 
     For renda_fixa instruments that matured and were redeemed without a
@@ -268,14 +269,14 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
             "tipo":                tipo,
             "subtipo":             ativo["subtipo"] or "",
             "vencimento":          ativo["vencimento"],
-            "qty":                 0.0,
-            "custo_total":         0.0,
+            "qty":                 0,
+            "custo_total":         0,
             "preco_medio":         None,
-            "rendimentos":         0.0,
-            "dividendos":          0.0,
-            "jcp":                 0.0,
-            "pagamento_juros":     0.0,
-            "total_income":        0.0,
+            "rendimentos":         0,
+            "dividendos":          0,
+            "jcp":                 0,
+            "pagamento_juros":     0,
+            "total_income":        0,
             "is_open":             False,
             "tem_bonif_sem_custo": False,
             "custo_sem_origem":    False,
@@ -298,7 +299,7 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
             else:
                 aberta = saldo.qty > 0
                 pos["qty"]                 = saldo.qty
-                pos["custo_total"]         = saldo.custo if aberta else 0.0
+                pos["custo_total"]         = saldo.custo if aberta else 0
                 pos["preco_medio"]         = saldo.preco_medio if aberta else None
                 pos["tem_bonif_sem_custo"] = saldo.tem_bonif_sem_custo
                 pos["is_open"]             = saldo.qty > 0.001
@@ -308,18 +309,18 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
             if rf is None:
                 continue
 
-            qty_entrada         = rf["qty_entrada"]         or 0.0
-            qty_saida_neg       = rf["qty_saida"]           or 0.0
-            principal_investido = rf["principal_investido"] or 0.0
+            qty_entrada         = rf["qty_entrada"]         or 0
+            qty_saida_neg       = rf["qty_saida"]           or 0
+            principal_investido = rf["principal_investido"] or 0
 
             # Use the larger of: negociacoes resgate qty vs B3 vencimento qty.
             # This covers CDBs that matured without a brokerage note, without
             # double-counting when both sources record the same redemption.
-            qty_vencida_b3 = rf_vencidos.get(ativo_id) or 0.0
+            qty_vencida_b3 = rf_vencidos.get(ativo_id) or 0
             qty_saida      = max(qty_saida_neg, qty_vencida_b3)
 
-            remaining        = max(0.0, qty_entrada - qty_saida)
-            frac_outstanding = (remaining / qty_entrada) if qty_entrada > 0 else 0.0
+            remaining        = max(0, qty_entrada - qty_saida)
+            frac_outstanding = (remaining / qty_entrada) if qty_entrada > 0 else 0
 
             pos["qty"]         = remaining
             pos["custo_total"] = principal_investido * frac_outstanding
@@ -327,9 +328,9 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
 
         elif tipo in _SUBSCRICAO_TIPOS:
             sub            = subscricoes.get(ativo_id, {})
-            qty_entrada    = sub.get("qty_entrada")    or 0.0
-            qty_saida      = sub.get("qty_saida")      or 0.0
-            custo_exerc    = sub.get("custo_exercicio") or 0.0
+            qty_entrada    = sub.get("qty_entrada")    or 0
+            qty_saida      = sub.get("qty_saida")      or 0
+            custo_exerc    = sub.get("custo_exercicio") or 0
 
             qty_atual      = qty_entrada - qty_saida
             pos["qty"]       = qty_atual
@@ -341,11 +342,11 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
 
         # Income from B3 applies to all tipos
         rend = rendimentos.get(ativo_id, {})
-        pos["rendimentos"]    = rend.get("rendimentos")    or 0.0
-        pos["dividendos"]     = rend.get("dividendos")     or 0.0
-        pos["jcp"]            = rend.get("jcp")            or 0.0
-        pos["pagamento_juros"] = rend.get("pagamento_juros") or 0.0
-        pos["total_income"]   = rend.get("total_income")   or 0.0
+        pos["rendimentos"]    = rend.get("rendimentos")    or 0
+        pos["dividendos"]     = rend.get("dividendos")     or 0
+        pos["jcp"]            = rend.get("jcp")            or 0
+        pos["pagamento_juros"] = rend.get("pagamento_juros") or 0
+        pos["total_income"]   = rend.get("total_income")   or 0
 
         posicoes.append(pos)
 

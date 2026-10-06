@@ -13,13 +13,14 @@ Usage
     from cotacoes import buscar_cotacoes
     with connect(usuario_id) as conn:
         precos = buscar_cotacoes(conn, ["BBAS3", "VALE3", "BTCI11"])
-    # {"BBAS3": 20.54, "VALE3": 83.19, "BTCI11": 9.24}
+    # {"BBAS3": Decimal("20.5400"), ...}
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from decimal import Decimal
 
 from sqlalchemy import Connection
 
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 VALIDADE = timedelta(hours=1)
 
 
-def buscar_cotacoes(conn: Connection, tickers: list[str]) -> dict[str, float | None]:
+def buscar_cotacoes(conn: Connection, tickers: list[str]) -> dict[str, Decimal | None]:
     """Return {ticker: last_close} for each ticker.
 
     Parameters
@@ -43,7 +44,7 @@ def buscar_cotacoes(conn: Connection, tickers: list[str]) -> dict[str, float | N
 
     Returns
     -------
-    Dict mapping each input ticker to its last closing price (float) or None
+    Dict mapping each input ticker to its last closing price (Decimal) or None
     if the price could not be retrieved.
     """
     if not tickers:
@@ -59,7 +60,7 @@ def buscar_cotacoes(conn: Connection, tickers: list[str]) -> dict[str, float | N
             validade=VALIDADE,
         )
     }
-    result: dict[str, float | None] = {t: cache[t]["preco"] if t in cache else None for t in tickers}
+    result: dict[str, Decimal | None] = {t: cache[t]["preco"] if t in cache else None for t in tickers}
 
     vencidos = [t for t in dict.fromkeys(tickers) if t not in cache or not cache[t]["fresca"]]
     if not vencidos:
@@ -88,7 +89,7 @@ def buscar_cotacoes(conn: Connection, tickers: list[str]) -> dict[str, float | N
     return result
 
 
-def _baixar_yfinance(tickers: list[str]) -> dict[str, float | None]:
+def _baixar_yfinance(tickers: list[str]) -> dict[str, Decimal | None]:
     """Download last closes. Raises when the download as a whole fails, so a
     network error is not mistaken for "no price" and cached as such."""
     import yfinance as yf
@@ -110,7 +111,7 @@ def _baixar_yfinance(tickers: list[str]) -> dict[str, float | None]:
     # Take the last available row
     last_row = close.iloc[-1]
 
-    result: dict[str, float | None] = {}
+    result: dict[str, Decimal | None] = {}
     for yf_sym, canonical in yf_to_canonical.items():
         try:
             if hasattr(last_row, "__getitem__"):
@@ -118,8 +119,9 @@ def _baixar_yfinance(tickers: list[str]) -> dict[str, float | None]:
             else:
                 # Single-ticker: last_row is a scalar
                 val = float(last_row)
-            # Guard against NaN
-            result[canonical] = float(val) if val == val else None
+            # Guard against NaN. yfinance prices are float32-ish (55.36000061…):
+            # 4 decimal places keep every real B3 price and drop the noise.
+            result[canonical] = Decimal(f"{float(val):.4f}") if val == val else None
         except (KeyError, TypeError, ValueError):
             result[canonical] = None
     return result

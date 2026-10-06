@@ -16,10 +16,14 @@ A manual review pass can detect duplicates and merge them by re-pointing the rel
 **Proper fix (future):** Normalize `titulo` strings at extraction time, or add a post-load
 deduplication step that matches by `(cnpj_emissor, indexador, taxa_prefixada, percentual_do_indexador, emissao, vencimento)`.
 
-### Calculations use float
+### Ingestion still parses numbers as float
 
-NUMERIC is loaded as float (see `database.py`), so positions, average cost and
-taxes are computed in binary floating point. Move the arithmetic to `Decimal`.
+Calculations and reports use `Decimal` (NUMERIC is loaded as Decimal), but the
+extraction side — `parsers.py`, `models.py`, `transformer.py` (fee split),
+`carrega_b3.py` — still turns document text into float before it is stored.
+It is harmless today (values have at most 2 decimals and the fee split rounds
+to the cent; stored data checked on 2026-10-05), but parsing straight to
+`Decimal` would make the pipeline exact end to end.
 
 ### A Nu Invest nota has a misextracted CPF
 

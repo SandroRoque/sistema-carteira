@@ -13,6 +13,7 @@ Output
 
 from __future__ import annotations
 
+from decimal import Decimal
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -44,27 +45,27 @@ _TIPO_LABEL = {
 }
 
 
-def _brl(v: float | None) -> str:
+def _brl(v: Decimal | None) -> str:
     if v is None:
         return "—"
     return f"R$ {v:,.2f}"
 
 
-def _brl_signed(v: float | None) -> str:
+def _brl_signed(v: Decimal | None) -> str:
     if v is None:
         return "—"
     sign = "+" if v >= 0 else ""
     return f"R$ {sign}{v:,.2f}"
 
 
-def _pct(v: float | None, sign: bool = False) -> str:
+def _pct(v: Decimal | None, sign: bool = False) -> str:
     if v is None:
         return "—"
     prefix = "+" if sign and v >= 0 else ""
     return f"{prefix}{v:.1f}%"
 
 
-def _qty(v: float) -> str:
+def _qty(v: Decimal) -> str:
     if v == int(v):
         return str(int(v))
     return f"{v:.4f}"
@@ -136,7 +137,7 @@ def _md_table(
 
 def _section_resumo(
     posicoes: list[dict],
-    precos: dict[str, float | None] | None,
+    precos: dict[str, Decimal | None] | None,
 ) -> str:
     with_prices = precos is not None
 
@@ -147,8 +148,8 @@ def _section_resumo(
             continue
         if tipo not in group_data:
             group_data[tipo] = {
-                "custo": 0.0, "valor_merc": 0.0,
-                "income": 0.0, "n_open": 0, "n_closed": 0,
+                "custo": 0, "valor_merc": 0,
+                "income": 0, "n_open": 0, "n_closed": 0,
             }
         g = group_data[tipo]
         if pos["is_open"]:
@@ -172,9 +173,9 @@ def _section_resumo(
         aligns  = ["l", "r", "r", "r", "r"]
 
     rows = []
-    grand_custo = 0.0
-    grand_vm    = 0.0
-    grand_inc   = 0.0
+    grand_custo = 0
+    grand_vm    = 0
+    grand_inc   = 0
 
     for tipo in _TIPO_ORDER:
         g = group_data.get(tipo)
@@ -232,7 +233,7 @@ def _section_resumo(
 
 def _section_posicoes(
     posicoes: list[dict],
-    precos: dict[str, float | None] | None,
+    precos: dict[str, Decimal | None] | None,
     todos: bool,
 ) -> str:
     with_prices = precos is not None
@@ -345,7 +346,7 @@ def _section_renda_por_ativo(posicoes: list[dict]) -> str:
     headers = ["Ativo", "Tipo", "Rendimento", "Dividendo", "JCP", "Jrs RF", "**Total**"]
     aligns  = ["l", "l", "r", "r", "r", "r", "r"]
 
-    def _opt(v: float) -> str:
+    def _opt(v: Decimal) -> str:
         return _brl(v) if v else "—"
 
     rows = []
@@ -415,13 +416,13 @@ def _section_historico(conn: Connection, investidor_id: int) -> str:
     headers = ["Mês", "Rendimento", "Dividendo", "JCP", "Jrs RF", "Total"]
     aligns  = ["l", "r", "r", "r", "r", "r"]
 
-    def _opt(v: float) -> str:
+    def _opt(v: Decimal) -> str:
         return _brl(v) if v else "—"
 
     rows         = []
     current_year = None
-    year_total   = 0.0
-    grand_total  = 0.0
+    year_total   = 0
+    grand_total  = 0
     n_months     = 0
 
     for r in db_rows:
@@ -431,7 +432,7 @@ def _section_historico(conn: Connection, investidor_id: int) -> str:
 
         if current_year is not None and year != current_year:
             rows.append([f"**{current_year} subtotal**", "", "", "", "", f"**{_brl(year_total)}**"])
-            year_total = 0.0
+            year_total = 0
 
         current_year  = year
         year_total   += tot
@@ -450,7 +451,7 @@ def _section_historico(conn: Connection, investidor_id: int) -> str:
     if current_year:
         rows.append([f"**{current_year} subtotal**", "", "", "", "", f"**{_brl(year_total)}**"])
 
-    media = grand_total / n_months if n_months else 0.0
+    media = grand_total / n_months if n_months else 0
     rows.append(["**Total acumulado**", "", "", "", "", f"**{_brl(grand_total)}**"])
     rows.append([f"**Média/mês** ({n_months} meses)", "", "", "", "", f"**{_brl(media)}**"])
 
@@ -503,7 +504,7 @@ def _section_ir(conn: Connection, investidor_id: int) -> str:
         for j in jcp_rows:
             bruto = j["total_jcp"]
             jcp_data.append([
-                j["ano"], _brl(bruto), _brl(bruto * 0.15),
+                j["ano"], _brl(bruto), _brl(bruto * Decimal("0.15")),
                 "Rendimentos sujeitos à tributação exclusiva",
             ])
         lines.append(_md_table(jcp_headers, jcp_data, jcp_aligns))
@@ -513,7 +514,7 @@ def _section_ir(conn: Connection, investidor_id: int) -> str:
     # Sales table
     lines.append("\n### Vendas de Renda Variável\n")
     if vendas_rows:
-        _LIMITE = 20_000.0
+        _LIMITE = Decimal(20_000)
         v_headers = ["Data", "Ativo", "Tipo", "Qtd", "Receita", "Custo Base", "Ganho/Perda", "Situação"]
         v_aligns  = ["l", "l", "l", "r", "r", "r", "r", "l"]
         v_data    = []
@@ -586,7 +587,7 @@ def gerar_relatorio(todos: bool = False, com_cotacoes: bool = False) -> Path:
         investidor_id = investidor_do_cli(conn)
         posicoes = calcular_posicoes(conn, investidor_id)
 
-        precos: dict[str, float | None] | None = None
+        precos: dict[str, Decimal | None] | None = None
         if com_cotacoes:
             equity_tipos = {"acao", "fii", "bdr", "tesouro_direto"}
             tickers = [

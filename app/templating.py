@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 
 from fastapi import Request
@@ -12,13 +13,13 @@ from database import connect, fetch_all
 _HERE = Path(__file__).parent
 
 
-def _brl(v: float | None) -> str:
+def _brl(v: Decimal | None) -> str:
     if v is None:
         return "—"
     return f"R$ {v:,.2f}"
 
 
-def _qty(v: float | None) -> str:
+def _qty(v: Decimal | None) -> str:
     if v is None:
         return "—"
     return f"{v:.4f}".rstrip("0").rstrip(".")

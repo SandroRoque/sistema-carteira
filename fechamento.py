@@ -18,6 +18,7 @@ Vendas       : R$ received from sales within the calendar year
 """
 from __future__ import annotations
 
+from decimal import Decimal
 import sys
 from datetime import date
 
@@ -36,21 +37,21 @@ _EQUITY_TIPOS = {"acao", "fii", "bdr", "tesouro_direto"}
 # ---------------------------------------------------------------------------
 
 
-def _brl(v: float | None, width: int = 14) -> str:
-    if v is None or v == 0.0:
+def _brl(v: Decimal | None, width: int = 14) -> str:
+    if v is None or v == 0:
         return f"{'—':>{width}}"
     return f"R$ {v:>{width - 4},.2f}"
 
 
-def _brl_signed(v: float, width: int = 10) -> str:
-    if v == 0.0:
+def _brl_signed(v: Decimal, width: int = 10) -> str:
+    if v == 0:
         return f"{'—':>{width}}"
     sign = "+" if v > 0 else ""
     return f"{sign}{v:>{width - 1},.2f}"
 
 
-def _qty_str(v: float, width: int = 8) -> str:
-    if v == 0.0:
+def _qty_str(v: Decimal, width: int = 8) -> str:
+    if v == 0:
         return f"{'—':>{width}}"
     if v == int(v):
         return f"{int(v):>{width}}"
@@ -122,13 +123,13 @@ def calcular_posicao_em(conn: Connection, investidor_id: int, data_fim: date) ->
                 # Custody transfers / Atualização credits only: cost unknown.
                 if saldo.qty <= 0.001:
                     continue
-                custo_total, preco_medio = 0.0, None
+                custo_total, preco_medio = 0, None
             else:
                 # Positions closed during the year still show up (qty 0).
                 if saldo.qty <= -0.001:
                     continue
                 aberta = saldo.qty > 0.001
-                custo_total = saldo.custo if aberta else 0.0
+                custo_total = saldo.custo if aberta else 0
                 preco_medio = saldo.preco_medio if aberta else None
 
             result[ativo_id] = {
@@ -145,13 +146,13 @@ def calcular_posicao_em(conn: Connection, investidor_id: int, data_fim: date) ->
             rf = neg_rf.get(ativo_id)
             if rf is None:
                 continue
-            qty_entrada         = rf["qty_entrada"]         or 0.0
-            qty_saida_neg       = rf["qty_saida"]           or 0.0
-            principal_investido = rf["principal_investido"] or 0.0
-            qty_vencida_b3      = rf_vencidos.get(ativo_id) or 0.0
+            qty_entrada         = rf["qty_entrada"]         or 0
+            qty_saida_neg       = rf["qty_saida"]           or 0
+            principal_investido = rf["principal_investido"] or 0
+            qty_vencida_b3      = rf_vencidos.get(ativo_id) or 0
             qty_saida           = max(qty_saida_neg, qty_vencida_b3)
-            remaining           = max(0.0, qty_entrada - qty_saida)
-            frac_out            = (remaining / qty_entrada) if qty_entrada > 0 else 0.0
+            remaining           = max(0, qty_entrada - qty_saida)
+            frac_out            = (remaining / qty_entrada) if qty_entrada > 0 else 0
             result[ativo_id] = {
                 "ativo_id":    ativo_id,
                 "ticker":      ativo["ticker"] or "",
@@ -199,7 +200,7 @@ def calcular_atividade_ano(
 
 def calcular_bonifs_ano(
     conn: Connection, investidor_id: int, data_inicio: date, data_fim: date
-) -> dict[int, float]:
+) -> dict[int, Decimal]:
     """Bonificação qty per ativo within the period."""
     rows = fetch_all(
         conn,
@@ -221,7 +222,7 @@ def calcular_bonifs_ano(
 
 def calcular_desdobros_ano(
     conn: Connection, investidor_id: int, data_inicio: date, data_fim: date
-) -> dict[int, float]:
+) -> dict[int, Decimal]:
     """Desdobro qty per ativo within the period."""
     rows = fetch_all(
         conn,
@@ -285,9 +286,9 @@ def exibir_fechamento(data_fim: date, data_inicio_ano: date, label: str) -> None
         ("tesouro_direto", "TESOURO DIRETO"),
     ]
 
-    grand_custo_fim    = 0.0
-    grand_compras      = 0.0
-    grand_vendas       = 0.0
+    grand_custo_fim    = 0
+    grand_compras      = 0
+    grand_vendas       = 0
 
     for tipo_key, tipo_label in tipo_labels:
         # Collect all ativo_ids for this tipo that appear in any data source
@@ -328,9 +329,9 @@ def exibir_fechamento(data_fim: date, data_inicio_ano: date, label: str) -> None
         print(hdr)
         print("─" * len(hdr))
 
-        sec_custo   = 0.0
-        sec_compras = 0.0
-        sec_vendas  = 0.0
+        sec_custo   = 0
+        sec_compras = 0
+        sec_vendas  = 0
 
         for aid in ids_sorted:
             meta    = ativos_meta[aid]
@@ -341,19 +342,19 @@ def exibir_fechamento(data_fim: date, data_inicio_ano: date, label: str) -> None
             paber   = pos_abertura.get(aid, {})
             ativ    = atividade.get(aid, {})
 
-            qty_fim     = pfim.get("qty")       or 0.0
+            qty_fim     = pfim.get("qty")       or 0
             pm_fim      = pfim.get("preco_medio")
-            custo_fim   = pfim.get("custo_total") or 0.0
+            custo_fim   = pfim.get("custo_total") or 0
 
-            qty_aber    = paber.get("qty")      or 0.0
+            qty_aber    = paber.get("qty")      or 0
 
             # Activity in year (from negociacoes + bonifs + desdobros)
-            qty_comp    = ativ.get("qty_compras", 0.0) or 0.0
-            qty_vend    = ativ.get("qty_vendas",  0.0) or 0.0
-            val_comp    = ativ.get("valor_compras", 0.0) or 0.0
-            val_vend    = ativ.get("valor_vendas",  0.0) or 0.0
-            qty_bonif   = bonifs_ano.get(aid, 0.0) or 0.0
-            qty_desdob  = desdobros_ano.get(aid, 0.0) or 0.0
+            qty_comp    = ativ.get("qty_compras", 0) or 0
+            qty_vend    = ativ.get("qty_vendas",  0) or 0
+            val_comp    = ativ.get("valor_compras", 0) or 0
+            val_vend    = ativ.get("valor_vendas",  0) or 0
+            qty_bonif   = bonifs_ano.get(aid, 0) or 0
+            qty_desdob  = desdobros_ano.get(aid, 0) or 0
 
             # Net qty change from all sources
             delta_qty   = qty_fim - qty_aber
@@ -393,9 +394,9 @@ def exibir_fechamento(data_fim: date, data_inicio_ano: date, label: str) -> None
             if qty_comp or qty_vend:
                 sub_parts = []
                 if qty_comp:
-                    sub_parts.append(f"comprou {int(qty_comp) if qty_comp == int(qty_comp) else qty_comp}")
+                    sub_parts.append(f"comprou {_qty_str(qty_comp, 0).strip()}")
                 if qty_vend:
-                    sub_parts.append(f"vendeu {int(qty_vend) if qty_vend == int(qty_vend) else qty_vend}")
+                    sub_parts.append(f"vendeu {_qty_str(qty_vend, 0).strip()}")
                 sub_parts.append(f"(início do ano: {_qty_str(qty_aber, 0).strip()})")
                 print(f"  {'':>{col_ticker}}  {' | '.join(sub_parts)}")
 
@@ -422,14 +423,14 @@ def exibir_fechamento(data_fim: date, data_inicio_ano: date, label: str) -> None
         hdr_rf = f"  {'Nome':<36}  {'Vencimento':>12}  {'Principal (fim)':>17}  Situação"
         print(hdr_rf)
         print("─" * len(hdr_rf))
-        sec_rf = 0.0
+        sec_rf = 0
         for aid in sorted(ids_rf_rel, key=lambda a: ativos_meta[a].get("nome") or ""):
             meta    = ativos_meta[aid]
             nome    = (meta.get("nome") or "")[:36]
             venc    = meta["vencimento"].isoformat() if meta.get("vencimento") else "—"
             pfim    = pos_fechamento.get(aid, {})
-            custo_rf = pfim.get("custo_total") or 0.0
-            qty_rf   = pfim.get("qty") or 0.0
+            custo_rf = pfim.get("custo_total") or 0
+            qty_rf   = pfim.get("qty") or 0
             situacao = "aberta" if qty_rf > 0 else "resgatada/vencida"
             sec_rf  += custo_rf
             print(f"  {nome:<36}  {venc:>12}  {_brl(custo_rf, 17)}  {situacao}")

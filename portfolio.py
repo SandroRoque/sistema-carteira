@@ -11,6 +11,7 @@ Usage
 
 from __future__ import annotations
 
+from decimal import Decimal
 import sys
 from datetime import date
 
@@ -40,7 +41,7 @@ _TIPO_ORDER = [
 ]
 
 
-def _brl(value: float | None) -> str:
+def _brl(value: Decimal | None) -> str:
     if value is None:
         return "—"
     return f"R$ {value:>12,.2f}"
@@ -54,14 +55,14 @@ def _yoc(pos: dict) -> str:
     return f"{pos['total_income'] / cost * 100:>6.1f}%"
 
 
-def _pct(value: float | None) -> str:
+def _pct(value: Decimal | None) -> str:
     if value is None:
         return f"{'—':>8}"
     sign = "+" if value >= 0 else ""
     return f"{sign}{value:>6.1f}%"
 
 
-def _pl(value: float | None) -> str:
+def _pl(value: Decimal | None) -> str:
     """Formatted unrealized P&L — green-ish sign prefix."""
     if value is None:
         return f"{'—':>15}"
@@ -69,7 +70,7 @@ def _pl(value: float | None) -> str:
     return f"R$ {sign}{value:>11,.2f}"
 
 
-def _qty(value: float) -> str:
+def _qty(value: Decimal) -> str:
     if value == int(value):
         return f"{int(value):>8}"
     return f"{value:>8.4f}"
@@ -109,7 +110,7 @@ _HDR_SUBSCRICAO = (
 def _print_equity_row(
     pos: dict,
     fechadas: bool = False,
-    precos: dict[str, float | None] | None = None,
+    precos: dict[str, Decimal | None] | None = None,
 ) -> None:
     status = ""
     if not pos["is_open"]:
@@ -170,12 +171,12 @@ def _print_subscricao_row(pos: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _totals(group: list[dict], precos: dict[str, float | None] | None = None) -> dict:
+def _totals(group: list[dict], precos: dict[str, Decimal | None] | None = None) -> dict:
     custo  = sum(p["custo_total"]  for p in group if p["is_open"])
     income = sum(p["total_income"] for p in group)
     valor_merc = None
     if precos is not None:
-        vm = 0.0
+        vm = 0
         for p in group:
             if not p["is_open"]:
                 continue
@@ -202,7 +203,7 @@ def exibir_portfolio(
     with connect_sistema() as conn:
         posicoes = calcular_posicoes(conn, investidor_do_cli(conn))
 
-        precos: dict[str, float | None] | None = None
+        precos: dict[str, Decimal | None] | None = None
         if com_cotacoes:
             equity_tipos = {"acao", "fii", "bdr", "tesouro_direto"}
             tickers = [
@@ -229,9 +230,9 @@ def exibir_portfolio(
         if t in by_tipo:
             by_tipo[t].append(p)
 
-    grand_custo     = 0.0
-    grand_income    = 0.0
-    grand_valor_merc: float | None = 0.0 if precos is not None else None
+    grand_custo     = 0
+    grand_income    = 0
+    grand_valor_merc: Decimal | None = 0 if precos is not None else None
 
     for tipo in _TIPO_ORDER:
         group = by_tipo[tipo]
@@ -404,13 +405,13 @@ def _exibir_historico_renda() -> None:
     print(hdr)
     print(_SEP * width)
 
-    max_total = max(r["total"] for r in rows) or 1.0
+    max_total = max(r["total"] for r in rows) or 1
     bar_width = 20
     current_year = None
-    year_total = 0.0
-    grand_total = 0.0
+    year_total = 0
+    grand_total = 0
 
-    def _print_year_subtotal(year: str, yt: float) -> None:
+    def _print_year_subtotal(year: str, yt: Decimal) -> None:
         print(
             f"  {'─'*7}  {'─'*14}  {'─'*14}  {'─'*14}  {'─'*14}  {'─'*14}"
         )
@@ -426,7 +427,7 @@ def _exibir_historico_renda() -> None:
 
         if current_year is not None and year != current_year:
             _print_year_subtotal(current_year, year_total)
-            year_total = 0.0
+            year_total = 0
 
         current_year = year
         total = r["total"]
@@ -436,7 +437,7 @@ def _exibir_historico_renda() -> None:
         bar_len = int(round(total / max_total * bar_width))
         bar = "█" * bar_len
 
-        def _mc(v: float) -> str:
+        def _mc(v: Decimal) -> str:
             return f"R$ {v:>8,.2f}" if v else f"{'—':>14}"
 
         print(
@@ -449,7 +450,7 @@ def _exibir_historico_renda() -> None:
         _print_year_subtotal(current_year, year_total)
 
     n_months = len(rows)
-    media = grand_total / n_months if n_months else 0.0
+    media = grand_total / n_months if n_months else 0
     print(_SEP * width)
     print(
         f"  {'TOTAL ACUMULADO':>7}  {'':>14}  {'':>14}  {'':>14}  {'':>14}  "

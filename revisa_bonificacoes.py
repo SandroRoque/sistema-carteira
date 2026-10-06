@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import os
+from decimal import Decimal, InvalidOperation
 
 from contas import investidor_do_cli
 from database import connect_sistema, execute, fetch_all
@@ -95,8 +96,10 @@ def main() -> None:
             # Accept both comma and period as decimal separator
             raw = raw.replace(",", ".")
             try:
-                custo = float(raw)
-            except ValueError:
+                custo = Decimal(raw)
+                if not custo.is_finite():
+                    raise InvalidOperation
+            except InvalidOperation:
                 print(f"  Valor inválido: {raw!r}. Tente novamente.")
                 input("  [Enter] continuar")
                 continue

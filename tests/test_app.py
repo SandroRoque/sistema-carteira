@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -150,12 +151,28 @@ def test_cria_negociacao_manual(client, ativo_id, investidor_a):
         ) == date(2025, 4, 1)
 
 
+def test_valor_da_negociacao_arredonda_centavo_para_cima(client, ativo_id, investidor_a):
+    # 5 × 6.005 = 30.025: half-up gives 30.03 (half-even would give 30.02).
+    form = _form(ativo_id, quantidade="5", preco_unitario="6.005", taxas="0")
+    client.post("/negociacoes", data=form, headers={"X-CSRF-Token": client.csrf})
+
+    with connect_sistema() as conn:
+        assert scalar(
+            conn,
+            "SELECT valor_liquido FROM negociacoes WHERE corretora_id = 'manual' AND investidor_id = :i",
+            i=investidor_a,
+        ) == Decimal("30.03")
+
+
 @pytest.mark.parametrize("campo, valor", [
     ("sentido", "talvez"),
     ("quantidade", "0"),
     ("quantidade", "-5"),
     ("preco_unitario", "-1"),
     ("data", "2025-13-45"),
+    ("quantidade", "NaN"),
+    ("preco_unitario", "Infinity"),
+    ("taxas", "-Infinity"),
 ])
 def test_rejeita_negociacao_invalida(client, ativo_id, campo, valor):
     resp = client.post(

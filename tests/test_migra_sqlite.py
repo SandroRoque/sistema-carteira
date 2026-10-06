@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 from conftest import CPF_A
@@ -59,7 +60,7 @@ def test_migra_banco_legado(db):
         assert rf["vencimento"] == date(2029, 2, 1)
         assert rf["revisado"] is False
 
-        assert scalar(conn, "SELECT custo_por_cota FROM bonificacoes WHERE b3_movimentacao_id = 40") == 12.34
+        assert scalar(conn, "SELECT custo_por_cota FROM bonificacoes WHERE b3_movimentacao_id = 40") == Decimal("12.34")
 
         # The legacy database did not always enforce foreign keys.
         assert scalar(conn, "SELECT COUNT(*) FROM ticker_aliases WHERE raw_text = 'ZZZZ33'") == 0

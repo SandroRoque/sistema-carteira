@@ -4,6 +4,7 @@ export (art. 18, II and V) and deletion (art. 18, VI)."""
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from datetime import date, datetime
 
 from fastapi import APIRouter, Form, Request
@@ -126,6 +127,9 @@ def renomear_carteira(request: Request, investidor_id: int, sessao: Sessao, apel
 def _json_padrao(valor):
     if isinstance(valor, (date, datetime)):
         return valor.isoformat()
+    if isinstance(valor, Decimal):
+        # As text: a JSON number would go through float and lose exactness.
+        return str(valor)
     raise TypeError(f"não serializável: {type(valor).__name__}")
 
 

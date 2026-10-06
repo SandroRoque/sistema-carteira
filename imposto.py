@@ -39,6 +39,7 @@ variable income.
 
 from __future__ import annotations
 
+from decimal import Decimal
 import sys
 from datetime import date
 
@@ -49,13 +50,13 @@ from custo_medio import saldos
 from database import connect_sistema, fetch_all
 
 # Tax thresholds
-_LIMITE_ISENCAO_ACOES = 20_000.0   # R$ / month
-_LIMITE_ISENCAO_BDRS  = 20_000.0   # same rule since 2023
+_LIMITE_ISENCAO_ACOES = Decimal(20_000)   # R$ / month
+_LIMITE_ISENCAO_BDRS  = Decimal(20_000)   # same rule since 2023
 
 # Tax rates (%)
-_ALIQUOTA_ACOES = 15.0
-_ALIQUOTA_FII   = 20.0
-_ALIQUOTA_BDR   = 15.0
+_ALIQUOTA_ACOES = Decimal(15)
+_ALIQUOTA_FII   = Decimal(20)
+_ALIQUOTA_BDR   = Decimal(15)
 
 
 def _buscar_vendas(conn: Connection, investidor_id: int, ano: int | None = None) -> list[dict]:
@@ -142,7 +143,7 @@ _MOVS_RENDIMENTO = (
 _CATEGORIA_INFO = {
     # categoria → (label, ficha IRPF, aliquota_retida)
     "dividendo":         ("Dividendos",          "Rend. Isentos cód. 09",                    None),
-    "jcp":               ("JCP",                 "Rend. Tributação Exclusiva cód. 10 (15%)",  0.15),
+    "jcp":               ("JCP",                 "Rend. Tributação Exclusiva cód. 10 (15%)",  Decimal("0.15")),
     "rendimento_fii":    ("Rendimentos FII",      "Rend. Isentos cód. 26",                    None),
     "rendimento_outros": ("Outros rendimentos",   "Rend. Isentos / verificar",                None),
     "pagamento_juros":   ("Juros renda fixa",     "Rend. Tributado na Fonte (regressivo)",     None),
@@ -188,10 +189,10 @@ def _buscar_rendimentos_anuais(conn: Connection, investidor_id: int) -> list[dic
 
     # Aggregate into {ano: {categoria: total}}
     from collections import defaultdict
-    by_year: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    by_year: dict[str, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     for r in rows:
         c = _cat(r["movimentacao"], r["tipo_ativo"])
-        by_year[r["ano"]][c] += r["total"] or 0.0
+        by_year[r["ano"]][c] += r["total"] or 0
 
     return [{"ano": ano, **totals} for ano, totals in sorted(by_year.items())]
 
@@ -225,7 +226,7 @@ def _buscar_rendimentos_detalhe(conn: Connection, investidor_id: int, ano: int) 
         result.append({
             "ativo":    r["ativo"],
             "categoria": _cat(r["movimentacao"], r["tipo_ativo"]),
-            "total":    r["total"] or 0.0,
+            "total":    r["total"] or 0,
         })
     return result
 
@@ -254,20 +255,20 @@ def _buscar_vendas_mensais(conn: Connection, investidor_id: int, ano: int | None
     )
 
 
-def _brl(v: float | None) -> str:
+def _brl(v: Decimal | None) -> str:
     if v is None:
         return f"{'—':>15}"
     return f"R$ {v:>12,.2f}"
 
 
-def _pct(v: float | None) -> str:
+def _pct(v: Decimal | None) -> str:
     if v is None:
         return f"{'—':>7}"
     sign = "+" if v >= 0 else ""
     return f"{sign}{v:>6.1f}%"
 
 
-def _aliquota(tipo: str) -> float | None:
+def _aliquota(tipo: str) -> Decimal | None:
     return {"acao": _ALIQUOTA_ACOES, "fii": _ALIQUOTA_FII, "bdr": _ALIQUOTA_BDR}.get(tipo)
 
 
@@ -294,7 +295,7 @@ def _exibir_rendimentos_secao(
         row_vals = []
         has_data = False
         for r in anuais:
-            v = r.get(cat, 0.0)
+            v = r.get(cat, 0)
             if v:
                 has_data = True
             row_vals.append(v)
@@ -317,7 +318,7 @@ def _exibir_rendimentos_secao(
     print("─" * len(header))
     totals_by_year = []
     for r in anuais:
-        totals_by_year.append(sum(r.get(c, 0.0) for c in cat_order))
+        totals_by_year.append(sum(r.get(c, 0) for c in cat_order))
     total_row = f"  {'TOTAL':<26}" + "".join(
         f"  {_brl(t):>{col_w}}" for t in totals_by_year
     )
@@ -346,7 +347,7 @@ def _exibir_rendimentos_secao(
             print(f"  {label}  —  {ficha}")
             print(f"  {'Ativo':<16}  {'Total':>14}  {'IR retido':>14}")
             print("  " + "─" * 50)
-            cat_total = 0.0
+            cat_total = 0
             for item in items:
                 v = item["total"]
                 cat_total += v
@@ -401,20 +402,20 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
 
         # Group by month for exemption check
         from collections import defaultdict
-        vendas_por_mes_tipo: dict[tuple, float] = defaultdict(float)
+        vendas_por_mes_tipo: dict[tuple, Decimal] = defaultdict(Decimal)
         for v in vendas:
             mes = v["data"].strftime("%Y-%m")
-            vendas_por_mes_tipo[(mes, v["tipo"])] += v["valor_liquido"] or 0.0
+            vendas_por_mes_tipo[(mes, v["tipo"])] += v["valor_liquido"] or 0
 
         for v in vendas:
             tipo = v["tipo"]
             mes  = v["data"].strftime("%Y-%m")
-            receita = v["valor_liquido"] or 0.0
+            receita = v["valor_liquido"] or 0
             ganho   = v["ganho"]
             aliq    = _aliquota(tipo)
 
             # Determine exemption
-            total_mes = vendas_por_mes_tipo.get((mes, tipo), 0.0)
+            total_mes = vendas_por_mes_tipo.get((mes, tipo), 0)
             isento = False
             if tipo in ("acao", "bdr") and total_mes <= _LIMITE_ISENCAO_ACOES:
                 isento = True

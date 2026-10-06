@@ -11,9 +11,9 @@ connect(usuario_id) is tenant-scoped (row-level security, see migration 0003);
 connect_sistema() is unrestricted and reserved for trusted code. Both commit
 when the block exits normally and roll back on error.
 
-NUMERIC values are loaded as Python floats for now: the calculation modules
-(posicoes, fechamento, imposto) still use float arithmetic. Storage is exact;
-moving the calculations to Decimal is a separate step.
+NUMERIC values are loaded as decimal.Decimal, so money and quantities stay
+exact from storage through every calculation. Never mix them with float
+literals in arithmetic (Decimal + 0.0 raises TypeError): use 0 or Decimal.
 """
 
 from __future__ import annotations
@@ -22,16 +22,11 @@ from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from typing import Any
 
-from psycopg.types.numeric import FloatLoader
 from sqlalchemy import Connection, Engine, RowMapping, create_engine, event, text
 
 from settings import database_url
 
 _engine: Engine | None = None
-
-
-def _register_numeric_as_float(dbapi_connection, _connection_record) -> None:
-    dbapi_connection.adapters.register_loader("numeric", FloatLoader)
 
 
 def _limpar_contexto(dbapi_connection, _connection_record, _connection_proxy) -> None:
@@ -52,7 +47,6 @@ def configure(url: str | None = None) -> Engine:
     if _engine is not None:
         _engine.dispose()
     _engine = create_engine(url or database_url(), pool_pre_ping=True)
-    event.listen(_engine, "connect", _register_numeric_as_float)
     event.listen(_engine, "checkout", _limpar_contexto)
     return _engine
 

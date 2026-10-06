@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 import pytest
 
@@ -26,9 +27,11 @@ def test_compra_simples(usuario_id, investidor_a):
     pos = _posicao(investidor_a, "PETR4")
 
     assert pos["qty"] == 100
-    assert pos["preco_medio"] == pytest.approx(10.0)
-    assert pos["custo_total"] == pytest.approx(1000.0)
+    assert pos["preco_medio"] == 10
+    assert pos["custo_total"] == 1000
     assert pos["is_open"]
+    # Exact arithmetic end to end: NUMERIC is loaded as Decimal, never float.
+    assert {type(pos[k]) for k in ("qty", "preco_medio", "custo_total")} == {Decimal}
 
 
 def test_posicoes_isoladas_por_investidor(usuario_id, investidor_a, investidor_b):
