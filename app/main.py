@@ -170,10 +170,8 @@ def _ensure_manual_nota(conn, investidor_id: int, nota_id: str, data: date) -> N
         conn,
         """
         INSERT INTO notas
-            (investidor_id, nota_id, corretora_id, doc_type, data_pregao,
-             cpf_cliente, codigo_cliente, filename)
-        SELECT :investidor_id, :nota_id, 'manual', 'Manual', :data, cpf, '', 'manual'
-        FROM investidores WHERE id = :investidor_id
+            (investidor_id, nota_id, corretora_id, doc_type, data_pregao, filename)
+        VALUES (:investidor_id, :nota_id, 'manual', 'Manual', :data, 'manual')
         ON CONFLICT DO NOTHING
         """,
         investidor_id=investidor_id,

@@ -2,12 +2,17 @@
 
 Tenancy model
 -------------
-usuarios      : an account that logs in.
-investidores  : a natural person (CPF) whose portfolio an usuario manages.
-                One usuario can manage several investidores (e.g. a family).
+usuarios      : an account that logs in. It owns everything it uploads.
+investidores  : one portfolio per CPF found on the account's notas (positions
+                and taxes are per person). The CPF is a partition key only and
+                is never stored: see contas.pseudonimizar_cpf.
 
 Every portfolio fact (notas, negociacoes, b3_movimentacoes, ...) belongs to
 exactly one investidor and must always be queried with an investidor_id filter.
+
+Data minimization (LGPD art. 6, III): identity data printed on the documents —
+CPF, name, address, broker client code — is read during extraction and
+discarded; only what the reports need is persisted.
 
 ativos / ticker_aliases are a shared catalog: a listed instrument (PETR4) is
 the same for every investidor, so it is stored once.
@@ -77,11 +82,15 @@ investidores = Table(
     metadata,
     Column("id", BigInteger, primary_key=True),
     Column("usuario_id", BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False),
-    Column("cpf", Text, nullable=False),
-    Column("nome", Text),
+    # HMAC-SHA256 of the CPF with a server secret: recognizes the same CPF on
+    # later uploads without storing it.
+    Column("cpf_hash", Text, nullable=False),
+    # e.g. ***.456.789-** — lets the user tell portfolios apart.
+    Column("cpf_mascarado", Text, nullable=False),
+    # User-chosen label ("Eu", "Esposa").
+    Column("apelido", Text),
     _criado_em(),
-    UniqueConstraint("usuario_id", "cpf", name="uq_investidores_usuario_cpf"),
-    CheckConstraint("cpf ~ '^[0-9]{11}$'", name="cpf_digitos"),
+    UniqueConstraint("usuario_id", "cpf_hash", name="uq_investidores_usuario_cpf_hash"),
 )
 
 # ---------------------------------------------------------------------------
@@ -148,15 +157,7 @@ notas = Table(
     Column("nota_id", Text, nullable=False),
     Column("data_pregao", Date, nullable=False),
     Column("data_de_liquidacao", Date),
-    Column("cpf_cliente", Text, nullable=False),
-    Column("codigo_cliente", Text, nullable=False),
-    Column("nome_cliente", Text),
-    Column("assessor", Text),
     Column("folha", Text),
-    Column("endereco", Text),
-    Column("cidade", Text),
-    Column("uf", Text),
-    Column("cep", Text),
     Column("nota_de", Text),
     Column("local", Text),
     Column("emissor", Text),

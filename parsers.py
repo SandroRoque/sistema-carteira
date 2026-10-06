@@ -104,14 +104,15 @@ def cpf_parser(cpf_str):
     """
     digits_only = "".join(char for char in cpf_str if char.isdigit())
 
+    # Error messages never echo the value: they end up in logs.
     if len(digits_only) != 11:
-        raise ValueError(f"Invalid CPF format: {cpf_str}. Expected 11 digits.")
+        raise ValueError(f"Invalid CPF format: expected 11 digits, got {len(digits_only)}.")
 
     digitos = [int(c) for c in digits_only]
     if len(set(digitos)) == 1 or (
         _cpf_digito_verificador(digitos[:9]) != digitos[9]
         or _cpf_digito_verificador(digitos[:10]) != digitos[10]
     ):
-        raise ValueError(f"Invalid CPF: {cpf_str}. Check digits do not match.")
+        raise ValueError("Invalid CPF: check digits do not match.")
 
     return digits_only

@@ -32,7 +32,8 @@ currently loaded as float (see `database.py`).
 
 The key-value finder merged the client name and CPF; `cpf_cliente` got a value that
 fails the CPF checksum. `cpf_parser` now validates check digits, so re-extracting that
-PDF fails loudly instead of silently creating a phantom investidor.
+PDF fails loudly instead of silently creating a phantom investidor. (The migrated copy
+of this nota sits under the right investidor; the CPF is no longer stored.)
 
 ### Legacy B3 rows without an ativo
 

@@ -45,8 +45,10 @@ def test_migra_banco_legado(db):
     with connect() as conn:
         investidor_id = migrar(src, conn, "ana@example.com", CPF_A)
 
-        assert scalar(conn, "SELECT cpf FROM investidores WHERE id = :i", i=investidor_id) == CPF_A
-        assert scalar(conn, "SELECT cpf_cliente FROM notas") == CPF_A
+        assert scalar(
+            conn, "SELECT cpf_mascarado FROM investidores WHERE id = :i", i=investidor_id
+        ) == "***.456.789-**"
+        assert "123.456.789-09" not in scalar(conn, "SELECT row_to_json(n)::text FROM notas n")
 
         neg = fetch_one(conn, "SELECT * FROM negociacoes")
         assert neg["investidor_id"] == investidor_id

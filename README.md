@@ -35,10 +35,18 @@ eventos corporativos — ver [docs/b3-movimentacoes.md](docs/b3-movimentacoes.md
 
 ### Multi-tenancy
 
-Um **usuário** (conta) gerencia um ou mais **investidores** (pessoas físicas, por CPF).
-Notas, negociações e movimentações B3 pertencem a um investidor, e toda consulta é
-filtrada por `investidor_id`. O cadastro de **ativos** é compartilhado: PETR4 é o
-mesmo instrumento para todos. Detalhes em [docs/schema.md](docs/schema.md).
+A **conta** é dona de tudo o que envia; o sistema não verifica identidade. Dentro da
+conta, as notas são separadas em **investidores** — uma carteira por CPF encontrado nas
+notas, porque posição e IR são por pessoa. Toda consulta é filtrada por `investidor_id`.
+O cadastro de **ativos** é compartilhado: PETR4 é o mesmo instrumento para todos.
+Detalhes em [docs/schema.md](docs/schema.md).
+
+### Dados pessoais
+
+O CPF nunca é gravado: só um HMAC com segredo do servidor (para reconhecer o mesmo CPF
+em envios futuros) e uma forma mascarada. Nome, endereço e código de cliente das notas
+são descartados na extração. Inventário, retenção e direitos do titular em
+[docs/lgpd.md](docs/lgpd.md).
 
 ## Arquivos principais
 
@@ -65,7 +73,7 @@ Requisitos: [uv](https://docs.astral.sh/uv/) e Docker.
 
 ```bash
 uv sync --dev
-cp .env.example .env              # ajuste NOTAS_DIR
+cp .env.example .env              # ajuste NOTAS_DIR e gere CPF_HMAC_KEY
 docker compose up -d              # Postgres em localhost:5433
 uv run alembic upgrade head       # cria/atualiza o schema
 uv run uvicorn app.main:app --reload

@@ -36,6 +36,22 @@ def database_url() -> str:
     return url
 
 
+def cpf_hmac_key() -> bytes:
+    """Secret used to pseudonymize CPFs (see contas.pseudonimizar_cpf).
+
+    Losing or rotating it breaks the link between new uploads and existing
+    investidores, so it must be kept like any other production secret.
+    """
+    load_dotenv()
+    key = os.environ.get("CPF_HMAC_KEY", "")
+    if len(key) < 32:
+        raise ValueError(
+            "CPF_HMAC_KEY ausente ou curta (mínimo 32 caracteres). "
+            'Gere uma com: python -c "import secrets; print(secrets.token_urlsafe(48))"'
+        )
+    return key.encode()
+
+
 @dataclass(frozen=True)
 class Settings:
     notas_dir: Path

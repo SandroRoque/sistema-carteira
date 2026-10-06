@@ -1,7 +1,8 @@
 """One-off import of the legacy single-user SQLite database into PostgreSQL.
 
-The whole legacy portfolio is filed under one investidor (identified by CPF)
-owned by one usuario (identified by e-mail). Run after `alembic upgrade head`,
+The whole legacy portfolio is filed under one investidor (one CPF) owned by
+one usuario (identified by e-mail). Identity data of the legacy notas is not
+carried over. Run after `alembic upgrade head`,
 against an empty catalog:
 
     uv run python migra_sqlite.py --email voce@exemplo.com [--cpf 12345678909] [--sqlite carteira.db]
@@ -92,14 +93,12 @@ def migrar(src: sqlite3.Connection, conn: Connection, email: str, cpf: str) -> i
             print(f"  alias órfão descartado: {a['raw_text']!r} → ativo {a['ativo_id']} (inexistente)")
     _inserir(conn, tabelas.ticker_aliases, [a for a in aliases if a["ativo_id"] in ativo_ids])
 
+    # _converter keeps only columns that exist in Postgres, so the identity
+    # data of the legacy notas (CPF, name, address...) is left behind.
     notas = []
     for r in src.execute("SELECT * FROM notas"):
         linha = _converter(r, tabelas.notas, investidor_id=investidor_id)
         linha.pop("processado_em", None)  # legacy value is a naive local string
-        try:
-            linha["cpf_cliente"] = cpf_parser(linha["cpf_cliente"])
-        except ValueError:
-            pass  # kept as extracted; see notas_com_cpf_divergente below
         notas.append(linha)
     _inserir(conn, tabelas.notas, notas)
 
@@ -180,15 +179,16 @@ def main() -> None:
         print(f"Migrado para investidor_id={investidor_id}")
         _contagens(src, conn, investidor_id)
 
-        divergentes = scalar(
-            conn,
-            "SELECT COUNT(*) FROM notas WHERE investidor_id = :i AND cpf_cliente <> :cpf",
-            i=investidor_id,
-            cpf=cpf,
-        )
-        if divergentes:
-            print(f"  atenção: {divergentes} nota(s) com CPF diferente do investidor "
-                  "(provável erro de extração; revise essas notas).")
+    divergentes = []
+    for nota_id, cpf_nota in src.execute("SELECT nota_id, cpf_cliente FROM notas"):
+        try:
+            if cpf_parser(cpf_nota) != cpf:
+                divergentes.append(nota_id)
+        except ValueError:
+            divergentes.append(nota_id)
+    if divergentes:
+        print(f"  atenção: nota(s) {', '.join(divergentes)} com CPF diferente do investidor "
+              "(provável erro de extração); foram migradas para o mesmo investidor.")
 
 
 if __name__ == "__main__":

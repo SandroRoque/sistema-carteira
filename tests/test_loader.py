@@ -10,9 +10,35 @@ from loader import carregar
 def test_carregar_cria_investidor_pelo_cpf_da_nota(usuario_id):
     with connect() as conn:
         assert carregar(conn, usuario_id, documento(CPF_A), "1001.pdf")
-        investidores = fetch_all(conn, "SELECT usuario_id, cpf FROM investidores")
+        investidores = fetch_all(conn, "SELECT usuario_id, cpf_mascarado FROM investidores")
 
-    assert [dict(r) for r in investidores] == [{"usuario_id": usuario_id, "cpf": CPF_A}]
+    assert [dict(r) for r in investidores] == [
+        {"usuario_id": usuario_id, "cpf_mascarado": "***.456.789-**"}
+    ]
+
+
+def test_mesmo_cpf_reaproveita_investidor(usuario_id):
+    with connect() as conn:
+        carregar(conn, usuario_id, documento(CPF_A, nota_id="1"), "1.pdf")
+        carregar(conn, usuario_id, documento("123.456.789-09", nota_id="2"), "2.pdf")
+        assert scalar(conn, "SELECT COUNT(*) FROM investidores") == 1
+
+
+def test_dados_de_identidade_nao_sao_persistidos(usuario_id):
+    """LGPD minimization: no column anywhere holds the CPF or the client's name."""
+    with connect() as conn:
+        carregar(conn, usuario_id, documento(CPF_A), "1001.pdf")
+        linhas = [
+            r["linha"]
+            for tabela in ("investidores", "notas", "negociacoes", "ativos", "ticker_aliases")
+            for r in fetch_all(conn, f"SELECT row_to_json(t)::text AS linha FROM {tabela} t")
+        ]
+
+    texto = " ".join(linhas)
+    assert texto  # the load actually wrote something
+    assert CPF_A not in texto
+    assert "123.456.789-09" not in texto
+    assert "Cliente Teste" not in texto
 
 
 def test_carregar_e_idempotente(usuario_id):

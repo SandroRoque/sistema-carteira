@@ -1,5 +1,12 @@
 """Usuarios and investidores — the tenancy boundary.
 
+An usuario (account) owns everything it uploads. Inside an account, data is
+split into investidores: one per CPF found on the uploaded notas, because
+positions and taxes are computed per person. The CPF is only a partition key;
+the system never verifies identity and never stores the CPF itself — only a
+keyed HMAC (to recognize the same CPF on later uploads) and a masked form
+(to tell portfolios apart on screen).
+
 Every portfolio query is scoped to one investidor_id. The web app resolves it
 from the logged-in session; command-line scripts resolve it from environment
 variables (or pick the only one that exists, for single-user local setups).
@@ -7,12 +14,22 @@ variables (or pick the only one that exists, for single-user local setups).
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 
 from sqlalchemy import Connection
 
 from database import fetch_all, fetch_one, scalar
 from parsers import cpf_parser
+from settings import cpf_hmac_key
+
+
+def pseudonimizar_cpf(cpf: str) -> tuple[str, str]:
+    """Return (hmac_hex, masked) for a CPF; the CPF itself is not kept."""
+    cpf = cpf_parser(cpf)
+    digest = hmac.new(cpf_hmac_key(), cpf.encode(), hashlib.sha256).hexdigest()
+    return digest, f"***.{cpf[3:6]}.{cpf[6:9]}-**"
 
 
 def get_or_create_usuario(conn: Connection, email: str, nome: str | None = None) -> int:
@@ -29,27 +46,28 @@ def get_or_create_usuario(conn: Connection, email: str, nome: str | None = None)
 
 
 def get_or_create_investidor(
-    conn: Connection, usuario_id: int, cpf: str, nome: str | None = None
+    conn: Connection, usuario_id: int, cpf: str, apelido: str | None = None
 ) -> int:
-    cpf = cpf_parser(cpf)
+    cpf_hash, cpf_mascarado = pseudonimizar_cpf(cpf)
     row = fetch_one(
         conn,
-        "SELECT id FROM investidores WHERE usuario_id = :usuario_id AND cpf = :cpf",
+        "SELECT id FROM investidores WHERE usuario_id = :usuario_id AND cpf_hash = :cpf_hash",
         usuario_id=usuario_id,
-        cpf=cpf,
+        cpf_hash=cpf_hash,
     )
     if row:
         return row["id"]
     return scalar(
         conn,
         """
-        INSERT INTO investidores (usuario_id, cpf, nome)
-        VALUES (:usuario_id, :cpf, :nome)
+        INSERT INTO investidores (usuario_id, cpf_hash, cpf_mascarado, apelido)
+        VALUES (:usuario_id, :cpf_hash, :cpf_mascarado, :apelido)
         RETURNING id
         """,
         usuario_id=usuario_id,
-        cpf=cpf,
-        nome=nome,
+        cpf_hash=cpf_hash,
+        cpf_mascarado=cpf_mascarado,
+        apelido=apelido,
     )
 
 
@@ -84,6 +102,7 @@ def investidor_do_cli(conn: Connection) -> int:
             raise ContextoNaoResolvido(f"Investidor {investidor_id} não existe.")
         return investidor_id
     rows = fetch_all(
-        conn, "SELECT id, COALESCE(nome, 'sem nome') AS label FROM investidores ORDER BY id"
+        conn,
+        "SELECT id, COALESCE(apelido, cpf_mascarado) AS label FROM investidores ORDER BY id",
     )
     return _unico_ou_erro(rows, "investidor", "CARTEIRA_INVESTIDOR_ID")

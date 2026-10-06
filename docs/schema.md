@@ -15,7 +15,7 @@ Dates are **DATE**; load timestamps are **TIMESTAMPTZ**.
 | Table | Scope |
 |---|---|
 | `usuarios` | An account that logs in (unique e-mail, case-insensitive) |
-| `investidores` | A natural person (CPF, 11 digits, unique per usuario) whose portfolio an usuario manages |
+| `investidores` | One portfolio per CPF found on the account's notas. The CPF is never stored: only a keyed HMAC (`cpf_hash`, unique per usuario) and a masked form. See [lgpd.md](lgpd.md) |
 | `notas`, `negociacoes`, `b3_arquivos_processados`, `b3_movimentacoes` | Owned by one investidor (`investidor_id`); `bonificacoes` inherits it from its movimentação |
 | `ativos`, `ticker_aliases` | Shared catalog — the same instrument for every investidor |
 
@@ -48,9 +48,11 @@ erDiagram
         text   email
     }
     investidores {
-        bigint id         PK
-        bigint usuario_id FK
-        text   cpf
+        bigint id            PK
+        bigint usuario_id    FK
+        text   cpf_hash
+        text   cpf_mascarado
+        text   apelido
     }
     ativos {
         bigint  id                      PK
@@ -74,7 +76,6 @@ erDiagram
         text   doc_type      PK
         text   nota_id       PK
         date   data_pregao
-        text   cpf_cliente
     }
     negociacoes {
         bigint  id            PK
@@ -124,25 +125,19 @@ erDiagram
 ## `notas`
 
 One row per source document.  
-Covers all three document types: `NotaCorretagem`, `TituloPublico`, `TituloPrivado`.
+Covers all three document types: `NotaCorretagem`, `TituloPublico`, `TituloPrivado`.  
+Identity data printed on the document (CPF, name, address, broker client code, advisor) is
+deliberately not stored — see [lgpd.md](lgpd.md).
 
 | Column | Type | Nullable | Source | Description |
 |---|---|---|---|---|
-| `investidor_id` | BIGINT PK | NO | — | FK → `investidores.id`. Resolved from the CPF printed on the nota |
+| `investidor_id` | BIGINT PK | NO | — | FK → `investidores.id`. Resolved from the CPF printed on the nota (the CPF itself is not stored) |
 | `nota_id` | TEXT PK | NO | all | Nota number as printed on the document |
 | `corretora_id` | TEXT PK | NO | all | Broker identifier (`nu_invest`, `xp`, `safra`, `brasil_plural`) |
 | `doc_type` | TEXT PK | NO | all | `NotaCorretagem` / `TituloPublico` / `TituloPrivado` |
 | `data_pregao` | DATE | NO | all | Trade / operation date |
 | `data_de_liquidacao` | DATE | YES | TituloPrivado | Settlement date; differs from `data_pregao` for fixed income |
-| `cpf_cliente` | TEXT | NO | all | Investor CPF as extracted (normalized to 11 digits) |
-| `codigo_cliente` | TEXT | NO | all | Broker-assigned client code |
-| `nome_cliente` | TEXT | YES | all | Client full name |
-| `assessor` | TEXT | YES | NotaCorretagem | Advisor/agent code (XP, Safra, Brasil Plural) |
 | `folha` | TEXT | YES | NotaCorretagem | Page number within a multi-page nota |
-| `endereco` | TEXT | YES | NotaCorretagem | Street address (Nu Invest only) |
-| `cidade` | TEXT | YES | NotaCorretagem | City (Nu Invest only) |
-| `uf` | TEXT | YES | NotaCorretagem | State (Nu Invest only) |
-| `cep` | TEXT | YES | NotaCorretagem | Postal code (Nu Invest only) |
 | `nota_de` | TEXT | YES | TituloPrivado | Raw operation label from the document (e.g. `VENDA FINAL`, `RESGATE`). Source for `negociacoes.tipo` inference |
 | `local` | TEXT | YES | TituloPrivado | Trading venue / platform |
 | `emissor` | TEXT | YES | TituloPrivado | Issuing institution name |
