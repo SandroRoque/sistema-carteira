@@ -194,3 +194,44 @@ def test_custo_informado_resolve_credito_sem_nota():
 
     assert not saldo.custo_desconhecido
     assert saldo.preco_medio == 30
+
+
+def _credito(data, qty, b3_id):
+    return Evento(data, "atualizacao", D(qty), None, b3_id=b3_id)
+
+
+def test_conversao_leva_o_custo_e_fecha_a_origem():
+    from custo_medio import Conversao, aplicar_conversoes
+
+    # 3 AAAA11 incorporated into 12,50 BBBB11; B3 then redeems the old quotas.
+    eventos = {
+        1: [compra(D1, 3, 50), Evento(D2, "atualizacao", D(3), b3_id=10), Evento(D3, "resgate", D(3), b3_id=11)],
+        2: [_credito(D2, "12.50", 12), Evento(D4, "fracao", D("0.50"), D("5.00"))],
+    }
+    aplicar_conversoes(eventos, [Conversao(12, 2, 1, D2)])
+    origem, destino = replay(eventos[1]), replay(eventos[2])
+
+    assert (origem.qty, origem.custo, origem.baixas) == (0, 0, [])
+    assert origem.passos[-1].ignorado  # the redemption belongs to the conversion
+    assert destino.qty == D("12.00") and not destino.custo_desconhecido
+    assert destino.baixas[0].custo == D(150) * D("0.50") / D("12.50")
+    assert destino.custo == D(150) - destino.baixas[0].custo
+
+
+def test_conversoes_em_cadeia():
+    from custo_medio import Conversao, aplicar_conversoes
+
+    eventos = {1: [compra(D1, 4, 12), _credito(D3, 4, 30)], 2: [_credito(D2, 4, 20)]}
+    aplicar_conversoes(eventos, [Conversao(30, 1, 2, D3), Conversao(20, 2, 1, D2)])
+
+    assert (replay(eventos[1]).qty, replay(eventos[1]).custo) == (4, 48)
+    assert (replay(eventos[2]).qty, replay(eventos[2]).custo) == (0, 0)
+
+
+def test_conversao_de_origem_sem_custo_continua_sem_custo():
+    from custo_medio import Conversao, aplicar_conversoes
+
+    eventos = {1: [_credito(D1, 5, 1)], 2: [_credito(D2, 5, 2)]}
+    aplicar_conversoes(eventos, [Conversao(2, 2, 1, D2)])
+
+    assert replay(eventos[2]).custo_desconhecido

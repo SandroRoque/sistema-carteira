@@ -320,7 +320,8 @@ Covers all event categories B3 reports in a single table: trades, income, corpor
 ## `b3_arquivos_processados`
 
 Audit log of B3 Excel files that have been processed. One row per file.  
-Used for traceability only — the actual deduplication guard is date-based (see `b3_movimentacoes` notes above).
+The deduplication guard is date-based (see `b3_movimentacoes` notes above); the
+period columns tell which statements are still missing (`cobertura.py`).
 
 | Column | Type | Nullable | Description |
 |---|---|---|---|
@@ -328,9 +329,27 @@ Used for traceability only — the actual deduplication guard is date-based (see
 | `investidor_id` | BIGINT | NO | FK → `investidores.id` |
 | `arquivo` | TEXT | NO | Source filename (e.g. `movimentacao-2026-05-25-18-05-35.xlsx`) |
 | `processado_em` | TIMESTAMPTZ | NO | Timestamp of load |
+| `periodo_inicio` | DATE | YES | First date with a row in the file (rows skipped as already loaded included) |
+| `periodo_fim` | DATE | YES | Last date with a row in the file |
 
 **Primary key:** `id`  
 **Unique constraint:** `(investidor_id, arquivo)`
+
+---
+
+## `conversoes`
+
+B3 credits the user confirmed as replacing another ativo (incorporação, fusão,
+conversão de classe, troca de código). The credited shares take over the whole
+cost of the origin's position, which closes that day; it is not a sale
+(`custo_medio.aplicar_conversoes`). Tenant-owned, RLS.
+
+| Column | Type | Nullable | Description |
+|---|---|---|---|
+| `b3_movimentacao_id` | BIGINT PK | NO | FK → `b3_movimentacoes.id` (cascade): the credit of the new ativo |
+| `investidor_id` | BIGINT | NO | FK → `investidores.id` |
+| `ativo_origem_id` | BIGINT | NO | FK → `ativos.id`: the ativo it replaced |
+| `informado_em` | TIMESTAMPTZ | NO | When the user confirmed it |
 
 ---
 

@@ -136,16 +136,21 @@ def carregar_linhas(
         )
     }
 
-    # Record the file for auditing (idempotent if run twice).
+    # Record the file and the period it covers (idempotent if run twice).
+    datas = [r.data for r in linhas]
     execute(
         conn,
         """
-        INSERT INTO b3_arquivos_processados (investidor_id, arquivo)
-        VALUES (:investidor_id, :arquivo)
-        ON CONFLICT (investidor_id, arquivo) DO NOTHING
+        INSERT INTO b3_arquivos_processados (investidor_id, arquivo, periodo_inicio, periodo_fim)
+        VALUES (:investidor_id, :arquivo, :inicio, :fim)
+        ON CONFLICT (investidor_id, arquivo) DO UPDATE SET
+            periodo_inicio = LEAST(b3_arquivos_processados.periodo_inicio, EXCLUDED.periodo_inicio),
+            periodo_fim = GREATEST(b3_arquivos_processados.periodo_fim, EXCLUDED.periodo_fim)
         """,
         investidor_id=investidor_id,
         arquivo=filename,
+        inicio=min(datas, default=None),
+        fim=max(datas, default=None),
     )
     arquivo_id = scalar(
         conn,

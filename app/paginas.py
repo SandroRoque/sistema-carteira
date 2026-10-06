@@ -146,6 +146,7 @@ def _pagina_pendencias(request: Request, sessao, investidor_id: int, erro: tuple
         "n_pendencias": len(itens),
         "erro": erro,
         "resolvido": request.query_params.get("resolvido"),
+        "regra_conversao": regras_fiscais.CONVERSAO_CUSTO_TRANSFERIDO,
     }, 422 if erro else 200)
 
 
@@ -179,6 +180,25 @@ def resolver_custo(
 ):
     return _resolver(request, sessao, investidor_id, "sem_custo", ativo_id, custo_por_cota,
                      pendencias.informar_custo_sem_nota)
+
+
+@router.post("/pendencias/conversoes/{mov_id}")
+def resolver_conversao(
+    request: Request, mov_id: int, sessao: Sessao, investidor_id: InvestidorId, ativo_origem_id: int = Form(...)
+):
+    try:
+        with connect(sessao.usuario_id) as conn:
+            pendencias.informar_conversao(conn, investidor_id, mov_id, ativo_origem_id)
+    except pendencias.PendenciaInvalida as exc:
+        return _pagina_pendencias(request, sessao, investidor_id, ("conversao", mov_id, str(exc)))
+    return redirecionar(request, "/pendencias?resolvido=conversao")
+
+
+@router.post("/pendencias/conversoes/{mov_id}/desfazer")
+def desfazer_conversao(request: Request, mov_id: int, sessao: Sessao, investidor_id: InvestidorId):
+    with connect(sessao.usuario_id) as conn:
+        ativo_id = pendencias.desfazer_conversao(conn, investidor_id, mov_id)
+    return redirecionar(request, f"/posicoes/{ativo_id}" if ativo_id else "/pendencias")
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +243,9 @@ def impostos(request: Request, sessao: Sessao, investidor_id: InvestidorId, ano:
         "prejuizo_comum": ultimo.prejuizo_comum_saldo if ultimo else painel.ZERO,
         "prejuizo_fii": ultimo.prejuizo_fii_saldo if ultimo else painel.ZERO,
         "acumulado": ultimo.acumulado if ultimo else painel.ZERO,
+        "origem_prejuizo_comum": apuracao.origem_prejuizo(meses),
+        "origem_prejuizo_fii": apuracao.origem_prejuizo(meses, fii=True),
+        "origem_acumulado": apuracao.origem_acumulado(meses),
         "pago_no_ano": sum((m.valor_pago or 0 for m in meses if m.pago_em and m.pago_em.year == ano), painel.ZERO),
         "hoje": hoje,
         "mes_atual": date(hoje.year, hoje.month, 1),

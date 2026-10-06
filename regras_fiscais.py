@@ -63,6 +63,18 @@ IRRF_DISPENSA_ATE = Regra(Decimal("1.00"), "PR-IRPF-2026 q.706", True)
 COMPENSACAO_COMUNS = Regra("comuns com comuns", "PR-IRPF-2026 q.709; RIR/2018 art. 841 §2º", True)
 COMPENSACAO_FII = Regra("FII só com FII", "IN-1585 art. 37, §2º", True)
 
+# Incorporação, fusão, conversão: the new shares or quotas take over the
+# cost of the old ones; no sale and no tax at the event. For FIIs merging
+# into FIIs (same tax regime, same holders, no assets distributed) there is
+# no withholding: Lei 14.754/2023 art. 30, §2º — read through a secondary
+# source, confirm on Planalto. For stocks (incorporação de ações) the
+# Receita's position is disputed: confirm before relying on it.
+CONVERSAO_CUSTO_TRANSFERIDO = Regra(
+    "custo das antigas passa às novas",
+    "Lei 14.754/2023 art. 30, §2º, para FIIs (conferir o texto); ações: a confirmar",
+    False,
+)
+
 # ── DARF ──────────────────────────────────────────────────────────────────
 
 CODIGO_DARF_RENDA_VARIAVEL = Regra("6015", "PR-IRPF-2026 q.730", True)

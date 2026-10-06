@@ -18,6 +18,16 @@ fracao, resgate        − qty at the current average (Leilão de Fração;
 transferencia_entrada  + qty at the current average (custody transfer); with
                          nothing held, at the informed cost if there is one
 transferencia_saida    − qty at the current average
+conversao_saida        − the whole position, cost and all, into another ativo
+                         (an incorporação or conversão the user confirmed;
+                         not a sale). Later redemptions of the emptied
+                         position are part of the same event and ignored
+conversao_entrada      + qty carrying the origin's cost (the B3 credit of
+                         the new ativo)
+
+Trades come from the notes. A B3 settlement with no note of that ativo
+(cobertura.conciliar) is added as a compra / venda at the B3 gross value,
+flagged sem_nota, so the quantity is right even before the note arrives.
 
 'Atualização' Crédito is ambiguous in B3 reports: usually it is a periodic
 confirmation of the whole position (qty equal to what is held), sometimes a
@@ -46,6 +56,7 @@ from typing import Iterable
 
 from sqlalchemy import Connection
 
+import cobertura
 from database import fetch_all
 
 # Below this a quantity is treated as zero (position closed).
@@ -55,7 +66,10 @@ _TOLERANCIA_ATUALIZACAO = Decimal("0.001")
 
 _ENTRADAS = {"compra", "bonificacao", "desdobro", "transferencia_entrada"}
 _SAIDAS = {"venda", "fracao", "resgate", "transferencia_saida"}
-_ORDEM_NO_DIA = {"atualizacao": 0, **{t: 1 for t in _ENTRADAS}, **{t: 2 for t in _SAIDAS}}
+_ORDEM_NO_DIA = {
+    "atualizacao": 0, **{t: 1 for t in _ENTRADAS}, "conversao_entrada": 1,
+    **{t: 2 for t in _SAIDAS}, "conversao_saida": 3,
+}
 
 EQUITY_TIPOS = ("acao", "fii", "bdr", "tesouro_direto")
 
@@ -73,6 +87,12 @@ class Evento:
     negociacao_id: int | None = None
     # Where it came from: (corretora_id, nota_id) of a trade note; None for B3.
     nota: tuple[str, str] | None = None
+    # b3_movimentacoes.id of a B3 event.
+    b3_id: int | None = None
+    # A compra / venda taken from a B3 settlement: no note, value without fees.
+    sem_nota: bool = False
+    # conversao_*: the ativo on the other side.
+    contraparte: int | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +147,8 @@ class Saldo:
     # is informed or the position closes. When nothing else was ever paid,
     # sales have no cost basis at all (Baixa.custo None).
     custo_desconhecido: bool = False
+    # The position was converted into another ativo (conversao_saida).
+    convertido: bool = False
     baixas: list[Baixa] = field(default_factory=list)
     passos: list[Passo] = field(default_factory=list)
     day_trades: list[DayTrade] = field(default_factory=list)
@@ -144,7 +166,7 @@ def _parcela(ev: Evento, qtd: Decimal) -> Evento:
     """The same trade for `qtd` of its quantity (cost/proceeds pro rata)."""
     fracao = qtd / ev.quantidade if ev.quantidade else 0
     custo = None if ev.custo is None else ev.custo * fracao
-    return Evento(ev.data, ev.tipo, qtd, custo, ev.negociacao_id, ev.nota)
+    return Evento(ev.data, ev.tipo, qtd, custo, ev.negociacao_id, ev.nota, ev.b3_id, ev.sem_nota)
 
 
 def _separar_day_trade(eventos: list[Evento]) -> tuple[list[Evento], list[DayTrade]]:
@@ -195,6 +217,8 @@ def replay(eventos: Iterable[Evento]) -> Saldo:
 
         if ev.tipo in ("compra", "venda"):
             saldo.tem_negociacoes = True
+        if ev.tipo in _ENTRADAS:
+            saldo.convertido = False
 
         if ev.tipo == "atualizacao":
             if abs(q - qty_no_inicio_do_dia) < _TOLERANCIA_ATUALIZACAO:
@@ -231,7 +255,25 @@ def replay(eventos: Iterable[Evento]) -> Saldo:
                 saldo.tem_custo_informado = True
             else:
                 saldo.custo_desconhecido = True
+        elif ev.tipo == "conversao_entrada":
+            vazia = saldo.qty <= _ZERO
+            saldo.qty += q
+            if ev.custo is not None:
+                saldo.custo += ev.custo
+                saldo.tem_custo_informado = True  # by the user, via the origin
+            elif vazia:
+                saldo.custo_desconhecido = True
+            saldo.convertido = False
+        elif ev.tipo == "conversao_saida":
+            saldo.qty -= q
+            saldo.custo = 0
+            saldo.tem_bonif_sem_custo = saldo.custo_desconhecido = False
+            saldo.convertido = True
         elif ev.tipo in _SAIDAS:
+            if saldo.convertido and saldo.qty <= _ZERO and ev.tipo in ("resgate", "transferencia_saida"):
+                # B3 cancelling the old shares of a conversion already applied.
+                saldo.passos.append(Passo(ev, saldo.qty, saldo.preco_medio, ignorado=True))
+                continue
             _baixar(saldo, ev, q)
         else:
             raise ValueError(f"tipo de evento desconhecido: {ev.tipo}")
@@ -276,7 +318,7 @@ def carregar_eventos(
     rows = fetch_all(
         conn,
         """
-        SELECT n.ativo_id, n.data, n.id AS negociacao_id, n.corretora_id, n.nota_id,
+        SELECT n.ativo_id, n.data, n.id AS negociacao_id, n.corretora_id, n.nota_id, NULL::bigint AS b3_id,
                CASE WHEN n.sentido = 'entrada' THEN 'compra' ELSE 'venda' END AS tipo,
                COALESCE(n.quantidade, 0) AS quantidade,
                n.valor_liquido AS custo
@@ -288,7 +330,7 @@ def carregar_eventos(
 
         UNION ALL
 
-        SELECT b.ativo_id, b.data, NULL, NULL, NULL,
+        SELECT b.ativo_id, b.data, NULL, NULL, NULL, b.id,
                CASE
                    WHEN b.movimentacao = 'Bonificação em Ativos' THEN 'bonificacao'
                    WHEN b.movimentacao = 'Desdobro'              THEN 'desdobro'
@@ -328,9 +370,70 @@ def carregar_eventos(
             Evento(
                 r["data"], r["tipo"], r["quantidade"], r["custo"], r["negociacao_id"],
                 (r["corretora_id"], r["nota_id"]) if r["corretora_id"] else None,
+                r["b3_id"],
             )
         )
+    sem_nota, _ = cobertura.carregar(conn, investidor_id, ate)
+    if sem_nota and tipos is not None:
+        do_tipo = {
+            r["id"] for r in fetch_all(
+                conn, "SELECT id FROM ativos WHERE id = ANY(:ids) AND tipo = ANY(:tipos)",
+                ids=[l.ativo_id for l in sem_nota], tipos=list(tipos),
+            )
+        }
+        sem_nota = [l for l in sem_nota if l.ativo_id in do_tipo]
+    for l in sem_nota:
+        eventos[l.ativo_id].append(Evento(
+            l.data_pregao, "compra" if l.sentido == "entrada" else "venda",
+            l.quantidade, l.valor, sem_nota=True,
+        ))
     return dict(eventos)
+
+
+@dataclass(frozen=True)
+class Conversao:
+    b3_movimentacao_id: int  # the B3 credit of the new ativo
+    ativo_destino_id: int
+    ativo_origem_id: int
+    data: date
+
+
+def aplicar_conversoes(eventos: dict[int, list[Evento]], conversoes: Iterable[Conversao]) -> None:
+    """Turn each confirmed credit into conversao_entrada carrying the
+    origin's cost, and close the origin with conversao_saida (in place).
+    Applied in date order, so chains (A → B → C) carry the cost along."""
+    for c in sorted(conversoes, key=lambda c: c.data):
+        destino = eventos.get(c.ativo_destino_id, [])
+        i = next((i for i, e in enumerate(destino) if e.b3_id == c.b3_movimentacao_id), None)
+        if i is None:
+            continue
+        credito = destino[i]
+        origem = eventos.setdefault(c.ativo_origem_id, [])
+        antes = replay([e for e in origem if e.data <= credito.data])
+        if antes.qty <= _ZERO or (antes.custo_desconhecido and antes.custo == 0):
+            custo = None
+        else:
+            custo = antes.custo
+        destino[i] = Evento(credito.data, "conversao_entrada", credito.quantidade, custo,
+                            b3_id=credito.b3_id, contraparte=c.ativo_origem_id)
+        if antes.qty > _ZERO:
+            origem.append(Evento(credito.data, "conversao_saida", antes.qty, antes.custo,
+                                 contraparte=c.ativo_destino_id))
+
+
+def carregar_conversoes(conn: Connection, investidor_id: int, ate: date | None = None) -> list[Conversao]:
+    return [
+        Conversao(r["b3_movimentacao_id"], r["ativo_id"], r["ativo_origem_id"], r["data"])
+        for r in fetch_all(
+            conn,
+            """
+            SELECT c.b3_movimentacao_id, b.ativo_id, c.ativo_origem_id, b.data
+            FROM conversoes c JOIN b3_movimentacoes b ON b.id = c.b3_movimentacao_id
+            WHERE c.investidor_id = :i AND (CAST(:ate AS date) IS NULL OR b.data <= :ate)
+            """,
+            i=investidor_id, ate=ate,
+        )
+    ]
 
 
 def saldos(
@@ -340,7 +443,11 @@ def saldos(
     tipos: Iterable[str] | None = EQUITY_TIPOS,
 ) -> dict[int, Saldo]:
     """{ativo_id: position} replayed from every event up to `ate`."""
-    return {
-        ativo_id: replay(evs)
-        for ativo_id, evs in carregar_eventos(conn, investidor_id, ate, tipos).items()
-    }
+    eventos = carregar_eventos(conn, investidor_id, ate, tipos)
+    conversoes = carregar_conversoes(conn, investidor_id, ate)
+    if conversoes:
+        # The origin of a conversion may be of another tipo.
+        todos = carregar_eventos(conn, investidor_id, ate, None)
+        aplicar_conversoes(todos, conversoes)
+        eventos = {ativo_id: todos[ativo_id] for ativo_id in eventos}
+    return {ativo_id: replay(evs) for ativo_id, evs in eventos.items()}

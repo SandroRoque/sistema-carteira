@@ -2,6 +2,10 @@
 {% import "macros.html" as m %}
 {% block title %}Impostos — Carteira{% endblock %}
 
+{% macro origens(meses) -%}
+{%- for o in meses %}<a href="/impostos?ano={{ o.mes.year }}#mes-{{ o.mes.strftime('%Y-%m') }}">{{ o.mes | mes_ano }}</a>{% if o.vendas %} ({{ o.vendas | map(attribute="rotulo") | unique | join(", ") }}){% endif %}{{ ", " if not loop.last }}{% endfor -%}
+{%- endmacro %}
+
 {% block content %}
 <div class="cabecalho">
   <h1>Impostos</h1>
@@ -53,16 +57,18 @@
   <div class="stat">
     <span class="rotulo">Prejuízo a compensar · ações, BDRs, units</span>
     <strong class="valor">{{ prejuizo_comum | brl }}</strong>
+    {% if origem_prejuizo_comum %}<span class="detalhe">de {{ origens(origem_prejuizo_comum) }}</span>{% endif %}
   </div>
   <div class="stat">
     <span class="rotulo">Prejuízo a compensar · FIIs</span>
     <strong class="valor">{{ prejuizo_fii | brl }}</strong>
+    {% if origem_prejuizo_fii %}<span class="detalhe">de {{ origens(origem_prejuizo_fii) }}</span>{% endif %}
   </div>
   {% if acumulado %}
   <div class="stat">
     <span class="rotulo">Imposto abaixo de R$ 10 acumulado</span>
     <strong class="valor">{{ acumulado | brl }}</strong>
-    <span class="detalhe">entra no próximo DARF</span>
+    <span class="detalhe">de {{ origens(origem_acumulado) }}; entra no próximo DARF</span>
   </div>
   {% endif %}
   <div class="stat">
@@ -81,7 +87,7 @@
       </thead>
       <tbody>
         {% for mes in meses %}
-        <tr>
+        <tr id="mes-{{ mes.mes.strftime('%Y-%m') }}">
           <td><strong>{{ mes.mes | mes_ano }}</strong>{% if mes.mes == mes_atual %}<small>em andamento</small>{% endif %}</td>
           <td class="num">{{ mes.vendas_acoes | brl if mes.vendas_acoes else "—" }}</td>
           <td class="num">{% if mes.sem_custo_em("acao") %}<span class="muted">custo desconhecido</span>{% elif mes.vendas_acoes %}<span class="{{ m.classe_resultado(mes.resultado_acoes) }}">{{ mes.resultado_acoes | brl_sinal }}</span>{% if mes.isento and mes.resultado_acoes > 0 %}<small>isento</small>{% endif %}{% else %}—{% endif %}</td>
@@ -110,8 +116,35 @@
             {% if mes.day_trade %}<small>{{ m.icone_aviso() }} Day trade não calculado: {{ mes.day_trade | join(", ") }}</small>{% endif %}
             {% if mes.sem_custo %}<small><a href="/pendencias">Venda sem custo conhecido</a>: {{ mes.sem_custo | map(attribute="rotulo") | unique | join(", ") }} fora do cálculo</small>{% endif %}
             {% if mes.custo_incompleto %}<small><a href="/pendencias">Custo incompleto</a>: {{ mes.custo_incompleto | map(attribute="rotulo") | unique | join(", ") }}</small>{% endif %}
+            {% if mes.sem_nota %}<small>{{ m.icone_aviso() }} <a href="/importar">Venda sem nota</a>: {{ mes.sem_nota | map(attribute="rotulo") | unique | join(", ") }}, valor do extrato B3 sem taxas</small>{% endif %}
           </td>
         </tr>
+        {% if mes.vendas %}
+        <tr class="operacoes">
+          <td colspan="7">
+            <details>
+              <summary>{{ mes.vendas | length }} {{ "venda" if mes.vendas | length == 1 else "vendas" }}:
+                {% for v in mes.vendas %}{{ v.rotulo }}{% if v.tipo == "fracao" %} (leilão de fração){% endif %}{{ ", " if not loop.last }}{% endfor %}</summary>
+              <table class="interna">
+                <thead><tr><th>Data</th><th>Ativo</th><th>Operação</th><th class="num">Qtd.</th><th class="num">Recebido</th><th class="num">Custo médio</th><th class="num">Resultado</th></tr></thead>
+                <tbody>
+                  {% for v in mes.vendas %}
+                  <tr>
+                    <td>{{ v.data | data }}</td>
+                    <td><a href="/posicoes/{{ v.ativo_id }}" class="ativo-link">{{ v.rotulo }}</a></td>
+                    <td>{% if v.tipo == "fracao" %}Leilão de fração<small>Sobra de bonificação ou desdobramento vendida pela B3; conta como venda</small>{% else %}Venda{% if v.sem_nota %}<small>Do extrato B3, sem nota</small>{% endif %}{% endif %}</td>
+                    <td class="num">{{ v.quantidade | qtd if v.quantidade is not none else "—" }}</td>
+                    <td class="num">{{ v.valor | brl }}</td>
+                    <td class="num">{{ v.custo | brl if v.custo is not none else "desconhecido" }}</td>
+                    <td class="num">{% if v.resultado is not none %}<span class="{{ m.classe_resultado(v.resultado) }}">{{ v.resultado | brl_sinal }}</span>{% else %}—{% endif %}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </details>
+          </td>
+        </tr>
+        {% endif %}
         {% endfor %}
       </tbody>
     </table>
@@ -128,6 +161,7 @@
     <li>{{ texto }}. <small>{{ regra.fonte }}{% if not regra.verificado %} · <strong>regra ainda não confirmada na fonte oficial</strong>{% endif %}</small></li>
     {% endfor %}
     <li>O custo de cada venda é o preço médio do momento, já com bonificações, desdobramentos e taxas.</li>
+    <li>Leilão de fração também é venda: quando uma bonificação ou desdobramento gera frações de ação, a B3 vende as frações e deposita o valor.</li>
   </ul>
   <p class="nota">Isto é uma estimativa feita a partir dos documentos enviados, não uma orientação fiscal. Confira com o informe da corretora.</p>
 </details>

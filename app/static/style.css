@@ -266,6 +266,11 @@ td .num-sub { display: block; font-size: 13px; }
 .ativo-link { font-weight: 600; text-decoration: none; }
 .ativo-nome { color: var(--tinta-3); font-size: 13px; }
 .vazio { color: var(--tinta-3); padding: 12px 0; }
+tr.operacoes td { padding-top: 0; }
+tbody tr:has(+ tr.operacoes) td { border-bottom: none; }
+tr.operacoes summary { font-weight: 400; font-size: 14px; color: var(--tinta-2); }
+table.interna { margin-top: 4px; background: var(--superficie-2); border-radius: 8px; }
+table.interna th, table.interna td { padding: 8px 12px; font-size: 14px; }
 
 /* ── Tags ─────────────────────────────────────────────────────────────── */
 

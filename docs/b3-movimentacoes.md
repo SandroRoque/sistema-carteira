@@ -67,11 +67,14 @@ Events travel in lifecycle order: grant → (exercise | expiry).
 | `Solicitação de Subscrição` | Credito | Subscription request lodged |
 | `Recibo de Subscrição` | Credito | Subscription receipt (shares pending) |
 
-### Trade events — **skipped on import**
+### Trade events — reconciled with the notes
 
-These rows describe the same purchases and sales already captured in `operacoes`
-from the PDF notas de corretagem.  The PDF-derived data is richer (fee allocation
-per trade), so B3 trade rows are skipped rather than double-inserted.
+These rows describe the same purchases and sales captured from the PDF notas de
+corretagem. The notes are richer (fees per trade), so they are the source of
+price and cost. `cobertura.conciliar` matches each equity `Transferência -
+Liquidação` with the notes of that ativo in the 7 days before it: a settlement
+with no note at all is added to the position at the B3 gross value (flagged
+"sem nota"); one whose quantity disagrees with the notes is only listed.
 
 | Movimentação | Corresponds to |
 |---|---|

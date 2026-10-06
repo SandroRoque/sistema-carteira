@@ -151,3 +151,60 @@ def test_parte_da_posicao_sem_custo_vira_pendencia_e_aceita_zero(usuario_id, inv
 
     assert _listar(investidor_a) == []
     assert _posicao(investidor_a, "EFGH34")["preco_medio"] == D("10.5")
+
+
+@pytest.fixture
+def com_incorporacao(usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A, negociacao("AAAA11", "entrada", 3, 50.0, date(2023, 6, 20))), "1.pdf")
+    _b3(investidor_a,
+        ("Credito", "12/03/2024", "Atualização", "AAAA11 - FII ALFA", "NU", 3, "-", "-"),
+        ("Credito", "12/03/2024", "Atualização", "BBBB11 - FII BETA", "NU", 12.34, "-", "-"),
+        ("Credito", "18/03/2024", "Resgate", "AAAA11 - FII ALFA", "NU", 3, 2.00, 6.00))
+    return investidor_a
+
+
+def test_sugere_e_aplica_a_origem_de_uma_incorporacao(com_incorporacao, cliente):
+    [p] = _listar(com_incorporacao)
+    assert (p.tipo, p.rotulo) == ("sem_custo", "BBBB11")
+    assert p.origens[0][1:] == ("AAAA11", True)
+
+    pagina = cliente.get("/pendencias").text
+    assert "Veio de outro ativo" in pagina and "AAAA11 (provável)" in pagina
+
+    resp = cliente.post(f"/pendencias/conversoes/{p.credito_id}",
+                        data={"csrf_token": cliente.csrf, "ativo_origem_id": p.origens[0][0]})
+    assert resp.status_code == 200 and "Salvo." in resp.text
+    pos = _posicao(com_incorporacao, "BBBB11")
+    assert (pos["custo_sem_origem"], pos["custo_total"]) == (False, D("150.00"))
+    assert _listar(com_incorporacao) == []
+    historico = cliente.get(f"/posicoes/{p.ativo_id}").text
+    assert "De AAAA11, com o custo dele" in historico
+
+    cliente.post(f"/pendencias/conversoes/{p.credito_id}/desfazer", data={"csrf_token": cliente.csrf})
+    assert [x.rotulo for x in _listar(com_incorporacao)] == ["BBBB11"]
+
+
+def test_origem_precisa_estar_na_carteira_na_data(com_incorporacao, cliente, usuario_id):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A, negociacao("PETR4", "entrada", 10, 30.0, date(2025, 1, 10)), nota_id="2"), "2.pdf")
+        petr = scalar(conn, "SELECT id FROM ativos WHERE ticker = 'PETR4'")
+    [p] = _listar(com_incorporacao)
+
+    resp = cliente.post(f"/pendencias/conversoes/{p.credito_id}",
+                        data={"csrf_token": cliente.csrf, "ativo_origem_id": petr})
+    assert resp.status_code == 422 and "não tinha esse ativo" in resp.text
+
+
+def test_nao_converte_credito_de_outra_conta(com_incorporacao, investidor_b):
+    [p] = _listar(com_incorporacao)
+    bruno = _cliente()
+    bruno.csrf = _login(bruno, "bruno@example.com")
+
+    resp = bruno.post(f"/pendencias/conversoes/{p.credito_id}",
+                      data={"csrf_token": bruno.csrf, "ativo_origem_id": p.origens[0][0]})
+    assert resp.status_code == 422
+    with connect_sistema() as conn:
+        assert scalar(conn, "SELECT COUNT(*) FROM conversoes") == 0

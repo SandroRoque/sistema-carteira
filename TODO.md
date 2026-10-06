@@ -68,6 +68,14 @@ catalog field, never typed from memory.
 - **Day trade** is separated from the position (q.705) but not taxed (20%, own
   loss pool, 1% IRRF): months with day trade are flagged instead.
 - Whether day-trade sales count toward the R$ 20 mil limit: currently they do not.
+- **Incorporação / conversão** (`CONVERSAO_CUSTO_TRANSFERIDO`): the new shares
+  take the old ones' cost, no sale. For FII → FII this follows Lei 14.754/2023
+  art. 30 §2º, read only through a secondary source (Planalto was unreachable);
+  confirm the primary text. For stocks (incorporação de ações) the Receita's
+  view is disputed: confirm. Cash paid in the event (a Resgate of the old
+  quotas, a redemption of a temporary class) is not taxed or offset against the cost yet.
+- **One-to-many conversions** (one class into two new ones): the whole cost goes to
+  the ativo the user picks; the other credit stays at zero cost.
 
 ### B3-only accounts cannot import
 

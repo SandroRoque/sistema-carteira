@@ -198,3 +198,33 @@ def test_pagamento_e_isolado_por_conta(com_darf, investidor_b):
     assert bruno.post("/impostos/darfs/2026-02/pago", data={"csrf_token": bruno.csrf}).status_code == 404
     with connect_sistema() as conn:
         assert conn.exec_driver_sql("SELECT COUNT(*) FROM darfs_pagos").scalar() == 0
+
+
+def test_origem_do_prejuizo_e_do_acumulado():
+    meses = apurar([
+        venda(date(2023, 11, 14), "comum", "312.45", "285.00", "ABCD34"),  # 4,12 below minimum
+        venda(date(2025, 1, 15), "acao", "4.20", "5.10", "WXYZ3"),
+        venda(date(2025, 3, 10), "comum", "100", "150", "EFGH34"),
+        venda(date(2025, 5, 10), "comum", "100", "80", "EFGH34"),  # pool covers it: no tax
+    ])
+    assert [m.mes for m in apuracao.origem_prejuizo(meses)] == [date(2025, 1, 1), date(2025, 3, 1)]
+    assert [m.mes for m in apuracao.origem_acumulado(meses)] == [date(2023, 11, 1)]
+    assert apuracao.origem_prejuizo(meses, fii=True) == []
+
+
+def test_pagina_detalha_cada_venda_com_link_para_o_ativo(usuario_id, investidor_a):
+    from test_pendencias import _b3
+
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A, negociacao("ITUB3", "entrada", 10, 30.0, date(2025, 6, 10))), "1.pdf")
+    _b3(investidor_a,
+        ("Credito", "12/01/2026", "Leilão de Fração", "ITUB3 - ITAU", "NU", 0.33, 15.15, 5.00),
+        ("Credito", "16/03/2026", "Leilão de Fração", "ITUB3 - ITAU", "NU", 0.40, 40.00, 16.00))
+    c = _cliente_logado()
+
+    pagina = c.get("/impostos").text
+    assert "1 venda:" in pagina and "ITUB3 (leilão de fração)" in pagina
+    # The loss card says where the loss came from.
+    assert 'de <a href="/impostos?ano=2026#mes-2026-01">jan/2026</a> (ITUB3)' in pagina
+    assert 'href="/posicoes/' in pagina and "Sobra de bonificação" in pagina

@@ -509,6 +509,8 @@ _EVENTO_ROTULO = {
     "resgate": "Resgate",
     "transferencia_entrada": "Transferência recebida",
     "transferencia_saida": "Transferência enviada",
+    "conversao_entrada": "Recebido de outro ativo",
+    "conversao_saida": "Convertido em outro ativo",
 }
 _PROVENTO_ROTULO = {
     "Dividendo": "Dividendo",
@@ -529,6 +531,8 @@ class ItemHistorico:
     qtd_apos: Decimal | None
     preco_medio_apos: Decimal | None
     detalhe: str | None = None
+    # conversao_entrada: the B3 credit, so the conversion can be undone.
+    conversao_id: int | None = None
 
 
 @dataclass
@@ -572,6 +576,13 @@ def ativo(conn: Connection, investidor_id: int, ativo_id: int, hoje: date | None
         if ev.nota:
             corretora, nota_id = ev.nota
             detalhe = f"Nota {nota_id} · {CORRETORAS.get(corretora, corretora)}"
+        elif ev.sem_nota:
+            detalhe = "Extrato B3, sem nota: valor sem taxas"
+        elif ev.contraparte:
+            outro = fetch_one(conn, "SELECT ticker, nome FROM ativos WHERE id = :id", id=ev.contraparte)
+            nome_outro = (outro["ticker"] or outro["nome"]) if outro else "?"
+            detalhe = (f"De {nome_outro}, com o custo dele (incorporação ou conversão)"
+                       if ev.tipo == "conversao_entrada" else f"Para {nome_outro}, levando o custo")
         elif ev.tipo != "compra":
             detalhe = "Extrato B3"
         if ev.tipo == "venda":
@@ -590,6 +601,7 @@ def ativo(conn: Connection, investidor_id: int, ativo_id: int, hoje: date | None
             qtd_apos=p.qty,
             preco_medio_apos=p.preco_medio,
             detalhe=detalhe,
+            conversao_id=ev.b3_id if ev.tipo == "conversao_entrada" else None,
         ))
     for r in linhas_prov:
         historico.append(ItemHistorico(

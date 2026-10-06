@@ -47,6 +47,23 @@
   {% else %}
   <p>Chegaram por transferência de custódia ou crédito da B3, e nenhum documento traz o preço pago. Sem ele não há preço médio, resultado nem valor para a declaração.</p>
   {% endif %}
+  {% if p.origens %}
+  <form method="post" action="/pendencias/conversoes/{{ p.credito_id }}" class="linha-campos">
+    <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+    <label>
+      Veio de outro ativo que você tinha?
+      <select name="ativo_origem_id" required>
+        {% if not p.origens[0][2] %}<option value="">Escolha o ativo de origem</option>{% endif %}
+        {% for ativo_id, rotulo, sugerido in p.origens %}
+        <option value="{{ ativo_id }}">{{ rotulo }}{% if sugerido %} (provável){% endif %}</option>
+        {% endfor %}
+      </select>
+      <small>Incorporação, fusão, conversão de ações ou troca de código: as novas cotas herdam o custo das antigas, sem venda nem imposto no evento.{% if not regra_conversao.verificado %} Regra ainda não confirmada na fonte oficial ({{ regra_conversao.fonte }}).{% endif %}</small>
+    </label>
+    <button type="submit" class="primario">Usar o custo dele</button>
+  </form>
+  {{ erro_do_item("conversao", p.credito_id) }}
+  {% endif %}
   <div class="botoes"><a href="/importar" class="botao">Enviar a nota de compra</a></div>
   <form method="post" action="/pendencias/custos/{{ p.chave }}" class="linha-campos">
     <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
@@ -85,6 +102,11 @@
     <div class="linha-campos">
       <p class="texto">O último extrato da B3 vai até <strong>{{ a.data | data }}</strong>. Proventos e eventos depois disso aparecem quando você enviar o próximo.</p>
       <a href="/importar" class="botao">Importar extrato</a>
+    </div>
+    {% elif a.tipo == "liquidacoes" %}
+    <div class="linha-campos">
+      <p class="texto">O extrato da B3 mostra {{ a.texto }} {{ "compra ou venda" if a.texto == "1" else "compras ou vendas" }} sem nota correspondente.</p>
+      <a href="/importar#cobertura" class="botao">Ver quais</a>
     </div>
     {% else %}
     <div class="linha-campos">

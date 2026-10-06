@@ -309,6 +309,10 @@ b3_arquivos_processados = Table(
     Column("investidor_id", BigInteger, ForeignKey("investidores.id", ondelete="CASCADE"), nullable=False),
     Column("arquivo", Text, nullable=False),
     Column("processado_em", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    # First and last date with a row in the file (rows already loaded from
+    # another file included): the period the report is known to cover.
+    Column("periodo_inicio", Date),
+    Column("periodo_fim", Date),
     UniqueConstraint("investidor_id", "arquivo", name="uq_b3_arquivos_investidor_arquivo"),
 )
 
@@ -364,6 +368,23 @@ darfs_pagos = Table(
     PrimaryKeyConstraint("investidor_id", "mes"),
     CheckConstraint("valor_pago >= 0", name="valor_nao_negativo"),
     CheckConstraint("EXTRACT(DAY FROM mes) = 1", name="mes_primeiro_dia"),
+)
+
+# Shares credited by B3 that replace another ativo (incorporação, conversão,
+# troca de código), as the user confirmed: the credit on the new ativo takes
+# over the whole cost of the origin's position, which closes on that day.
+conversoes = Table(
+    "conversoes",
+    metadata,
+    Column(
+        "b3_movimentacao_id",
+        BigInteger,
+        ForeignKey("b3_movimentacoes.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("investidor_id", BigInteger, ForeignKey("investidores.id", ondelete="CASCADE"), nullable=False),
+    Column("ativo_origem_id", BigInteger, ForeignKey("ativos.id"), nullable=False),
+    Column("informado_em", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
 # Cost basis for bonus shares (Bonificação em Ativos). custo_por_cota is NULL

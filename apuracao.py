@@ -55,6 +55,14 @@ class Venda:
     custo: Decimal | None  # average-cost basis; None when unknown
     # Part of the cost is missing (bonus or credited shares counted at zero).
     incompleto: bool = False
+    tipo: str = "venda"  # 'venda' | 'fracao' (leilão de fração)
+    quantidade: Decimal | None = None
+    # Taken from the B3 statement: no note, proceeds without fees.
+    sem_nota: bool = False
+
+    @property
+    def resultado(self) -> Decimal | None:
+        return None if self.custo is None else self.valor - self.custo
 
 
 @dataclass
@@ -114,9 +122,13 @@ class Mes:
         return [v for v in self.vendas if v.incompleto]
 
     @property
+    def sem_nota(self) -> list[Venda]:
+        return [v for v in self.vendas if v.sem_nota]
+
+    @property
     def confiavel(self) -> bool:
-        """No sale with missing cost and no day trade left out."""
-        return not (self.sem_custo or self.custo_incompleto or self.day_trade)
+        """No sale with missing cost or note and no day trade left out."""
+        return not (self.sem_custo or self.custo_incompleto or self.day_trade or self.sem_nota)
 
     @property
     def tem_vendas(self) -> bool:
@@ -267,6 +279,7 @@ def apuracao(conn: Connection, investidor_id: int) -> list[Mes]:
             vendas.append(Venda(
                 b.evento.data, ativo_id, rotulo, cat, b.evento.custo, b.custo,
                 incompleto=b.custo is not None and (b.tem_bonif_sem_custo or b.custo_incompleto),
+                tipo=b.evento.tipo, quantidade=b.evento.quantidade, sem_nota=b.evento.sem_nota,
             ))
         for dt in s.day_trades:
             m = date(dt.data.year, dt.data.month, 1)
@@ -296,6 +309,32 @@ def apuracao(conn: Connection, investidor_id: int) -> list[Mes]:
         if m.mes in pagos:
             m.valor_pago, m.pago_em = pagos[m.mes]["valor_pago"], pagos[m.mes]["pago_em"]
     return meses
+
+
+def origem_prejuizo(meses: list[Mes], fii: bool = False) -> list[Mes]:
+    """Months whose losses make up the current loss pool: those that added
+    to it since it was last empty."""
+    origem: list[Mes] = []
+    anterior = ZERO
+    for m in meses:
+        saldo = m.prejuizo_fii_saldo if fii else m.prejuizo_comum_saldo
+        if saldo <= 0:
+            origem = []
+        elif saldo > anterior - (m.prejuizo_fii_usado if fii else m.prejuizo_comum_usado):
+            origem.append(m)
+        anterior = saldo
+    return origem
+
+
+def origem_acumulado(meses: list[Mes]) -> list[Mes]:
+    """Months whose below-minimum tax is still carried forward."""
+    origem: list[Mes] = []
+    for m in meses:
+        if m.acumulado <= 0:
+            origem = []
+        elif m.acumulado > m.acumulado_anterior:
+            origem.append(m)
+    return origem
 
 
 def em_aberto(meses: list[Mes]) -> list[Mes]:
