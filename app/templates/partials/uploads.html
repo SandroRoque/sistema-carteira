@@ -1,35 +1,33 @@
 {# Polls itself only while something is queued or processing. #}
-<div id="uploads"
-     {% if em_andamento %}hx-get="/importar/lista" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+<section id="uploads" class="card tabela-card" aria-labelledby="envios"
+         {% if em_andamento %}hx-get="/importar/lista" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <div class="card-titulo">
+    <h2 id="envios">Envios recentes</h2>
+    {% if em_andamento %}<span class="muted" aria-live="polite">Lendo os arquivos… a lista se atualiza sozinha.</span>{% endif %}
+  </div>
   {% if uploads %}
-  <figure>
+  <div class="rolagem">
     <table>
       <thead>
-        <tr>
-          <th>Arquivo</th>
-          <th>Tipo</th>
-          <th>Carteira</th>
-          <th>Enviado em</th>
-          <th>Situação</th>
-        </tr>
+        <tr><th>Arquivo</th><th>Tipo</th><th>Carteira</th><th>Enviado em</th><th>Situação</th></tr>
       </thead>
       <tbody>
         {% for u in uploads %}
-        <tr class="upload-{{ u.status }}">
-          <td>{{ u.nome_arquivo }}</td>
-          <td>{{ "Nota" if u.tipo == "nota" else "B3" }}</td>
+        <tr>
+          <td><strong>{{ u.nome_arquivo }}</strong></td>
+          <td>{{ "Nota" if u.tipo == "nota" else "Extrato B3" }}</td>
           <td>{{ u.carteira or "—" }}</td>
-          <td>{{ u.criado_em | data_hora }}</td>
+          <td class="num">{{ u.criado_em | data_hora }}</td>
           <td>
-            <strong>{{ u.status_label }}</strong>
-            {% if u.mensagem %}<br><small>{{ u.mensagem }}</small>{% endif %}
+            <span class="tag {{ u.status_classe }}">{{ u.status_label }}</span>
+            {% if u.mensagem %}<small>{{ u.mensagem }}</small>{% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-  </figure>
+  </div>
   {% else %}
-  <p class="muted">Nenhum envio ainda.</p>
+  <p class="vazio">Nenhum envio ainda.</p>
   {% endif %}
-</div>
+</section>

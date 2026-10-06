@@ -61,6 +61,8 @@ class Evento:
     custo: Decimal | None = None
     # negociacoes.id for compra / venda.
     negociacao_id: int | None = None
+    # Where it came from: (corretora_id, nota_id) of a trade note; None for B3.
+    nota: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,17 @@ class Baixa:
     tem_bonif_sem_custo: bool
 
 
+@dataclass(frozen=True)
+class Passo:
+    """The position right after one event (the ativo's history, step by step)."""
+
+    evento: Evento
+    qty: Decimal
+    preco_medio: Decimal | None
+    # An 'Atualização' recognized as a mere confirmation of the position.
+    ignorado: bool = False
+
+
 @dataclass
 class Saldo:
     qty: Decimal = 0
@@ -83,6 +96,7 @@ class Saldo:
     tem_bonif_sem_custo: bool = False
     tem_negociacoes: bool = False
     baixas: list[Baixa] = field(default_factory=list)
+    passos: list[Passo] = field(default_factory=list)
 
     @property
     def preco_medio(self) -> Decimal | None:
@@ -110,7 +124,9 @@ def replay(eventos: Iterable[Evento]) -> Saldo:
 
         if ev.tipo == "atualizacao":
             if abs(q - qty_no_inicio_do_dia) < _TOLERANCIA_ATUALIZACAO:
-                continue  # confirmation of the position, not a credit
+                # Confirmation of the position, not a credit.
+                saldo.passos.append(Passo(ev, saldo.qty, saldo.preco_medio, ignorado=True))
+                continue
             saldo.qty += q
         elif ev.tipo == "compra":
             saldo.qty += q
@@ -132,6 +148,7 @@ def replay(eventos: Iterable[Evento]) -> Saldo:
             _baixar(saldo, ev, q)
         else:
             raise ValueError(f"tipo de evento desconhecido: {ev.tipo}")
+        saldo.passos.append(Passo(ev, saldo.qty, saldo.preco_medio))
 
     return saldo
 
@@ -171,7 +188,7 @@ def carregar_eventos(
     rows = fetch_all(
         conn,
         """
-        SELECT n.ativo_id, n.data, n.id AS negociacao_id,
+        SELECT n.ativo_id, n.data, n.id AS negociacao_id, n.corretora_id, n.nota_id,
                CASE WHEN n.sentido = 'entrada' THEN 'compra' ELSE 'venda' END AS tipo,
                COALESCE(n.quantidade, 0) AS quantidade,
                n.valor_liquido AS custo
@@ -183,7 +200,7 @@ def carregar_eventos(
 
         UNION ALL
 
-        SELECT b.ativo_id, b.data, NULL,
+        SELECT b.ativo_id, b.data, NULL, NULL, NULL,
                CASE
                    WHEN b.movimentacao = 'Bonificação em Ativos' THEN 'bonificacao'
                    WHEN b.movimentacao = 'Desdobro'              THEN 'desdobro'
@@ -213,7 +230,10 @@ def carregar_eventos(
     eventos: dict[int, list[Evento]] = defaultdict(list)
     for r in rows:
         eventos[r["ativo_id"]].append(
-            Evento(r["data"], r["tipo"], r["quantidade"], r["custo"], r["negociacao_id"])
+            Evento(
+                r["data"], r["tipo"], r["quantidade"], r["custo"], r["negociacao_id"],
+                (r["corretora_id"], r["nota_id"]) if r["corretora_id"] else None,
+            )
         )
     return dict(eventos)
 

@@ -15,12 +15,13 @@ router = APIRouter()
 MAX_ARQUIVOS_POR_ENVIO = 20
 # The request body cap for this route is in seguranca.LIMITES_CORPO.
 
-_STATUS_LABEL = {
-    "pendente": "Na fila",
-    "processando": "Processando",
-    "concluido": "Importado",
-    "duplicado": "Já importado",
-    "erro": "Erro",
+# status → (label, tag class)
+_STATUS = {
+    "pendente": ("Na fila", "info"),
+    "processando": ("Lendo…", "info"),
+    "concluido": ("Importado", "ok"),
+    "duplicado": ("Já importado", ""),
+    "erro": ("Não foi possível ler", "erro"),
 }
 
 
@@ -37,7 +38,10 @@ def _uploads(usuario_id: int) -> list[dict]:
             LIMIT 50
             """,
         )
-    return [dict(r) | {"status_label": _STATUS_LABEL[r["status"]]} for r in rows]
+    return [
+        dict(r) | {"status_label": _STATUS[r["status"]][0], "status_classe": _STATUS[r["status"]][1]}
+        for r in rows
+    ]
 
 
 def _contexto_lista(usuario_id: int) -> dict:

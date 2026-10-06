@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}Posições — Carteira{% endblock %}
+
+{% block content %}
+<div class="cabecalho">
+  <h1>Posições</h1>
+  <p class="meta">Patrimônio {{ carteira.patrimonio | brl }} · {{ m.carimbo_cotacoes(carteira) }}</p>
+</div>
+
+<div class="cabecalho">
+  <nav class="chips" aria-label="Filtrar por classe">
+    <a href="/posicoes{{ '?encerradas=true' if encerradas }}" class="chip"{% if classe == "todas" %} aria-current="true"{% endif %}>Todas</a>
+    {% for chave, rotulo in classes %}
+    <a href="/posicoes?classe={{ chave }}{{ '&encerradas=true' if encerradas }}" class="chip"{% if classe == chave %} aria-current="true"{% endif %}>{{ rotulo }}</a>
+    {% endfor %}
+  </nav>
+  <a class="chip" href="/posicoes?classe={{ classe }}{{ '' if encerradas else '&encerradas=true' }}" aria-pressed="{{ 'true' if encerradas else 'false' }}">
+    {{ "Ocultar" if encerradas else "Mostrar" }} posições encerradas
+  </a>
+</div>
+
+{% if carteira.vazia %}
+<section class="card">
+  <h2>Nenhuma posição aberta</h2>
+  <p class="muted"><a href="/importar">Importe notas de corretagem</a> para ver suas posições.</p>
+</section>
+{% endif %}
+
+{% for g in grupos %}
+<section class="card tabela-card" aria-labelledby="g-{{ g.classe }}">
+  <div class="card-titulo">
+    <h2 id="g-{{ g.classe }}">{{ g.rotulo }} <span class="contagem">· {{ g.linhas|length }} {{ "ativo" if g.linhas|length == 1 else "ativos" }}</span></h2>
+    {% if g.classe in ("renda_fixa", "tesouro_direto") %}<span class="nota">Pelo valor aplicado, sem rendimento acumulado nem marcação a mercado.</span>{% endif %}
+  </div>
+  <div class="rolagem">
+    {% if g.a_mercado %}
+    <table class="larga">
+      <thead>
+        <tr><th>Ativo</th><th class="num">Qtd</th><th class="num">Preço médio</th><th class="num">Cotação</th><th class="num">Valor</th><th class="num">Resultado</th><th class="num">% carteira</th><th class="num">Proventos 12m</th></tr>
+      </thead>
+      <tbody>
+        {% for l in g.linhas %}
+        <tr class="clicavel">
+          <td>
+            <a href="/posicoes/{{ l.ativo_id }}" class="ativo-link">{{ l.rotulo }}</a>
+            {% if l.custo is none %}<a href="/pendencias" class="tag aviso">sem custo de compra</a>{% endif %}
+            {% if l.bonif_sem_custo %}<a href="/pendencias" class="tag aviso">bonificação sem custo</a>{% endif %}
+            {% if l.ticker %}<small>{{ l.nome }}</small>{% endif %}
+          </td>
+          <td class="num">{{ l.qtd | qtd }}</td>
+          <td class="num">{{ l.preco_medio | brl }}</td>
+          <td class="num">{% if l.cotacao is not none %}{{ l.cotacao | brl }}{% else %}<span class="muted">sem cotação</span>{% endif %}</td>
+          <td class="num">{{ l.valor | brl }}</td>
+          <td class="num">{% if l.custo is none %}<span class="muted">custo desconhecido</span>{% else %}{{ m.resultado(l.resultado, l.resultado_pct) }}{% endif %}</td>
+          <td class="num">{{ l.peso | pct }}</td>
+          <td class="num">{{ l.proventos_12m | brl if l.proventos_12m else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr><td>Total</td><td></td><td></td><td></td><td class="num">{{ g.valor | brl }}</td><td class="num">{{ m.resultado(g.resultado, g.resultado_pct) }}</td><td class="num">{{ g.peso | pct }}</td><td class="num">{{ g.proventos_12m | brl }}</td></tr>
+      </tfoot>
+    </table>
+    {% elif g.classe == "subscricao" %}
+    <table>
+      <thead><tr><th>Direito ou recibo</th><th class="num">Qtd</th><th class="num">Valor pago no exercício</th></tr></thead>
+      <tbody>
+        {% for l in g.linhas %}
+        <tr class="clicavel">
+          <td><a href="/posicoes/{{ l.ativo_id }}" class="ativo-link">{{ l.rotulo }}</a></td>
+          <td class="num">{{ l.qtd | qtd }}</td>
+          <td class="num">{{ l.valor | brl }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <table>
+      <thead>
+        <tr><th>Título</th><th>Indexador</th><th>Vencimento</th><th class="num">Qtd</th><th class="num">Valor aplicado</th><th class="num">% carteira</th><th class="num">Recebido 12m</th></tr>
+      </thead>
+      <tbody>
+        {% for l in g.linhas %}
+        <tr class="clicavel">
+          <td><a href="/posicoes/{{ l.ativo_id }}" class="ativo-link">{{ l.rotulo }}</a></td>
+          <td>{{ l.indexador or "—" }}</td>
+          <td class="num">{{ l.vencimento | data }}</td>
+          <td class="num">{{ l.qtd | qtd }}</td>
+          <td class="num">{{ l.valor | brl }}</td>
+          <td class="num">{{ l.peso | pct }}</td>
+          <td class="num">{{ l.proventos_12m | brl if l.proventos_12m else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr><td>Total</td><td></td><td></td><td></td><td class="num">{{ g.valor | brl }}</td><td class="num">{{ g.peso | pct }}</td><td class="num">{{ g.proventos_12m | brl }}</td></tr>
+      </tfoot>
+    </table>
+    {% endif %}
+  </div>
+</section>
+{% endfor %}
+
+{% if encerradas %}
+<section class="card tabela-card" aria-labelledby="g-encerradas">
+  <h2 id="g-encerradas">Encerradas</h2>
+  {% if fechadas %}
+  <div class="rolagem">
+    <table>
+      <thead><tr><th>Ativo</th><th>Encerrada em</th><th class="num">Resultado nas vendas</th><th class="num">Proventos recebidos</th></tr></thead>
+      <tbody>
+        {% for e in fechadas %}
+        <tr class="clicavel">
+          <td><a href="/posicoes/{{ e.ativo_id }}" class="ativo-link">{{ e.rotulo }}</a></td>
+          <td class="num">{{ e.encerrada_em | data }}</td>
+          <td class="num">{% if e.resultado is none %}<span class="muted">sem venda</span>{% else %}<span class="{{ m.classe_resultado(e.resultado) }}">{{ e.resultado | brl_sinal }}</span>{% endif %}</td>
+          <td class="num">{{ e.proventos | brl if e.proventos else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="vazio">Nenhuma posição encerrada.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

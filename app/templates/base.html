@@ -1,59 +1,71 @@
 <!DOCTYPE html>
-<html lang="pt-BR" data-theme="light">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Carteira{% endblock %}</title>
   {# htmx must not evaluate code from attributes nor inject <style>: the CSP forbids both. #}
   <meta name="htmx-config" content='{"allowEval": false, "includeIndicatorStyles": false}'>
-  <link rel="stylesheet" href="/static/vendor/pico-2.1.1.classless.min.css">
+  <link rel="preload" href="/static/vendor/fonts/ibm-plex-sans-latin-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/vendor/htmx-2.0.4.min.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
+{% set caminho = request.url.path %}
+{% macro item_nav(href, rotulo, ativo) -%}
+<a href="{{ href }}"{% if ativo %} aria-current="page"{% endif %}>{{ rotulo }}</a>
+{%- endmacro %}
 <body{% if sessao %} hx-headers='{"X-CSRF-Token": "{{ sessao.csrf_token }}"}'{% endif %}>
-  <header>
-    <nav>
-      <ul>
-        <li><strong><a href="/" class="plain">Carteira</a></strong></li>
-        {% if sessao and carteiras|length > 1 %}
-        <li>
-          <form method="post" class="inline">
-            <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
-            <select data-trocar-carteira aria-label="Carteira">
-              {% for c in carteiras %}
-              <option value="{{ c.id }}" {% if c.id == investidor_id %}selected{% endif %}>{{ c.label }}</option>
-              {% endfor %}
-            </select>
-          </form>
-        </li>
+  <header class="topo">
+    <div class="topo-interno">
+      <a href="/" class="marca">Carteira</a>
+      {% if sessao %}
+      <nav class="nav" aria-label="Principal">
+        {{ item_nav("/", "Visão geral", caminho == "/") }}
+        {{ item_nav("/posicoes", "Posições", caminho.startswith("/posicoes")) }}
+        {{ item_nav("/proventos", "Proventos", caminho.startswith("/proventos")) }}
+        {{ item_nav("/impostos", "Impostos", caminho.startswith("/impostos")) }}
+        {{ item_nav("/importar", "Importar", caminho.startswith("/importar")) }}
+      </nav>
+      <div class="topo-acoes">
+        {% if n_pendencias %}
+        <a href="/pendencias" class="chip-pendencias"{% if caminho.startswith("/pendencias") %} aria-current="page"{% endif %}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+          {{ n_pendencias }} pendência{{ "s" if n_pendencias > 1 }}
+        </a>
         {% endif %}
-      </ul>
-      <ul>
-        {% if sessao %}
-        <li><a href="/">Posições</a></li>
-        <li><a href="/negociacoes">Negociações</a></li>
-        <li><a href="/ativos">Ativos</a></li>
-        <li><a href="/importar">Importar</a></li>
-        <li><a href="/conta">Conta</a></li>
-        <li>
-          <form method="post" action="/sair" class="inline">
-            <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
-            <button type="submit" class="link">Sair</button>
-          </form>
-        </li>
-        {% else %}
-        <li><a href="/entrar">Entrar</a></li>
-        <li><a href="/cadastrar">Criar conta</a></li>
+        {% if carteiras|length > 1 %}
+        <form method="post" class="seletor-carteira">
+          <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+          <label for="carteira-atual" class="fraco">Carteira</label>
+          <select id="carteira-atual" data-trocar-carteira>
+            {% for c in carteiras %}
+            <option value="{{ c.id }}" {% if c.id == investidor_id %}selected{% endif %}>{{ c.label }}</option>
+            {% endfor %}
+          </select>
+        </form>
         {% endif %}
-      </ul>
-    </nav>
+        <a href="/conta" class="chip pequeno"{% if caminho.startswith("/conta") %} aria-current="page"{% endif %}>Conta</a>
+        <form method="post" action="/sair" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+          <button type="submit" class="link">Sair</button>
+        </form>
+      </div>
+      {% else %}
+      <nav class="nav" aria-label="Principal"></nav>
+      <div class="topo-acoes">
+        <a href="/entrar" class="chip pequeno">Entrar</a>
+        <a href="/cadastrar" class="botao primario pequeno">Criar conta</a>
+      </div>
+      {% endif %}
+    </div>
   </header>
-  <main class="container">
+  <main class="conteudo{% block largura %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
-  <footer class="container">
-    <small><a href="/privacidade">Privacidade</a></small>
+  <footer class="rodape">
+    <a href="/privacidade">Privacidade</a>
   </footer>
 </body>
 </html>

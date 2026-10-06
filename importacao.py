@@ -29,17 +29,16 @@ import threading
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Callable
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import Connection
 
+import formato
 from database import connect_sistema, execute, fetch_one, scalar
 from isolamento import FalhaIsolada, executar_isolado
 
 logger = logging.getLogger(__name__)
 
 TAMANHO_MAXIMO = 5 * 1024 * 1024
-FUSO = ZoneInfo("America/Sao_Paulo")
 MAX_PENDENTES_POR_USUARIO = 50
 MAX_TENTATIVAS = 3
 # A job 'processando' for this long was abandoned (the process died).
@@ -135,7 +134,7 @@ def registrar(
     if anterior:
         status, mensagem, conteudo_guardado = (
             "duplicado",
-            f"Arquivo idêntico já enviado em {anterior['criado_em'].astimezone(FUSO):%d/%m/%Y}.",
+            f"Arquivo idêntico já enviado em {formato.data(anterior['criado_em'].astimezone(formato.FUSO))}.",
             None,
         )
     else:

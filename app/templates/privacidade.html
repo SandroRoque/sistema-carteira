@@ -1,34 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Privacidade — Carteira{% endblock %}
+{% block largura %} estreito{% endblock %}
 
 {% block content %}
-<article>
-  <h2>Privacidade</h2>
+<div>
+  <h1>Privacidade</h1>
   <p class="muted">Versão preliminar. A política completa será publicada antes do lançamento.</p>
+</div>
 
-  <h3>O que guardamos</h3>
+<section class="card">
+  <h2>O que guardamos</h2>
   <ul>
     <li>Seu e-mail e o hash da sua senha (nunca a senha).</li>
     <li>As operações, proventos e eventos extraídos dos documentos que você envia.</li>
   </ul>
-
-  <h3>O que não guardamos</h3>
+  <h2>O que não guardamos</h2>
   <ul>
     <li>CPF: guardamos apenas um código derivado dele (para separar carteiras) e a forma mascarada.</li>
     <li>Nome, endereço e código de cliente que aparecem nas notas.</li>
     <li>Os arquivos enviados, depois de processados.</li>
   </ul>
-
-  <h3>Para que usamos</h3>
+  <h2>Para que usamos</h2>
   <p>Somente para calcular e mostrar sua carteira. Não compartilhamos nem usamos para outra finalidade.</p>
-
-  <h3>Seus direitos</h3>
+  <h2>Seus direitos</h2>
   <p>
     Na página <a href="/conta">Conta</a> você pode exportar todos os seus dados e excluir sua conta
     a qualquer momento; a exclusão é imediata.
   </p>
-
-  <h3>Documentos de terceiros</h3>
+  <h2>Documentos de terceiros</h2>
   <p>Ao enviar um documento, você declara ter direito de usá-lo.</p>
-</article>
+</section>
 {% endblock %}

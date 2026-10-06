@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}Visão geral — Carteira{% endblock %}
+
+{% block content %}
+<div class="cabecalho">
+  <h1>Visão geral</h1>
+  <p class="meta">{{ m.carimbo_cotacoes(carteira) }}{% if proventos.atualizado_ate %} · extrato B3 até {{ proventos.atualizado_ate | data }}{% endif %}</p>
+</div>
+
+{% if carteira.vazia %}
+<section class="card">
+  <h2>Nenhuma posição aberta</h2>
+  <p class="muted">As posições aparecem aqui depois que você importa notas de corretagem e o extrato da B3.</p>
+  <div class="botoes"><a href="/importar" class="botao primario">Importar documentos</a></div>
+</section>
+{% else %}
+
+<section class="grade-cards" aria-label="Resumo">
+  <div class="stat">
+    <span class="rotulo">Patrimônio</span>
+    <strong class="valor">{{ carteira.patrimonio | brl }}</strong>
+    <span class="detalhe">Custo {{ carteira.custo_conhecido | brl }}{% if carteira.sem_custo %} · {{ carteira.sem_custo|length }} {{ "posições" if carteira.sem_custo|length > 1 else "posição" }} sem custo{% endif %}</span>
+  </div>
+  <div class="stat">
+    <span class="rotulo">Resultado não realizado</span>
+    <strong class="valor {{ m.classe_resultado(carteira.resultado) }}">{{ carteira.resultado | brl_sinal }}</strong>
+    <span class="detalhe {{ m.classe_resultado(carteira.resultado) }}">
+      {%- if carteira.resultado_pct is not none %}{{ "▲" if carteira.resultado > 0 else "▼" if carteira.resultado < 0 else "" }} {{ carteira.resultado_pct | pct(sinal=true) }} sobre o custo em renda variável{% else %}Sem cotações para calcular{% endif -%}
+    </span>
+  </div>
+  <a class="stat" href="/proventos">
+    <span class="rotulo">Proventos · 12 meses</span>
+    <strong class="valor">{{ proventos.total | brl }}</strong>
+    <span class="detalhe">{% if retorno_12m is not none %}{{ retorno_12m | pct }} ao ano sobre o custo em renda variável{% else %}média de {{ proventos.media_mensal | brl }} por mês{% endif %}</span>
+  </a>
+</section>
+
+<section class="card" aria-labelledby="alocacao">
+  <div class="card-titulo">
+    <h2 id="alocacao">Onde está o dinheiro</h2>
+    <a href="/posicoes" class="muted">Ver posições →</a>
+  </div>
+  {{ m.faixa(faixa, "Alocação: " ~ alocacao | map(attribute="rotulo") | join(", ")) }}
+  <ul class="alocacao-legenda">
+    {% for f in alocacao %}
+    <li>
+      <span class="marcador {{ f.serie }}" aria-hidden="true"></span>
+      <span>
+        <span class="nome">{{ f.rotulo }}</span>
+        <span class="pct">{{ f.peso | pct }}</span>
+        <span class="val">{{ f.valor | brl }}{% if f.rotulo == "Renda fixa" %} · valor aplicado{% endif %}</span>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<div class="colunas">
+  <section class="card tabela-card principal" aria-labelledby="maiores">
+    <h2 id="maiores">Maiores posições</h2>
+    <div class="rolagem">
+      <table class="compacta">
+        <thead><tr><th>Ativo</th><th class="num">Valor</th><th class="num">Resultado</th><th class="num">Peso</th></tr></thead>
+        <tbody>
+          {% for l in carteira.maiores() %}
+          <tr class="clicavel">
+            <td><a href="/posicoes/{{ l.ativo_id }}" class="ativo-link">{{ l.rotulo }}</a> {% if l.ticker %}<span class="ativo-nome">{{ l.nome }}</span>{% endif %}</td>
+            <td class="num">{{ l.valor | brl }}{% if l.a_custo %}<small>a custo</small>{% endif %}</td>
+            <td class="num">{% if l.resultado_pct is not none %}<span class="{{ m.classe_resultado(l.resultado) }}">{{ l.resultado_pct | pct(sinal=true) }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td class="num">{{ l.peso | pct }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card lateral" aria-labelledby="prov-mes">
+    <div class="card-titulo">
+      <h2 id="prov-mes">Proventos por mês</h2>
+      <a href="/proventos" class="muted">Detalhes →</a>
+    </div>
+    {% if proventos.total %}
+    {{ m.colunas(colunas, "Proventos recebidos por mês nos últimos 12 meses; total " ~ (proventos.total | brl)) }}
+    <p class="nota">Maior mês: {{ proventos.maior_mes.inicio | mes_ano }}, {{ proventos.maior_mes.total | brl }} · média {{ proventos.media_mensal | brl }}</p>
+    {% else %}
+    <p class="vazio">Nenhum provento nos últimos 12 meses. Eles vêm do <a href="/importar">extrato da B3</a>.</p>
+    {% endif %}
+  </section>
+</div>
+
+{% if carteira.sem_custo or n_pendencias %}
+<a href="/pendencias" class="aviso">
+  {{ m.icone_aviso() }}
+  <span class="texto"><strong>Há dados faltando que afetam o preço médio.</strong>
+    {% if carteira.sem_custo %}<span class="muted">Sem custo de compra: {{ carteira.sem_custo | map(attribute="rotulo") | join(", ") }}.</span>{% endif %}</span>
+  <span class="acao">Resolver →</span>
+</a>
+{% endif %}
+
+{% endif %}
+{% endblock %}

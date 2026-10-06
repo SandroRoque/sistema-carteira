@@ -10,6 +10,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 os.environ["CPF_HMAC_KEY"] = "chave-de-teste-" + "x" * 32
+# Pages never trigger real price downloads during tests.
+os.environ["CARTEIRA_COTACOES"] = "false"
 
 # Fake CPFs with valid check digits. Never use real ones in tests.
 CPF_A = "12345678909"

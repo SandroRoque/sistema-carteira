@@ -15,7 +15,6 @@ started with the app; set CARTEIRA_WORKER=false to run without it.
 from __future__ import annotations
 
 import sys
-from collections import defaultdict
 from contextlib import asynccontextmanager
 from decimal import ROUND_HALF_UP, Decimal
 from datetime import date
@@ -30,7 +29,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import conta, importar
+from app import conta, importar, paginas
 from app.seguranca import (
     InvestidorId,
     NaoAutenticado,
@@ -44,7 +43,6 @@ from app.seguranca import (
 from app.templating import render, render_parcial
 from database import connect, execute, fetch_all, fetch_one, scalar
 from importacao import trabalhador, worker_habilitado
-from posicoes import calcular_posicoes
 
 _HERE = Path(__file__).parent
 
@@ -65,12 +63,12 @@ app.add_middleware(SegurancaMiddleware)
 app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
 app.include_router(conta.router)
 app.include_router(importar.router)
+app.include_router(paginas.router)
 
 _TIPOS = [
     "acao", "fii", "bdr", "tesouro_direto", "renda_fixa",
     "recibo_subscricao", "direito_subscricao", "desconhecido",
 ]
-_TIPO_ORDER = _TIPOS  # same order for display
 
 
 @app.exception_handler(NaoAutenticado)
@@ -85,36 +83,12 @@ def _sem_permissao(_request: Request, exc: SemPermissao):
 
 @app.exception_handler(SemCarteira)
 def _sem_carteira(request: Request, _exc: SemCarteira):
-    return render(request, "sem_carteira.html")
+    # No portfolio yet: the import page doubles as onboarding.
+    return redirecionar(request, "/importar")
 
 
 def _erro(msg: str, status_code: int = 422) -> HTMLResponse:
     return HTMLResponse(msg, status_code=status_code)
-
-
-# ---------------------------------------------------------------------------
-# Dashboard
-# ---------------------------------------------------------------------------
-
-@app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, sessao: Sessao, investidor_id: InvestidorId):
-    with connect(sessao.usuario_id) as conn:
-        posicoes = calcular_posicoes(conn, investidor_id)
-
-    grupos: dict[str, list] = defaultdict(list)
-    for p in posicoes:
-        if p["is_open"]:
-            grupos[p["tipo"]].append(p)
-
-    custo_total = sum(p["custo_total"] or 0 for p in posicoes if p["is_open"])
-    rendimentos_total = sum(p["total_income"] or 0 for p in posicoes)
-
-    return render(request, "dashboard.html", {
-        "grupos": [(t, grupos[t]) for t in _TIPO_ORDER if t in grupos],
-        "custo_total": custo_total,
-        "rendimentos_total": rendimentos_total,
-        "investidor_id": investidor_id,
-    })
 
 
 # ---------------------------------------------------------------------------
@@ -148,13 +122,16 @@ def _list_ativos_select(conn) -> list[dict]:
 
 
 @app.get("/negociacoes", response_class=HTMLResponse)
-def negociacoes_list(request: Request, sessao: Sessao, investidor_id: InvestidorId):
+def negociacoes_list(
+    request: Request, sessao: Sessao, investidor_id: InvestidorId, ativo: int | None = None
+):
     with connect(sessao.usuario_id) as conn:
         negociacoes = _list_negociacoes(conn, investidor_id)
         ativos = _list_ativos_select(conn)
     return render(request, "negociacoes.html", {
         "negociacoes": negociacoes,
         "ativos": ativos,
+        "ativo_selecionado": ativo,
         "today": date.today().isoformat(),
         "investidor_id": investidor_id,
     })

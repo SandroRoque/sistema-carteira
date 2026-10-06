@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}{{ a.rotulo }} — Carteira{% endblock %}
+
+{% block content %}
+{% set l = a.linha %}
+<p class="trilha"><a href="/posicoes">Posições</a> / {{ a.tipo | tipo_label }} / {{ a.rotulo }}</p>
+
+<div class="cabecalho">
+  <div>
+    <h1>{{ a.rotulo }}</h1>
+    <p class="sub">{% if a.ticker %}{{ a.nome }} · {% endif %}{{ a.tipo | tipo_label }}{% if a.custodia %} · custódia {{ a.custodia | join(", ") }}{% endif %}</p>
+  </div>
+  <a href="/negociacoes?ativo={{ a.ativo_id }}" class="botao">Lançar operação à mão</a>
+</div>
+
+{% if l %}
+<section class="grade-cards compacta" aria-label="Situação atual">
+  <div class="stat"><span class="rotulo">Quantidade</span><strong class="valor">{{ l.qtd | qtd }}</strong></div>
+  <div class="stat">
+    <span class="rotulo">Preço médio</span>
+    <strong class="valor">{{ l.preco_medio | brl }}</strong>
+    <span class="detalhe">{% if l.custo is not none %}custo {{ l.custo | brl }}{% else %}<a href="/pendencias">custo desconhecido</a>{% endif %}</span>
+  </div>
+  {% if l.cotacao is not none %}
+  <div class="stat"><span class="rotulo">Cotação</span><strong class="valor">{{ l.cotacao | brl }}</strong></div>
+  {% endif %}
+  <div class="stat">
+    <span class="rotulo">{{ "Valor aplicado" if l.a_custo else "Valor" }}</span>
+    <strong class="valor">{{ l.valor | brl }}</strong>
+    <span class="detalhe">{{ l.peso | pct }} da carteira</span>
+  </div>
+  {% if l.resultado is not none %}
+  <div class="stat">
+    <span class="rotulo">Resultado</span>
+    <strong class="valor {{ m.classe_resultado(l.resultado) }}">{{ l.resultado | brl_sinal }}</strong>
+    <span class="detalhe {{ m.classe_resultado(l.resultado) }}">{{ "▲" if l.resultado > 0 else "▼" if l.resultado < 0 else "" }} {{ l.resultado_pct | pct(sinal=true) }} sobre o custo</span>
+  </div>
+  {% endif %}
+  <div class="stat">
+    <span class="rotulo">Proventos recebidos</span>
+    <strong class="valor">{{ a.proventos_total | brl }}</strong>
+    <span class="detalhe">{{ l.proventos_12m | brl }} nos últimos 12 meses</span>
+  </div>
+</section>
+{% if l.bonif_sem_custo %}
+<a href="/pendencias" class="aviso">{{ m.icone_aviso() }}<span class="texto">Há bonificação sem custo informado: o preço médio considera essas ações a custo zero.</span><span class="acao">Informar custo →</span></a>
+{% endif %}
+{% else %}
+<p class="ok"><span class="texto">Posição encerrada. O histórico abaixo mostra como ela foi formada e desfeita.</span></p>
+{% endif %}
+
+<div class="colunas">
+  <section class="card tabela-card principal" aria-labelledby="historico">
+    <div class="card-titulo">
+      <div>
+        {% if mostrar == "proventos" %}
+        <h2 id="historico">Proventos recebidos</h2>
+        <p class="nota">Como creditados no extrato da B3.</p>
+        {% else %}
+        <h2 id="historico">{% if l and l.preco_medio is not none %}Como o preço médio chegou a {{ l.preco_medio | brl }}{% else %}Histórico{% endif %}</h2>
+        <p class="nota">Compras somam ao custo; vendas saem pelo preço médio do momento, que não muda.</p>
+        {% endif %}
+      </div>
+      <nav class="chips" aria-label="Mostrar">
+        <a href="?mostrar=operacoes" class="chip pequeno"{% if mostrar == "operacoes" %} aria-current="true"{% endif %}>Operações</a>
+        <a href="?mostrar=proventos" class="chip pequeno"{% if mostrar == "proventos" %} aria-current="true"{% endif %}>Proventos</a>
+        <a href="?mostrar=tudo" class="chip pequeno"{% if mostrar == "tudo" %} aria-current="true"{% endif %}>Tudo</a>
+      </nav>
+    </div>
+    <div class="rolagem">
+      <table>
+        <thead><tr><th>Data</th><th>Evento</th><th class="num">Qtd</th><th class="num">Valor</th><th class="num">Posição após</th><th class="num">Preço médio após</th></tr></thead>
+        <tbody>
+          {% for h in historico %}
+          <tr>
+            <td class="num">{{ h.data | data }}</td>
+            <td>
+              <span class="tag {{ {'compra': 'info', 'venda': 'erro', 'provento': 'ok'}.get(h.categoria, '') }}">{{ h.rotulo }}</span>
+              {% if h.detalhe %}<small>{{ h.detalhe }}</small>{% endif %}
+            </td>
+            <td class="num">{{ h.qtd | qtd if h.qtd is not none else "" }}</td>
+            <td class="num">{{ h.valor | brl if h.valor is not none else "" }}</td>
+            <td class="num">{{ h.qtd_apos | qtd if h.qtd_apos is not none else "" }}</td>
+            <td class="num"><strong>{{ h.preco_medio_apos | brl if h.preco_medio_apos is not none else "" }}</strong></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not historico %}<p class="vazio">Nada para mostrar com este filtro.</p>{% endif %}
+  </section>
+
+  {% if a.proventos_por_ano %}
+  <aside class="card lateral" aria-labelledby="prov-ano">
+    <h2 id="prov-ano">Proventos por ano</h2>
+    {% for ano, valor, largura in anos %}
+    <div class="barra-ano">
+      <div class="linha-texto"><span>{{ ano }}</span><strong>{{ valor | brl }}</strong></div>
+      <svg class="grafico" width="100%" height="10" aria-hidden="true">
+        <rect x="0" y="0" width="100%" height="10" rx="4" class="trilho"/>
+        <rect x="0" y="0" width="{{ '%.1f' % largura }}%" height="10" rx="4" class="s-1"/>
+      </svg>
+    </div>
+    {% endfor %}
+    <p class="nota">Dividendos e JCP líquidos, como creditados pela B3.</p>
+  </aside>
+  {% endif %}
+</div>
+{% endblock %}

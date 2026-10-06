@@ -66,13 +66,14 @@ def test_htmx_sem_login_recebe_hx_redirect(db):
     assert resp.headers["HX-Redirect"] == "/entrar"
 
 
-def test_cadastro_entra_e_mostra_sem_carteira(db):
+def test_cadastro_leva_ao_primeiro_acesso(db):
     c = _cliente()
     resp = c.post("/cadastrar", data={
         "email": "nova@example.com", "senha": SENHA, "senha_confirmacao": SENHA, "aceite": "true",
     })
+    # No portfolio yet: the overview redirects to the import page, which onboards.
     assert resp.status_code == 200
-    assert "Nenhuma carteira ainda" in resp.text
+    assert "Monte sua carteira" in resp.text
 
 
 def test_cadastro_exige_aceite(db):
@@ -133,7 +134,11 @@ def test_headers_de_seguranca(client):
 # ---------------------------------------------------------------------------
 
 def test_paginas_renderizam(client):
-    for path in ("/", "/negociacoes", "/ativos", "/conta", "/privacidade"):
+    paths = (
+        "/", "/posicoes", "/posicoes?classe=acao&encerradas=true", "/proventos", "/proventos?periodo=1999",
+        "/negociacoes", "/ativos", "/conta", "/importar", "/privacidade",
+    )
+    for path in paths:
         assert client.get(path).status_code == 200, path
     assert "PETR4" in client.get("/").text
 
@@ -142,7 +147,7 @@ def test_cria_negociacao_manual(client, ativo_id, investidor_a):
     resp = client.post("/negociacoes", data=_form(ativo_id), headers={"X-CSRF-Token": client.csrf})
 
     assert resp.status_code == 200
-    assert "R$ 201.00" in resp.text
+    assert "R$ 201,00" in resp.text
     with connect_sistema() as conn:
         assert scalar(
             conn,
