@@ -60,8 +60,14 @@ def money_parser(money_str):
         return None
 
     try:
+        # Nu writes debits as "-R$ 98,40": the sign may precede the currency.
+        negativo = cleaned_input.startswith("-R$")
+        if negativo:
+            cleaned_input = cleaned_input[1:].strip()
         if cleaned_input.startswith("R$"):
             cleaned_input = cleaned_input[2:].strip()
+        if negativo:
+            cleaned_input = "-" + cleaned_input
 
         cleaned_input = cleaned_input.replace("|", " ").strip()
 

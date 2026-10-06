@@ -1,3 +1,5 @@
+import re
+
 import fitz
 
 from key_value_finders import find_sbs_key_value_pairs, find_vertical_key_value_pairs
@@ -30,7 +32,18 @@ def _identify_document_type(page: fitz.Page) -> str:
     return _DOC_TYPE_NOTA_CORRETAGEM
 
 
+# The IRRF label carries the base amount ("Base 0,00", "Base R$ 0,00",
+# "Base R$ 1.234,56"): match its fixed start.
+_IRRF = "I.R.R.F. s/ operações"
+_TRANSFERENCIA = "Taxa de Transferência de Ativos"
+
+
 def _extract_nota_corretagem(page: fitz.Page) -> NotaCorretagem:
+    if page.search_for("Nr. Nota") and not page.search_for("Número da nota"):
+        from extrai_nota_de_negociacao import LayoutNaoSuportado
+
+        raise LayoutNaoSuportado("Nu Invest, modelo padrão de mercado (Nr. Nota)")
+    tem_transferencia = bool(page.search_for(_TRANSFERENCIA))
     kv_dados = find_vertical_key_value_pairs(
         page,
         [
@@ -76,8 +89,9 @@ def _extract_nota_corretagem(page: fitz.Page) -> NotaCorretagem:
             "Total Bolsa",
             "Corretagem",
             "ISS (SÃO PAULO)",
-            "I.R.R.F. s/ operações. Base 0,00",
+            _IRRF,
             "Outras",
+            *([_TRANSFERENCIA] if tem_transferencia else []),
             "Total Corretagem/Despesas",
             "Líquido para",
         ],
@@ -145,12 +159,22 @@ def _extract_nota_corretagem(page: fitz.Page) -> NotaCorretagem:
         total_bolsa=money_parser(kv_financeiro["Total Bolsa"]),
         corretagem=money_parser(kv_financeiro["Corretagem"]),
         iss=money_parser(kv_financeiro["ISS (SÃO PAULO)"]),
-        irrf_sobre_operacoes_base_0_00=money_parser(kv_financeiro["I.R.R.F. s/ operações. Base 0,00"]),
+        irrf_sobre_operacoes_base_0_00=_irrf(kv_financeiro[_IRRF]),
+        taxa_de_transferencia_de_ativos=(
+            money_parser(kv_financeiro[_TRANSFERENCIA]) if tem_transferencia else None
+        ),
         outras=money_parser(kv_financeiro["Outras"]),
         total_corretagem_despesas=money_parser(kv_financeiro["Total Corretagem/Despesas"]),
         liquido_para=money_parser(kv_financeiro["Líquido para"]),
         movimentacoes=movimentacoes,
     )
+
+
+def _irrf(texto: str) -> float | None:
+    """The IRRF amount; the value may come joined with the rest of the label
+    ("Base R$ 0,00 R$ 0,00"), so take the last amount."""
+    valores = re.findall(r"-?(?:R\$\s*)?[\d.]+,\d{2}", texto)
+    return money_parser(valores[-1]) if valores else money_parser(texto)
 
 
 def _extract_titulos_publicos(page: fitz.Page) -> TituloPublico:

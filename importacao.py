@@ -51,6 +51,8 @@ _ASSINATURAS = {
 
 _MENSAGENS_ERRO = {
     ("nota", "PdfImagemError"): "PDF sem texto (digitalizado como imagem): não é possível ler.",
+    ("nota", "LayoutNaoSuportado"): "Este modelo de nota ainda não é lido (o padrão de mercado, com "
+                                    "“Nr. Nota” no topo). Se a corretora oferece outro modelo, envie esse.",
     ("b3", "RelatorioB3Invalido"): "Não parece um relatório de movimentação da B3.",
     ("nota", None): "Não foi possível ler esta nota: corretora ou layout não suportado, "
                     "ou dados inconsistentes (ex.: CPF inválido).",
@@ -168,10 +170,11 @@ def registrar(
 
 
 def ler_nota(conteudo: bytes):
-    from extrai_nota_de_negociacao import extrair
+    """Every nota in the PDF, transformed (brokers bundle several days)."""
+    from extrai_nota_de_negociacao import extrair_notas
     from transformer import transformar
 
-    return transformar(extrair(conteudo))
+    return [transformar(n) for n in extrair_notas(conteudo)]
 
 
 def ler_relatorio_b3(conteudo: bytes):
@@ -278,16 +281,26 @@ def _processar(t: _Trabalho, executar: Executor) -> None:
         _finalizar(t.id, "erro", _ERRO_GRAVACAO)
 
 
-def _gravar_nota(conn: Connection, t: _Trabalho, doc) -> tuple[str, str, int]:
+def _gravar_nota(conn: Connection, t: _Trabalho, docs) -> tuple[str, str, int]:
     from contas import get_or_create_investidor
     from loader import carregar
 
-    carregada = carregar(conn, t.usuario_id, doc, t.nome_arquivo)
-    investidor_id = get_or_create_investidor(conn, t.usuario_id, doc.nota.cpf_cliente)
-    if not carregada:
-        return "duplicado", "Nota já importada anteriormente.", investidor_id
-    n = len(doc.negociacoes)
-    return "concluido", f"{n} negociaç{'ão' if n == 1 else 'ões'} importada{'' if n == 1 else 's'}.", investidor_id
+    novas = negocios = 0
+    investidor_id = None
+    for doc in docs:
+        if carregar(conn, t.usuario_id, doc, t.nome_arquivo):
+            novas += 1
+            negocios += len(doc.negociacoes)
+        investidor_id = get_or_create_investidor(conn, t.usuario_id, doc.nota.cpf_cliente)
+    if not novas:
+        return ("duplicado", "Nota já importada anteriormente." if len(docs) == 1
+                else f"As {len(docs)} notas do arquivo já tinham sido importadas.", investidor_id)
+    mensagem = f"{negocios} negociaç{'ão' if negocios == 1 else 'ões'} importada{'' if negocios == 1 else 's'}"
+    if len(docs) > 1:
+        mensagem += f" de {novas} nota{'' if novas == 1 else 's'}"
+        if novas < len(docs):
+            mensagem += f"; {len(docs) - novas} já importada{'' if len(docs) - novas == 1 else 's'}"
+    return "concluido", mensagem + ".", investidor_id
 
 
 def _gravar_b3(conn: Connection, t: _Trabalho, linhas) -> tuple[str, str, int]:

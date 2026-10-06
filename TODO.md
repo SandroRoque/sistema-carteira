@@ -77,6 +77,16 @@ catalog field, never typed from memory.
 - **One-to-many conversions** (one class into two new ones): the whole cost goes to
   the ativo the user picks; the other credit stays at zero cost.
 
+### Nu Invest "padrão de mercado" nota layout is not read
+
+Since 2026 Nu offers two downloads of the same notas: its own layout ("Número
+da nota", read by `extractors/nu_invest.py`) and the market-standard Sinacor
+layout ("Nr. Nota / Folha / Data pregão"). The second raises
+`LayoutNaoSuportado` with a message asking for the other model. Other brokers
+use the Sinacor layout too, so an extractor for it would be reusable.
+There is no real-PDF regression fixture for any layout yet: a sanitized
+sample would still carry real trades, so it needs the owner's consent.
+
 ### B3-only accounts cannot import
 
 A portfolio is created from the CPF on a nota, and B3 reports carry no CPF, so an

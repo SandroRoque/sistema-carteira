@@ -10,7 +10,7 @@ Usage:
 
 from contas import usuario_do_cli
 from database import connect_sistema
-from extrai_nota_de_negociacao import PdfImagemError, extrair
+from extrai_nota_de_negociacao import PdfImagemError, extrair_notas
 from loader import carregar
 from settings import load_settings
 from transformer import transformar
@@ -27,7 +27,7 @@ def main() -> None:
 
         for pdf_path in sorted(settings.notas_dir.glob("*.pdf")):
             try:
-                resultado = extrair(pdf_path)
+                resultados = extrair_notas(pdf_path)
             except PdfImagemError:
                 skipped_image += 1
                 continue
@@ -36,13 +36,14 @@ def main() -> None:
                 failed += 1
                 continue
 
-            doc = transformar(resultado)
-            carregado = carregar(conn, usuario_id, doc, pdf_path.name)
-            if carregado:
-                parsed += 1
-                negociacoes_total += len(doc.negociacoes)
-            else:
-                skipped_duplicate += 1
+            # A PDF may bundle several notas (one per trading day).
+            for resultado in resultados:
+                doc = transformar(resultado)
+                if carregar(conn, usuario_id, doc, pdf_path.name):
+                    parsed += 1
+                    negociacoes_total += len(doc.negociacoes)
+                else:
+                    skipped_duplicate += 1
 
     print(
         f"Resumo:"

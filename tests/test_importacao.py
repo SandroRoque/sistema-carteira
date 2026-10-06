@@ -193,7 +193,7 @@ def test_processa_nota_e_descobre_a_carteira(usuario_id):
     doc = documento(CPF_B, negociacao("PETR4"), negociacao("VALE3", linha=2))
     _registrar(usuario_id, _pdf("nota"), nome="nota.pdf")
 
-    processar_pendentes(lambda _funcao, _conteudo: doc)
+    processar_pendentes(lambda _funcao, _conteudo: [doc])
 
     upload = _upload()
     assert (upload["status"], upload["mensagem"]) == ("concluido", "2 negociações importadas.")
@@ -210,9 +210,29 @@ def test_nota_ja_importada(usuario_id):
     _registrar(usuario_id, _pdf("a"))
     _registrar(usuario_id, _pdf("b"))  # different file, same nota
 
-    processar_pendentes(lambda _funcao, _conteudo: doc)
+    processar_pendentes(lambda _funcao, _conteudo: [doc])
 
     assert [u["status"] for u in _uploads()] == ["concluido", "duplicado"]
+
+
+def test_pdf_com_varias_notas_importa_cada_uma(usuario_id):
+    from datetime import date
+
+    antiga = documento(CPF_A, negociacao("PETR4"), nota_id="1")
+    _registrar(usuario_id, _pdf("antiga"))
+    processar_pendentes(lambda _funcao, _conteudo: [antiga])
+
+    novas = [antiga,
+             documento(CPF_A, negociacao("ABEV3", quantidade=40, data=date(2025, 11, 3)),
+                       nota_id="2", data=date(2025, 11, 3)),
+             documento(CPF_A, negociacao("RENT3", quantidade=15, data=date(2025, 11, 3)),
+                       nota_id="3", data=date(2025, 11, 3))]
+    _registrar(usuario_id, _pdf("pacote"))
+    processar_pendentes(lambda _funcao, _conteudo: novas)
+
+    assert _upload()["mensagem"] == "2 negociações importadas de 2 notas; 1 já importada."
+    with connect_sistema() as conn:
+        assert scalar(conn, "SELECT COUNT(*) FROM notas") == 3
 
 
 @pytest.mark.parametrize("pdf, mensagem", [
