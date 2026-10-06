@@ -39,6 +39,15 @@ The legacy SQLite held B3 rows and aliases pointing at deleted ativos.
 `migra_sqlite.py` kept those rows with `ativo_id = NULL`, matching what the old
 reports showed. Re-attach them to an ativo if these positions should be tracked.
 
+### IRPF codes must be verified before the IRPF assistant ships
+
+Every Receita code the app shows (Bens e Direitos grupo/código, Rendimentos Isentos
+and Tributação Exclusiva lines, DARF código 6015) lives in one module with the
+official source cited next to each code and tests pinning them. Check each against
+the current year's Receita material ("Perguntas e Respostas" and the IRPF program)
+before release, and again every year. Company/fund CNPJs come from a sourced
+catalog field, never typed from memory.
+
 ### B3-only accounts cannot import
 
 A portfolio is created from the CPF on a nota, and B3 reports carry no CPF, so an
