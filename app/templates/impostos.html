@@ -2,8 +2,8 @@
 {% import "macros.html" as m %}
 {% block title %}Impostos — Carteira{% endblock %}
 
-{% macro origens(meses) -%}
-{%- for o in meses %}<a href="/impostos?ano={{ o.mes.year }}#mes-{{ o.mes.strftime('%Y-%m') }}">{{ o.mes | mes_ano }}</a>{% if o.vendas %} ({{ o.vendas | map(attribute="rotulo") | unique | join(", ") }}){% endif %}{{ ", " if not loop.last }}{% endfor -%}
+{% macro origens(meses, categorias=[]) -%}
+{%- for o in meses %}{% set rotulos = o.rotulos(*categorias) %}<a href="/impostos?ano={{ o.mes.year }}#mes-{{ o.mes.strftime('%Y-%m') }}">{{ o.mes | mes_ano }}</a>{% if rotulos %} ({{ rotulos | join(", ") }}){% endif %}{{ ", " if not loop.last }}{% endfor -%}
 {%- endmacro %}
 
 {% block content %}
@@ -57,12 +57,12 @@
   <div class="stat">
     <span class="rotulo">Prejuízo a compensar · ações, BDRs, units</span>
     <strong class="valor">{{ prejuizo_comum | brl }}</strong>
-    {% if origem_prejuizo_comum %}<span class="detalhe">de {{ origens(origem_prejuizo_comum) }}</span>{% endif %}
+    {% if origem_prejuizo_comum %}<span class="detalhe">de {{ origens(origem_prejuizo_comum, ["acao", "comum"]) }}</span>{% endif %}
   </div>
   <div class="stat">
     <span class="rotulo">Prejuízo a compensar · FIIs</span>
     <strong class="valor">{{ prejuizo_fii | brl }}</strong>
-    {% if origem_prejuizo_fii %}<span class="detalhe">de {{ origens(origem_prejuizo_fii) }}</span>{% endif %}
+    {% if origem_prejuizo_fii %}<span class="detalhe">de {{ origens(origem_prejuizo_fii, ["fii"]) }}</span>{% endif %}
   </div>
   {% if acumulado %}
   <div class="stat">
@@ -83,7 +83,7 @@
   <div class="rolagem">
     <table class="larga">
       <thead>
-        <tr><th>Mês</th><th class="num">Vendas de ações</th><th class="num">Resultado ações</th><th class="num">BDRs e units</th><th class="num">FIIs</th><th class="num">Imposto</th><th>Situação</th></tr>
+        <tr><th>Mês</th><th class="num">Vendas de ações</th><th class="num">Resultado ações</th><th class="num">BDRs e units<small>sem isenção</small></th><th class="num">FIIs</th><th class="num">Imposto</th><th>Situação</th></tr>
       </thead>
       <tbody>
         {% for mes in meses %}
@@ -91,7 +91,7 @@
           <td><strong>{{ mes.mes | mes_ano }}</strong>{% if mes.mes == mes_atual %}<small>em andamento</small>{% endif %}</td>
           <td class="num">{{ mes.vendas_acoes | brl if mes.vendas_acoes else "—" }}</td>
           <td class="num">{% if mes.sem_custo_em("acao") %}<span class="muted">custo desconhecido</span>{% elif mes.vendas_acoes %}<span class="{{ m.classe_resultado(mes.resultado_acoes) }}">{{ mes.resultado_acoes | brl_sinal }}</span>{% if mes.isento and mes.resultado_acoes > 0 %}<small>isento</small>{% endif %}{% else %}—{% endif %}</td>
-          <td class="num">{% if mes.sem_custo_em("comum") %}<span class="muted">custo desconhecido</span><small>vendas {{ mes.vendas_comuns | brl }}</small>{% elif mes.vendas_comuns %}<span class="{{ m.classe_resultado(mes.resultado_comuns) }}">{{ mes.resultado_comuns | brl_sinal }}</span><small>vendas {{ mes.vendas_comuns | brl }}</small>{% else %}—{% endif %}</td>
+          <td class="num">{% if mes.sem_custo_em("comum") %}<span class="muted">custo desconhecido</span><small>vendas {{ mes.vendas_comuns | brl }}</small>{% elif mes.vendas_comuns %}<span class="{{ m.classe_resultado(mes.resultado_comuns) }}">{{ mes.resultado_comuns | brl_sinal }}</span><small>vendas {{ mes.vendas_comuns | brl }}</small>{% if mes.resultado_comuns > 0 %}<small>sem isenção de R$ 20 mil</small>{% endif %}{% else %}—{% endif %}</td>
           <td class="num">{% if mes.sem_custo_em("fii") %}<span class="muted">custo desconhecido</span><small>vendas {{ mes.vendas_fii | brl }}</small>{% elif mes.vendas_fii %}<span class="{{ m.classe_resultado(mes.resultado_fii) }}">{{ mes.resultado_fii | brl_sinal }}</span><small>vendas {{ mes.vendas_fii | brl }}</small>{% else %}—{% endif %}</td>
           <td class="num"><strong>{{ mes.darf | brl if mes.darf else (mes.ir_bruto | brl if mes.ir_bruto else "—") }}</strong></td>
           <td>

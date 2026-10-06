@@ -211,7 +211,7 @@ SICALC = "https://sicalc.receita.economia.gov.br/sicalc/principal"
 def _regras() -> list[tuple[str, regras_fiscais.Regra]]:
     nomes = {
         "ALIQUOTA_OPERACOES_COMUNS": "Ações, BDRs e units: 15% sobre o lucro",
-        "LIMITE_ISENCAO_ACOES": "Ações: isentas se as vendas de ações no mês somarem até R$ 20 mil",
+        "LIMITE_ISENCAO_ACOES": "Ações: isentas se as vendas de ações no mês somarem até R$ 20 mil. BDRs, ETFs e FIIs não têm essa isenção, mesmo com vendas pequenas",
         "UNITS_SEM_ISENCAO": "Units (ex.: TAEE11) não têm a isenção de ações",
         "DIREITOS_SEM_ISENCAO": "Direitos de subscrição vendidos: sem isenção",
         "ALIQUOTA_FII": "FIIs: 20% sobre o lucro, sem isenção",

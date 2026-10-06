@@ -228,3 +228,10 @@ def test_pagina_detalha_cada_venda_com_link_para_o_ativo(usuario_id, investidor_
     # The loss card says where the loss came from.
     assert 'de <a href="/impostos?ano=2026#mes-2026-01">jan/2026</a> (ITUB3)' in pagina
     assert 'href="/posicoes/' in pagina and "Sobra de bonificação" in pagina
+
+
+def test_origem_lista_so_ativos_da_categoria():
+    [m] = apurar([venda(date(2024, 2, 6), "acao", "2.10", "2.20", "WXYZ3"),
+                  venda(date(2024, 2, 27), "fii", "6.40", "7.00", "BBBB11")])
+    assert m.rotulos("fii") == ["BBBB11"]
+    assert m.rotulos("acao", "comum") == ["WXYZ3"]

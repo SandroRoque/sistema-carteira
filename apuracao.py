@@ -134,6 +134,11 @@ class Mes:
     def tem_vendas(self) -> bool:
         return bool(self.vendas)
 
+    def rotulos(self, *categorias: str) -> list[str]:
+        """Ativos sold this month in the given categories (all if none given)."""
+        vistos = [v.rotulo for v in self.vendas if not categorias or v.categoria in categorias]
+        return list(dict.fromkeys(vistos))
+
 
 def _arredondar(v: Decimal) -> Decimal:
     return v.quantize(CENTAVO, ROUND_HALF_UP)
@@ -277,7 +282,9 @@ def apuracao(conn: Connection, investidor_id: int) -> list[Mes]:
             if b.evento.tipo not in ("venda", "fracao") or b.evento.custo is None or not b.evento.quantidade:
                 continue  # a sale fully matched as day trade is not a regular sale
             vendas.append(Venda(
-                b.evento.data, ativo_id, rotulo, cat, b.evento.custo, b.custo,
+                # Results are in reais and centavos: no residue from the average.
+                b.evento.data, ativo_id, rotulo, cat, b.evento.custo,
+                None if b.custo is None else _arredondar(b.custo),
                 incompleto=b.custo is not None and (b.tem_bonif_sem_custo or b.custo_incompleto),
                 tipo=b.evento.tipo, quantidade=b.evento.quantidade, sem_nota=b.evento.sem_nota,
             ))
