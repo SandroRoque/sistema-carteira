@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import date
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -258,3 +259,18 @@ def test_exclusao_exige_senha_e_apaga_tudo(client, usuario_id, investidor_b):
         assert scalar(conn, "SELECT COUNT(*) FROM negociacoes") == 0
         # The other account is untouched.
         assert scalar(conn, "SELECT id FROM investidores") == investidor_b
+
+
+def test_app_nao_carrega_bibliotecas_pesadas():
+    """Cold starts stay fast: PDF parsing, pandas and market data are for the
+    worker and CLI tools, not for serving pages. Import them inside functions."""
+    import subprocess
+    import sys
+
+    pesadas = ("fitz", "pandas", "yfinance", "openpyxl")
+    codigo = f"import sys, app.main; print([m for m in {pesadas!r} if m in sys.modules])"
+    resultado = subprocess.run(
+        [sys.executable, "-c", codigo], capture_output=True, text=True, check=True,
+        cwd=Path(__file__).resolve().parent.parent,
+    )
+    assert resultado.stdout.strip() == "[]"
