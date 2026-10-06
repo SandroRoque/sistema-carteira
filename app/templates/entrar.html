@@ -20,6 +20,6 @@
     </label>
     <button type="submit" class="primario">Entrar</button>
   </form>
-  <p class="muted">Não tem conta? <a href="/cadastrar">Criar conta</a></p>
+  {% if cadastro_aberto() %}<p class="muted">Não tem conta? <a href="/cadastrar">Criar conta</a></p>{% endif %}
 </div>
 {% endblock %}

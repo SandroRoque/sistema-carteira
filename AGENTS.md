@@ -15,6 +15,7 @@ The FastAPI application is under `app/`; Jinja templates belong in `app/template
 - `uv run uvicorn app.main:app --reload`: start the web UI with automatic reload.
 - `uv run python carrega_notas.py`: parse configured PDFs and load the database idempotently.
 - `uv run python exporta_csvs.py`: create the diagnostic Excel export.
+- `docker build -t sistema-carteira .`: build the production image; deploy steps are in `docs/deploy.md`.
 
 Copy `.env.example` to `.env` before running ingestion. Set `NOTAS_DIR` and `DATABASE_URL`; `CARTEIRA_USUARIO_EMAIL` / `CARTEIRA_INVESTIDOR_ID` select the tenant for CLI tools.
 

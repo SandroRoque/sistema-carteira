@@ -8,6 +8,9 @@
     <h1>Criar conta</h1>
     <p class="muted">Acompanhe carteira, proventos e impostos a partir das suas notas e do extrato da B3.</p>
   </div>
+  {% if not cadastro_aberto() %}
+  <p class="mensagem-erro" role="alert">O cadastro de novas contas está fechado no momento.</p>
+  {% else %}
   {% if erro %}<p class="mensagem-erro" role="alert">{{ erro }}</p>{% endif %}
   <form method="post" action="/cadastrar" class="formulario">
     <label>
@@ -29,6 +32,7 @@
     </label>
     <button type="submit" class="primario">Criar conta</button>
   </form>
+  {% endif %}
   <p class="muted">Já tem conta? <a href="/entrar">Entrar</a></p>
 </div>
 {% endblock %}

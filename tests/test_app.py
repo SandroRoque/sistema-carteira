@@ -83,6 +83,24 @@ def test_cadastro_exige_aceite(db):
     assert resp.status_code == 400
 
 
+def test_cadastro_fechado_recusa_e_esconde_o_link(db, monkeypatch):
+    monkeypatch.setenv("CADASTRO_ABERTO", "false")
+    c = _cliente()
+    resp = c.post("/cadastrar", data={
+        "email": "nova@example.com", "senha": SENHA, "senha_confirmacao": SENHA, "aceite": "true",
+    })
+    assert resp.status_code == 403
+    with connect_sistema() as conn:
+        assert scalar(conn, "SELECT count(*) FROM usuarios WHERE email = 'nova@example.com'") == 0
+    assert 'href="/cadastrar"' not in c.get("/entrar").text
+
+
+def test_saude_responde_sem_login(db):
+    resp = _cliente().get("/saude")
+    assert resp.status_code == 200
+    assert resp.text == "ok"
+
+
 def test_login_errado_nao_revela_se_email_existe(usuario_id):
     c = _cliente()
     existe = c.post("/entrar", data={"email": "ana@example.com", "senha": "errada-errada"})

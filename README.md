@@ -132,6 +132,11 @@ uv run alembic check              # falha se o schema e tabelas.py divergirem
 
 Revise sempre o arquivo gerado antes de commitar.
 
+## Deploy
+
+Fly.io (um container) + Neon (Postgres). Passo a passo, variáveis e operação em
+[docs/deploy.md](docs/deploy.md).
+
 ## Testes
 
 ```bash

@@ -8,6 +8,7 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
 import formato
+import settings
 import pendencias
 from database import connect, fetch_all
 
@@ -29,6 +30,7 @@ templates = Jinja2Templates(directory=str(_HERE / "templates"))
 for _nome in ("brl", "brl_sinal", "pct", "qtd", "data", "data_hora", "hora", "quando", "mes_ano"):
     templates.env.filters[_nome] = getattr(formato, _nome)
 templates.env.filters["tipo_label"] = lambda v: TIPO_LABEL.get(v, v)
+templates.env.globals["cadastro_aberto"] = settings.cadastro_aberto
 
 
 def carteiras_do_usuario(usuario_id: int) -> list[dict]:

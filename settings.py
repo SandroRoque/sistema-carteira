@@ -58,6 +58,13 @@ def cookie_secure() -> bool:
     return os.environ.get("COOKIE_SECURE", "true").lower() not in ("0", "false", "no")
 
 
+def cadastro_aberto() -> bool:
+    """Anyone may create an account (default true). CADASTRO_ABERTO=false closes
+    sign-up; accounts are then created with `admin.py criar-usuario`."""
+    load_dotenv()
+    return os.environ.get("CADASTRO_ABERTO", "true").lower() not in ("0", "false", "no")
+
+
 @dataclass(frozen=True)
 class Settings:
     notas_dir: Path

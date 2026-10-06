@@ -121,6 +121,13 @@ def _list_ativos_select(conn) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+@app.get("/saude", response_class=PlainTextResponse)
+def saude():
+    """Liveness check for the platform. Does not touch the database, so the
+    checks do not keep a serverless Postgres awake."""
+    return "ok"
+
+
 @app.get("/negociacoes", response_class=HTMLResponse)
 def negociacoes_list(
     request: Request, sessao: Sessao, investidor_id: InvestidorId, ativo: int | None = None

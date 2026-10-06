@@ -1,7 +1,7 @@
 [project]
 name = "sistema-carteira"
 version = "0.1.0"
-description = "Add your description here"
+description = "Carteira de investimentos a partir de notas de corretagem e relatórios da B3"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

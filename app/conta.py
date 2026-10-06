@@ -11,6 +11,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import Response
 
 import auth
+import settings
 from app.seguranca import (
     COOKIE_SESSAO,
     Sessao,
@@ -62,6 +63,8 @@ def cadastrar(
     senha_confirmacao: str = Form(...),
     aceite: bool = Form(default=False),
 ):
+    if not settings.cadastro_aberto():
+        return render(request, "cadastrar.html", status_code=403)
     erro = None
     if senha != senha_confirmacao:
         erro = "As senhas não conferem."
