@@ -75,6 +75,16 @@ TIPOS_PROVENTO = {
 }
 
 
+def negocios_com_opcoes(conn: Connection, investidor_id: int) -> int:
+    """Option trades on record: kept, but not in positions or taxes yet."""
+    return scalar(
+        conn,
+        "SELECT count(*) FROM negociacoes n JOIN ativos a ON a.id = n.ativo_id "
+        "WHERE n.investidor_id = :i AND a.tipo = 'opcao'",
+        i=investidor_id,
+    )
+
+
 def nome_exibicao(nome: str | None, ticker: str | None) -> str:
     """The catalog name, unless it is just the raw text from a nota
     ('PETR4F PN EDJ N2'): that adds nothing next to the ticker."""

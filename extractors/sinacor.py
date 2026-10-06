@@ -17,6 +17,7 @@ instead of being skipped: a missing trade would silently change the cost.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -402,6 +403,18 @@ def _sinal_do_liquido_para(resumo: dict) -> float:
     return liquido
 
 
+def _identidade(numero: str, pregao, movimentacoes: list[Movimentacao], liquido_para: float) -> str:
+    """The nota's id: printed number, trading date and a fingerprint of its trades.
+
+    The printed number alone is not unique: newer XP notas print a short
+    per-day sequence ("1"), and XP issues the stock and the options trades of
+    a day as separate notas under one number. The fingerprint uses only
+    quantities and amounts, so the same nota sent twice keeps the same id."""
+    negocios = "|".join(sorted(f"{m.compra_venda}:{m.quantidade}:{m.valor_ajuste}" for m in movimentacoes))
+    digest = hashlib.sha256(f"{negocios}|{liquido_para}".encode()).hexdigest()[:8]
+    return f"{numero}-{pregao:%Y%m%d}-{digest}"
+
+
 def extrair(page: fitz.Page, corretora_id: str) -> NotaCorretagem:
     linhas = linhas_da_pagina(page)
     cab = _cabecalho(linhas)
@@ -414,14 +427,16 @@ def extrair(page: fitz.Page, corretora_id: str) -> NotaCorretagem:
             resumo[campo] = -abs(resumo[campo])
     resumo["valor_liquido_das_operacoes"] = _sinal_do_liquido(resumo)
     resumo["liquido_para"] = _sinal_do_liquido_para(resumo)
+    pregao = br_date_parser(cab["data"])
+    movimentacoes = negocios(linhas)
     return NotaCorretagem(
         corretora_id=corretora_id,
-        numero_da_nota=cab["numero"],
+        numero_da_nota=_identidade(cab["numero"], pregao, movimentacoes, resumo["liquido_para"]),
         folha=cab["folha"] or None,
-        data_pregao=br_date_parser(cab["data"]),
+        data_pregao=pregao,
         cpf_cliente=_cpf(cab["cpf"]),
         codigo_cliente=cab["codigo"],
         assessor=cab["assessor"] or None,
-        movimentacoes=negocios(linhas),
+        movimentacoes=movimentacoes,
         **resumo,
     )

@@ -69,6 +69,7 @@ def posicoes(
     with connect(sessao.usuario_id) as conn:
         carteira = painel.carteira(conn, investidor_id)
         fechadas = painel.encerradas(conn, investidor_id) if encerradas else []
+        com_opcoes = painel.negocios_com_opcoes(conn, investidor_id)
     classes = [(g.classe, g.rotulo) for g in carteira.grupos]
     if classe not in {c for c, _ in classes}:
         classe = "todas"
@@ -79,6 +80,7 @@ def posicoes(
         "classe": classe,
         "encerradas": encerradas,
         "fechadas": fechadas,
+        "negocios_com_opcoes": com_opcoes,
     })
 
 
@@ -229,6 +231,7 @@ def _regras() -> list[tuple[str, regras_fiscais.Regra]]:
 def impostos(request: Request, sessao: Sessao, investidor_id: InvestidorId, ano: int | None = None):
     with connect(sessao.usuario_id) as conn:
         meses = apuracao.apuracao(conn, investidor_id)
+        com_opcoes = painel.negocios_com_opcoes(conn, investidor_id)
     hoje = date.today()
     anos = sorted({m.mes.year for m in meses}, reverse=True)
     if ano not in anos:
@@ -246,6 +249,7 @@ def impostos(request: Request, sessao: Sessao, investidor_id: InvestidorId, ano:
         "origem_prejuizo_comum": apuracao.origem_prejuizo(meses),
         "origem_prejuizo_fii": apuracao.origem_prejuizo(meses, fii=True),
         "origem_acumulado": apuracao.origem_acumulado(meses),
+        "negocios_com_opcoes": com_opcoes,
         "pago_no_ano": sum((m.valor_pago or 0 for m in meses if m.pago_em and m.pago_em.year == ano), painel.ZERO),
         "hoje": hoje,
         "mes_atual": date(hoje.year, hoje.month, 1),

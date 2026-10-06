@@ -77,6 +77,7 @@ def _buscar_vendas(conn: Connection, investidor_id: int, ano: int | None = None)
         JOIN ativos a ON a.id = n.ativo_id
         WHERE n.investidor_id = :investidor_id
           AND n.sentido = 'saida'
+          AND a.tipo <> 'opcao'  -- options are not calculated yet
           AND (CAST(:ano AS integer) IS NULL OR EXTRACT(YEAR FROM n.data) = :ano)
         ORDER BY n.data
         """,

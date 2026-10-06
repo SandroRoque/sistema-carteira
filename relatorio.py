@@ -488,6 +488,7 @@ def _section_ir(conn: Connection, investidor_id: int) -> str:
         JOIN ativos a ON a.id = n.ativo_id
         WHERE n.investidor_id = :investidor_id
           AND n.sentido = 'saida'
+          AND a.tipo <> 'opcao'  -- options are not calculated yet
         ORDER BY n.data
         """,
         investidor_id=investidor_id,

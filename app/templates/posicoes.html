@@ -7,6 +7,7 @@
   <h1>Posições</h1>
   <p class="meta">Patrimônio {{ carteira.patrimonio | brl }} · {{ m.carimbo_cotacoes(carteira) }}</p>
 </div>
+{{ m.aviso_opcoes(negocios_com_opcoes, "não aparece" ~ ("m" if negocios_com_opcoes > 1 else "") ~ " nas posições.") }}
 
 <div class="cabecalho">
   <nav class="chips" aria-label="Filtrar por classe">

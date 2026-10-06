@@ -101,7 +101,8 @@ def test_le_compra_da_xp_com_rotulos_acentuados_e_sinal_de_debito():
     nota = _uma(doc)
 
     assert nota.corretora_id == "xp"
-    assert (nota.numero_da_nota, str(nota.data_pregao), nota.cpf_cliente) == ("4321", "2025-03-10", CPF)
+    assert nota.numero_da_nota.startswith("4321-20250310-")
+    assert (str(nota.data_pregao), nota.cpf_cliente) == ("2025-03-10", CPF)
     [m] = nota.movimentacoes
     # The name starts left of its header and must come whole.
     assert m.especificacao_do_titulo == "EMPRESA X ON NM"
@@ -229,6 +230,17 @@ def test_duas_notas_com_o_mesmo_numero_viram_duas():
     notas = extrair_notas(_pdf(acoes, opcoes))
     assert [len(n.movimentacoes) for n in notas] == [1, 1]
     assert notas[0].liquido_para < 0 < notas[1].liquido_para
+    # Same printed number, different notas: different ids, so both are loaded.
+    assert notas[0].numero_da_nota != notas[1].numero_da_nota
+
+
+def test_mesmo_numero_em_outro_dia_e_outra_nota_e_a_mesma_nota_repete_o_id():
+    linhas = [(0, _linha("C", "EMPRESA X ON NM", "10", "1,00", "10,00", "D"))]
+    um = dict(numero="1", data="10/03/2025", linhas=linhas, resumo={"Compras à vista": "10,00"}, financeiro=_financeiro_compra())
+    outro_dia = dict(um, data="11/03/2025")
+    [a], [b], [c] = (extrair_notas(_pdf(x)) for x in (um, outro_dia, um))
+    assert a.numero_da_nota != b.numero_da_nota
+    assert a.numero_da_nota == c.numero_da_nota
 
 
 def test_nota_de_duas_folhas_continua_uma_so():

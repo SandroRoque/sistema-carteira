@@ -101,13 +101,16 @@ def resolve_ou_criar_ativo(
     vencimento: date | None = None,
     data: date | None = None,
     exercicio: bool = False,
+    opcao: bool = False,
 ) -> int:
     """Returns the ativo_id for raw_ticker, auto-creating an unreviewed ativo on first encounter.
 
     Market-standard notas describe the security by name and specification
     ("PETROBRAS PN N2"): that is resolved to the ticker traded under it on
     `data` (especificacoes_b3). An option exercise (`exercicio`) is a trade
-    of the underlying shares, so it resolves to them.
+    of the underlying shares, so it resolves to them. An option (`opcao`)
+    gets no ticker: B3 reuses option codes, so raw_ticker (see
+    _nome_da_opcao) carries the expiry and is what tells options apart.
 
     Canonical ticker extraction ("PETR4F PN N2" → "PETR4") prevents the same
     asset from being stored as multiple ativos due to ex-date or lot-size
@@ -127,6 +130,13 @@ def resolve_ou_criar_ativo(
         return row["ativo_id"]
 
     # 2. Extract canonical ticker (strips fractional-lot 'F' suffix and qualifiers).
+    if opcao:
+        ativo_id = scalar(
+            conn,
+            "INSERT INTO ativos (tipo, nome, revisado) VALUES ('opcao', :nome, false) RETURNING id",
+            nome=raw_ticker,
+        )
+        return _registrar_alias(conn, raw_ticker, ativo_id)
     if exercicio:
         ticker = especificacoes_b3.subjacente(raw_ticker, data)
     else:
@@ -218,6 +228,13 @@ def investidor_da_nota(conn: Connection, usuario_id: int, nota: NotaRecord, cart
     raise NotaSemCpf("A nota não traz o CPF. Escolha a carteira dela no envio e mande de novo.")
 
 
+def _nome_da_opcao(neg: NegociacaoRecord) -> str:
+    """'ABCDK350 PN 35,00 ABCD · opção de compra · venc. 11/25': the code as
+    printed (some notas omit it), the kind and the expiry."""
+    especie = "compra" if "COMPRA" in (neg.tipo_de_mercado or "").upper() else "venda"
+    return f"{neg.raw_ticker} · opção de {especie} · venc. {neg.prazo or '?'}"
+
+
 def carregar(
     conn: Connection, usuario_id: int, doc: DocumentoTransformado, filename: str, carteira: int | None = None
 ) -> bool:
@@ -239,9 +256,13 @@ def carregar(
     _inserir_nota(conn, investidor_id, nota, filename)
 
     for neg in doc.negociacoes:
+        mercado = (neg.tipo_de_mercado or "").upper()
+        # Option trades are kept under their own ativos; positions and taxes
+        # leave them out for now (the Impostos and Posições pages say so).
+        opcao = mercado.startswith("OPCAO")
         ativo_id = resolve_ou_criar_ativo(
             conn,
-            neg.raw_ticker,
+            _nome_da_opcao(neg) if opcao else neg.raw_ticker,
             neg.doc_type,
             cnpj_emissor=nota.cnpj_emissor,
             emissor=nota.emissor,
@@ -251,7 +272,8 @@ def carregar(
             emissao=neg.emissao,
             vencimento=neg.vencimento,
             data=neg.data,
-            exercicio=(neg.tipo_de_mercado or "").upper().startswith("EXERC"),
+            exercicio=mercado.startswith("EXERC"),
+            opcao=opcao,
         )
         _inserir_negociacao(conn, investidor_id, neg, ativo_id)
 

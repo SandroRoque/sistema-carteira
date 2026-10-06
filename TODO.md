@@ -109,3 +109,13 @@ verification at sign-up).
 
 Lockout counts failures per e-mail. An attacker spraying one password across many
 e-mails is not throttled; add per-IP rate limiting at the edge (proxy/CDN) or in the app.
+
+### Options are stored but not calculated
+
+Option trades from notas (market "OPCAO DE COMPRA/VENDA") are loaded under
+ativos of tipo `opcao`, without a ticker (B3 reuses option codes; the name
+carries the expiry). Positions, average cost and the monthly tax leave them
+out, and the Posições and Impostos pages say so. Option exercises are already
+loaded as trades of the underlying shares at the strike. Full support needs:
+short positions, expiry without an event in the documents (worthless
+options), the tax treatment of option results, and day trade.

@@ -24,6 +24,7 @@ TIPO_LABEL = {
     "renda_fixa": "Renda fixa",
     "recibo_subscricao": "Recibos de Subscrição",
     "direito_subscricao": "Direitos de Subscrição",
+    "opcao": "Opções",
     "desconhecido": "Desconhecido",
 }
 
