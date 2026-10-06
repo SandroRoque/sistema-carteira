@@ -45,6 +45,8 @@ class Sessao:
     csrf_token: str
     e_admin: bool
     email: str
+    # The public demo account: read-only (app.seguranca).
+    demo: bool = False
 
 
 def _agora() -> datetime:
@@ -158,7 +160,11 @@ def autenticar(conn: Connection, email: str, senha: str) -> int | None:
 
 
 def criar_sessao(conn: Connection, usuario_id: int) -> str:
-    """Return the cookie token for a new session."""
+    """Return the cookie token for a new session.
+
+    Expired sessions are dropped here: every demo visit creates one, and
+    nothing else cleans them up."""
+    execute(conn, "DELETE FROM sessoes WHERE expira_em <= now()")
     token = secrets.token_urlsafe(32)
     execute(
         conn,
@@ -180,13 +186,18 @@ def obter_sessao(conn: Connection, token: str | None) -> Sessao | None:
     row = fetch_one(
         conn,
         """
-        SELECT s.usuario_id, s.investidor_id, s.csrf_token, u.e_admin, u.email
+        SELECT s.usuario_id, s.investidor_id, s.csrf_token, u.e_admin, u.email, u.demo
         FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
         WHERE s.token_hash = :h AND s.expira_em > now()
         """,
         h=_hash_token(token),
     )
     return Sessao(**row) if row else None
+
+
+def usuario_demo(conn: Connection) -> int | None:
+    """The demo account (demo.py), if this installation has one."""
+    return scalar(conn, "SELECT id FROM usuarios WHERE demo")
 
 
 def selecionar_investidor(conn: Connection, token: str, investidor_id: int | None) -> None:

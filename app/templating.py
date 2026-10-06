@@ -10,7 +10,8 @@ from fastapi.templating import Jinja2Templates
 import formato
 import settings
 import pendencias
-from database import connect, fetch_all
+import auth
+from database import connect, connect_sistema, fetch_all
 
 _HERE = Path(__file__).parent
 
@@ -33,6 +34,14 @@ templates.env.filters["tipo_label"] = lambda v: TIPO_LABEL.get(v, v)
 templates.env.globals["cadastro_aberto"] = settings.cadastro_aberto
 
 
+def demo_disponivel() -> bool:
+    with connect_sistema() as conn:
+        return auth.usuario_demo(conn) is not None
+
+
+templates.env.globals["demo_disponivel"] = demo_disponivel
+
+
 def carteiras_do_usuario(usuario_id: int) -> list[dict]:
     with connect(usuario_id) as conn:
         rows = fetch_all(
@@ -51,7 +60,7 @@ def render(request: Request, template: str, contexto: dict | None = None, status
     if sessao is not None:
         if "carteiras" not in contexto:
             contexto["carteiras"] = carteiras_do_usuario(sessao.usuario_id)
-        contexto.setdefault("investidor_id", sessao.investidor_id)
+        contexto.setdefault("investidor_id", getattr(request.state, "investidor_id", sessao.investidor_id))
         if "n_pendencias" not in contexto and contexto["investidor_id"] is not None:
             with connect(sessao.usuario_id) as conn:
                 contexto["n_pendencias"] = pendencias.contar(conn, contexto["investidor_id"])

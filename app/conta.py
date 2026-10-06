@@ -50,6 +50,16 @@ def entrar(request: Request, email: str = Form(...), senha: str = Form(...)):
     return _entrar(request, usuario_id)
 
 
+@router.post("/demo")
+def entrar_na_demo(request: Request):
+    """Log in to the read-only demo account (demo.py), no password needed."""
+    with connect_sistema() as conn:
+        usuario_id = auth.usuario_demo(conn)
+    if usuario_id is None:
+        return Response(status_code=404)
+    return _entrar(request, usuario_id)
+
+
 @router.get("/cadastrar")
 def cadastrar_form(request: Request):
     return render(request, "cadastrar.html")

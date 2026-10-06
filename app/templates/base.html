@@ -61,6 +61,14 @@
       {% endif %}
     </div>
   </header>
+  {% if sessao and sessao.demo %}
+  <div id="faixa-demo" class="faixa-demo" role="status">
+    <div class="topo-interno">
+      <strong>Demonstração</strong>
+      <span data-mensagem>Carteira fictícia: explore à vontade; alterações estão desativadas.</span>
+    </div>
+  </div>
+  {% endif %}
   <main class="conteudo{% block largura %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>

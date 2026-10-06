@@ -88,9 +88,12 @@ usuarios = Table(
     Column("e_admin", Boolean, nullable=False, server_default="false"),
     Column("falhas_login", Integer, nullable=False, server_default="0"),
     Column("bloqueado_ate", DateTime(timezone=True)),
+    # The public demo account (demo.py): read-only, entered without a password.
+    Column("demo", Boolean, nullable=False, server_default="false"),
     _criado_em(),
 )
 Index("uq_usuarios_email_lower", func.lower(usuarios.c.email), unique=True)
+Index("uq_usuarios_demo", usuarios.c.demo, unique=True, postgresql_where=usuarios.c.demo)
 
 investidores = Table(
     "investidores",

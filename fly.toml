@@ -3,7 +3,8 @@ app = "sistema-carteira"
 primary_region = "gru"
 
 [deploy]
-  release_command = "alembic upgrade head"
+  # Migrations, then the demo account is rebuilt so its dates stay current (demo.py).
+  release_command = "sh -c 'alembic upgrade head && python admin.py recriar-demo'"
 
 [env]
   # Closed until password reset and per-IP throttling exist (TODO.md);

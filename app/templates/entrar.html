@@ -20,6 +20,12 @@
     </label>
     <button type="submit" class="primario">Entrar</button>
   </form>
+  {% if demo_disponivel() %}
+  <form method="post" action="/demo" class="formulario">
+    <p class="muted">Quer só conhecer? Entre numa carteira fictícia, sem cadastro.</p>
+    <button type="submit">Ver demonstração</button>
+  </form>
+  {% endif %}
   {% if cadastro_aberto() %}<p class="muted">Não tem conta? <a href="/cadastrar">Criar conta</a></p>{% endif %}
 </div>
 {% endblock %}

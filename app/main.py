@@ -37,6 +37,7 @@ from app.seguranca import (
     SemCarteira,
     SemPermissao,
     Sessao,
+    SomenteLeitura,
     SessaoAdmin,
     redirecionar,
 )
@@ -79,6 +80,14 @@ def _nao_autenticado(request: Request, _exc: NaoAutenticado):
 @app.exception_handler(SemPermissao)
 def _sem_permissao(_request: Request, exc: SemPermissao):
     return PlainTextResponse(str(exc), status_code=403)
+
+
+@app.exception_handler(SomenteLeitura)
+def _somente_leitura(request: Request, exc: SomenteLeitura):
+    if request.headers.get("hx-request"):
+        # HTMX does not swap error responses; app.js shows this in the demo banner.
+        return PlainTextResponse(str(exc), status_code=403, headers={"X-Somente-Leitura": "1"})
+    return render(request, "somente_leitura.html", {"mensagem": str(exc)}, 403)
 
 
 @app.exception_handler(SemCarteira)

@@ -132,6 +132,11 @@ uv run alembic check              # falha se o schema e tabelas.py divergirem
 
 Revise sempre o arquivo gerado antes de commitar.
 
+## Demonstração
+
+`uv run python admin.py recriar-demo` cria uma conta de demonstração, somente leitura, com
+uma carteira inventada (`demo.py`); a tela de login passa a oferecer "Ver demonstração".
+
 ## Deploy
 
 Fly.io (um container) + Neon (Postgres). Passo a passo, variáveis e operação em

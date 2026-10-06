@@ -65,3 +65,13 @@ document.addEventListener("click", async (event) => {
     botao.textContent = "Não foi possível copiar";
   }
 });
+
+// Demo account: writes come back 403 with X-Somente-Leitura; say why in the banner.
+document.addEventListener("htmx:responseError", (event) => {
+  const xhr = event.detail.xhr;
+  const faixa = document.getElementById("faixa-demo");
+  if (faixa && xhr.status === 403 && xhr.getResponseHeader("X-Somente-Leitura")) {
+    faixa.querySelector("[data-mensagem]").textContent = xhr.responseText;
+    faixa.classList.add("destaque");
+  }
+});

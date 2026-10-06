@@ -4,6 +4,10 @@ Usage:
     uv run python admin.py criar-usuario EMAIL [--admin]
     uv run python admin.py definir-senha EMAIL
     uv run python admin.py promover-admin EMAIL
+    uv run python admin.py recriar-demo
+
+recriar-demo rebuilds the public demo account with invented data (demo.py);
+the deploy runs it after the migrations.
 
 Passwords are read interactively, never from arguments (shell history).
 """
@@ -40,7 +44,15 @@ def main() -> None:
     criar.add_argument("--admin", action="store_true")
     sub.add_parser("definir-senha").add_argument("email")
     sub.add_parser("promover-admin").add_argument("email")
+    sub.add_parser("recriar-demo")
     args = parser.parse_args()
+
+    if args.comando == "recriar-demo":
+        import demo  # loads the ingestion stack; only this command needs it
+
+        usuario_id = demo.recriar()
+        print("demonstração recriada:", demo.resumo(usuario_id))
+        return
 
     with connect_sistema() as conn:
         try:

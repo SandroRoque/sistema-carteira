@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 from typing import Annotated
 from urllib.parse import urlsplit
@@ -39,6 +40,17 @@ class SemPermissao(Exception):
 
 class SemCarteira(Exception):
     pass
+
+
+class SomenteLeitura(SemPermissao):
+    """A write attempted from the demo account."""
+
+    def __init__(self) -> None:
+        super().__init__("Esta é uma demonstração com dados fictícios: nada pode ser alterado.")
+
+
+# Writes the demo account may still do: they change only its own session.
+_LIVRES_NA_DEMO = re.compile(r"^/sair$|^/carteiras/\d+/selecionar$")
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +97,8 @@ async def sessao_atual(
             enviado = (await request.form()).get("csrf_token")
         if not isinstance(enviado, str) or not secrets.compare_digest(enviado, sessao.csrf_token):
             raise SemPermissao("Token CSRF ausente ou inválido.")
+        if sessao.demo and not _LIVRES_NA_DEMO.match(request.url.path):
+            raise SomenteLeitura()
     return sessao
 
 
@@ -109,12 +123,15 @@ def investidor_atual(request: Request, sessao: Sessao) -> int:
     with connect(sessao.usuario_id) as conn:
         if sessao.investidor_id is not None:
             if fetch_one(conn, "SELECT 1 FROM investidores WHERE id = :id", id=sessao.investidor_id):
+                request.state.investidor_id = sessao.investidor_id
                 return sessao.investidor_id
         primeiro = scalar(conn, "SELECT id FROM investidores ORDER BY id LIMIT 1")
     if primeiro is None:
         raise SemCarteira()
     with connect_sistema() as conn:
         auth.selecionar_investidor(conn, request.cookies[COOKIE_SESSAO], primeiro)
+    # The session read for this request still has none: pages use this one.
+    request.state.investidor_id = primeiro
     return primeiro
 
 

@@ -7,7 +7,7 @@ importação é uma thread do próprio processo web; não há fila, storage ou s
 | Arquivo | Papel |
 |---|---|
 | `Dockerfile` | Imagem com as dependências de produção (sem testes nem dados locais, ver `.dockerignore`) |
-| `fly.toml` | Máquina de 512 MB que para sem tráfego, checagem em `/saude`, migrações no `release_command` |
+| `fly.toml` | Máquina de 512 MB que para sem tráfego, checagem em `/saude`; o `release_command` aplica as migrações e recria a demonstração |
 | `.github/workflows/ci.yml` | Testes e build da imagem em todo push para `main` e em PRs |
 | `.github/workflows/deploy.yml` | Deploy manual (botão *Run workflow* no GitHub) |
 
@@ -48,8 +48,17 @@ fly secrets set \
 fly deploy --ha=false                   # uma máquina só (o worker roda nela)
 ```
 
-O `release_command` roda `alembic upgrade head` antes de cada versão entrar no ar; se a
-migração falhar, a versão anterior continua servindo.
+O `release_command` roda `alembic upgrade head` e `python admin.py recriar-demo` antes de
+cada versão entrar no ar; se algum dos dois falhar, a versão anterior continua servindo.
+
+## Conta de demonstração
+
+`admin.py recriar-demo` apaga e recria a conta de demonstração com uma carteira inventada
+(`demo.py`): dois anos de notas e extrato da B3 com datas relativas a hoje, passando pelos
+mesmos carregadores de um envio. O login mostra o botão "Ver demonstração", que entra sem
+senha; a conta é somente leitura (toda escrita responde 403, exceto sair). Como cada deploy
+a recria, as datas acompanham o calendário; sem deploys, rode o comando por `fly ssh console`
+para atualizá-la. Para tirar a demonstração do ar, apague a conta marcada com `demo`.
 
 Crie a primeira conta (o cadastro público está fechado):
 
