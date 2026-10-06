@@ -10,6 +10,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 os.environ["CPF_HMAC_KEY"] = "chave-de-teste-" + "x" * 32
+# Production default, so a local .env with COOKIE_SECURE=false cannot hide
+# a test that only passes over plain http.
+os.environ["COOKIE_SECURE"] = "true"
 # Pages never trigger real price downloads during tests.
 os.environ["CARTEIRA_COTACOES"] = "false"
 

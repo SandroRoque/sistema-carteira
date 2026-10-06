@@ -13,11 +13,13 @@ from database import connect_sistema, execute, scalar
 from fabricas import documento, negociacao
 from loader import carregar
 
-_ORIGEM = {"Origin": "http://testserver"}
+_BASE = "https://testserver"
+_ORIGEM = {"Origin": _BASE}
 
 
 def _cliente() -> TestClient:
-    return TestClient(app, headers=_ORIGEM)
+    # HTTPS like production: the session cookie is Secure (COOKIE_SECURE).
+    return TestClient(app, base_url=_BASE, headers=_ORIGEM)
 
 
 def _login(client: TestClient, email: str = "ana@example.com", senha: str = SENHA) -> str:
