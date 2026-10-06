@@ -40,6 +40,12 @@ Fração em Ativos (Débito)
     → paired with Leilão de Fração (Crédito); only the latter is processed
 Recibo de Subscrição
     → closed when its shares are credited (subscricoes.py); B3 has no debit
+Direitos de Subscrição - Não Exercido
+    → B3 writes it with quantity 0: it closes whatever was left of the right
+Cessão de Direitos / Cessão de Direitos - Solicitada
+    → same-day Crédito and Débito of the same quantity at the same broker,
+      no value: a procedural pair that nets to zero, not a sale (a sale of
+      rights comes on a trade note). Ignored
 
 Every query is scoped to a single investidor_id.
 """
@@ -149,7 +155,16 @@ def _subscricao_posicoes(conn: Connection, investidor_id: int) -> dict[int, dict
                     'Direitos de Subscrição - Exercido',
                     'Solicitação de Subscrição'
                 ) AND b.valor IS NOT NULL
-                THEN b.valor ELSE 0 END)                                         AS custo_exercicio
+                THEN b.valor ELSE 0 END)                                         AS custo_exercicio,
+            -- The period ended after the last grant: whatever was not
+            -- exercised expired (B3 writes these rows with quantity 0).
+            COALESCE(MAX(CASE WHEN b.movimentacao IN (
+                    'Direitos de Subscrição - Não Exercido',
+                    'Direito Sobras de Subscrição - Não Exercido'
+                ) THEN b.data END)
+                >= MAX(CASE WHEN b.movimentacao IN (
+                    'Direito de Subscrição', 'Direito Sobras de Subscrição'
+                ) THEN b.data END), false)                                       AS expirou
         FROM b3_movimentacoes b
         JOIN ativos a ON a.id = b.ativo_id
         WHERE b.investidor_id = :investidor_id
@@ -346,6 +361,8 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
             custo_exerc    = sub.get("custo_exercicio") or 0
 
             qty_atual      = qty_entrada - qty_saida - recibos_convertidos.get(ativo_id, 0)
+            if sub.get("expirou"):
+                qty_atual = 0
             pos["qty"]       = qty_atual
             pos["custo_total"] = custo_exerc
             pos["is_open"]   = qty_atual > 0.001

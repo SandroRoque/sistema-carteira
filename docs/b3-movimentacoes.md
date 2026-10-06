@@ -66,6 +66,13 @@ Events travel in lifecycle order: grant → (exercise | expiry).
 | `Direito Sobras de Subscrição - Não Exercido` | Debito | Leftover rights expired |
 | `Solicitação de Subscrição` | Credito | Subscription request lodged |
 | `Recibo de Subscrição` | Credito | Subscription receipt (shares pending) |
+| `Cessão de Direitos - Solicitada` | Debito | Seen the day before expiry, paired with… |
+| `Cessão de Direitos` | Credito | …a credit of the same quantity, same day and broker, no value |
+
+`Não Exercido` rows always carry quantity 0: they close whatever was left of
+the right. The `Cessão de Direitos` pair nets to zero and carries no value
+(seen on rights left to expire);
+it is ignored. A sale of rights would come on a trade note.
 
 The new shares arrive later as an `Atualização` Credito on the stock itself;
 B3 never debits the receipt. `subscricoes.py` matches each exercise with the

@@ -54,3 +54,22 @@ def test_custo_medio_reinicia_apos_zerar_posicao(usuario_id, investidor_a):
     assert pos["qty"] == 100
     assert pos["preco_medio"] == pytest.approx(20.0)
     assert pos["custo_total"] == pytest.approx(2000.0)
+
+
+def test_direito_nao_exercido_fecha_mesmo_com_quantidade_zero(investidor_a):
+    import pandas as pd
+
+    from carrega_b3 import carregar_arquivo
+    from test_carrega_b3 import _COLUNAS
+
+    linhas = [
+        ("Credito", "12/02/2025", "Direito de Subscrição", "WXYZ1 - WXYZ S/A", "NU", 7, "-", "-"),
+        # Procedural pair the day before expiry: nets to zero, no value.
+        ("Credito", "10/03/2025", "Cessão de Direitos", "WXYZ1 - WXYZ S/A", "NU", 7, "-", "-"),
+        ("Debito", "10/03/2025", "Cessão de Direitos - Solicitada", "WXYZ1 - WXYZ S/A", "NU", 7, "-", "-"),
+        ("Debito", "11/03/2025", "Direitos de Subscrição - Não Exercido", "WXYZ1 - WXYZ S/A", "NU", 0, "-", "-"),
+    ]
+    with connect_sistema() as conn:
+        carregar_arquivo(conn, investidor_a, pd.DataFrame(linhas, columns=_COLUNAS), "mov.xlsx")
+        [p] = [p for p in calcular_posicoes(conn, investidor_a) if p["ticker"] == "WXYZ1"]
+    assert (p["qty"], p["is_open"]) == (0, False)
