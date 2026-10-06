@@ -29,6 +29,8 @@ _TIPO_LABEL = {
     "acao":               "AÇÕES",
     "fii":                "FIIs",
     "bdr":                "BDRs",
+    "etf":                "ETFs",
+    "fundo":              "OUTROS FUNDOS",
     "tesouro_direto":     "TESOURO DIRETO",
     "renda_fixa":         "RENDA FIXA",
     "recibo_subscricao":  "RECIBOS DE SUBSCRIÇÃO",
@@ -36,7 +38,7 @@ _TIPO_LABEL = {
 }
 
 _TIPO_ORDER = [
-    "acao", "fii", "bdr", "tesouro_direto",
+    "acao", "fii", "bdr", "etf", "fundo", "tesouro_direto",
     "renda_fixa", "recibo_subscricao", "direito_subscricao",
 ]
 
@@ -205,7 +207,7 @@ def exibir_portfolio(
 
         precos: dict[str, Decimal | None] | None = None
         if com_cotacoes:
-            equity_tipos = {"acao", "fii", "bdr", "tesouro_direto"}
+            equity_tipos = {"acao", "fii", "bdr", "etf", "fundo", "tesouro_direto"}
             tickers = [
                 p["ticker"]
                 for p in posicoes
@@ -257,7 +259,7 @@ def exibir_portfolio(
         print(header_line)
         print(_SEP * width)
 
-        if tipo in ("acao", "fii", "bdr", "tesouro_direto"):
+        if tipo in ("acao", "fii", "bdr", "etf", "fundo", "tesouro_direto"):
             hdr = _HDR_EQUITY_COTACOES if precos is not None else _HDR_EQUITY
             print(hdr)
             print(_SEP * width)

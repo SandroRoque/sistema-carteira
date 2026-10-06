@@ -32,16 +32,20 @@ ZERO = Decimal(0)
 CENTAVO = Decimal("0.01")
 
 # Ativo tipos that count as regular stock-exchange operations.
-_TIPOS_BOLSA = ("acao", "bdr", "fii", "direito_subscricao", "recibo_subscricao")
+_TIPOS_BOLSA = ("acao", "bdr", "fii", "etf", "direito_subscricao", "recibo_subscricao")
 
 
-def categoria(tipo: str, ticker: str | None) -> str:
-    """'acao' (exemption-eligible stock), 'comum' (BDR, unit, right) or 'fii'."""
+def categoria(tipo: str, ticker: str | None, subtipo: str | None = None) -> str | None:
+    """'acao' (exemption-eligible stock), 'comum' (BDR, unit, ETF, right),
+    'fii' (FII, Fiagro), or None for what the monthly DARF leaves out
+    (fixed-income ETFs and other funds: R.FORA_DO_DARF_MENSAL)."""
     if tipo == "fii":
         return "fii"
-    if tipo == "acao" and not (ticker or "").endswith("11"):
+    if tipo == "fundo" or (tipo == "etf" and subtipo == "renda_fixa"):
+        return None
+    if tipo == "acao" and subtipo != "unit" and not (ticker or "").endswith("11"):
         return "acao"
-    # Units (ticker ending in 11) and everything else regular: no exemption.
+    # Units, ETFs (R.ETF_SEM_ISENCAO) and everything else regular: no exemption.
     return "comum"
 
 
@@ -270,14 +274,16 @@ def vencimento(mes_apuracao: date) -> date:
 def apuracao(conn: Connection, investidor_id: int) -> list[Mes]:
     catalogo = {
         r["id"]: r for r in fetch_all(
-            conn, "SELECT id, ticker, nome, tipo FROM ativos WHERE tipo = ANY(:t)", t=list(_TIPOS_BOLSA)
+            conn, "SELECT id, ticker, nome, tipo, subtipo FROM ativos WHERE tipo = ANY(:t)", t=list(_TIPOS_BOLSA)
         )
     }
     vendas, day_trade = [], defaultdict(list)
     for ativo_id, s in saldos(conn, investidor_id, tipos=_TIPOS_BOLSA).items():
         a = catalogo[ativo_id]
         rotulo = a["ticker"] or a["nome"] or ""
-        cat = categoria(a["tipo"], a["ticker"])
+        cat = categoria(a["tipo"], a["ticker"], a["subtipo"])
+        if cat is None:
+            continue
         for b in s.baixas:
             if b.evento.tipo not in ("venda", "fracao") or b.evento.custo is None or not b.evento.quantidade:
                 continue  # a sale fully matched as day trade is not a regular sale

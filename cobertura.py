@@ -34,7 +34,7 @@ JANELA_LIQUIDACAO = timedelta(days=7)
 # lists only days with movements, so short silences are normal.
 LACUNA_MINIMA = timedelta(days=10)
 
-_TIPOS_NEGOCIADOS = ("acao", "fii", "bdr")
+_TIPOS_NEGOCIADOS = ("acao", "fii", "bdr", "etf", "fundo")
 
 
 @dataclass(frozen=True)

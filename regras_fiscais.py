@@ -11,6 +11,8 @@ Primary sources consulted on 2026-10-06:
                 (2026-04-23), questions 706, 707, 709, 730.
   IN-1585       Instrução Normativa RFB nº 1.585/2015, arts. 37 and 56.
   L-9430        Lei nº 9.430/1996, art. 68.
+  L-8668        Lei nº 8.668/1993, art. 20-D (incluído pela Lei nº 14.130/2021),
+                texto atualizado no portal da Câmara dos Deputados.
 """
 
 from __future__ import annotations
@@ -48,6 +50,30 @@ UNITS_SEM_ISENCAO = Regra(
     "Solução de Consulta COSIT nº 145/2021 (via fonte secundária; conferir o texto)",
     False,
 )
+
+# ETFs (fundos de índice de ações, BOVA11, IVVB11): regular operations at
+# 15%, never the stock exemption.
+ETF_SEM_ISENCAO = Regra(
+    "ETFs de ações tributados sem isenção",
+    "PR-IRPF-2026 q.707 (Atenção); IN-1585 art. 59, §2º",
+    True,
+)
+
+# Fixed-income ETFs (Lei 13.043/2014 art. 2º, e.g. IMAB11) are taxed as
+# fixed income, and infrastructure funds (Lei 12.431/2011) at 0% for
+# individuals: neither goes in the monthly DARF, so the app leaves them out
+# (tipo 'fundo', and 'etf' with subtipo 'renda_fixa').
+FORA_DO_DARF_MENSAL = Regra(
+    "ETFs de renda fixa e fundos de infraestrutura fora da apuração mensal",
+    "PR-IRPF-2026 q.736 (Atenção 1 e 2), q.738, V",
+    True,
+)
+
+# Fiagro quota sales: 20%, under the variable-income rules, like FIIs.
+ALIQUOTA_FIAGRO = Regra(Decimal("0.20"), "L-8668 art. 20-D", True)
+# Whether Fiagro and FII losses offset each other: assumed yes (same 20%
+# bucket) until confirmed.
+COMPENSACAO_FIAGRO_COM_FII = Regra("Fiagro com FII", "a confirmar", False)
 
 # Subscription rights sold in bolsa: treated as regular operations without
 # the exemption until confirmed.

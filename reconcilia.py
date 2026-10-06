@@ -57,7 +57,7 @@ def _check_sem_negociacoes(conn: Connection, investidor_id: int) -> list[dict]:
         JOIN b3_movimentacoes bm ON bm.ativo_id = a.id AND bm.investidor_id = :investidor_id
         LEFT JOIN negociacoes n   ON n.ativo_id  = a.id AND n.investidor_id  = :investidor_id
         WHERE n.id IS NULL
-          AND a.tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto')
+          AND a.tipo IN ('acao', 'fii', 'bdr', 'etf', 'fundo', 'tesouro_direto')
           AND bm.movimentacao NOT IN (
               'Transferência - Liquidação', 'Atualização',
               'COMPRA / VENDA', 'Compra', 'Resgate', 'VENCIMENTO'

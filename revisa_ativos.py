@@ -29,7 +29,7 @@ _EDIT_FIELDS = [
     "vencimento",
 ]
 
-_TIPOS = ["acao", "fii", "bdr", "renda_fixa", "tesouro_direto", "desconhecido"]
+_TIPOS = ["acao", "fii", "bdr", "etf", "fundo", "renda_fixa", "tesouro_direto", "desconhecido"]
 
 
 def _clear() -> None:

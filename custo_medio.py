@@ -74,7 +74,7 @@ _ORDEM_NO_DIA = {
     **{t: 2 for t in _SAIDAS}, "conversao_saida": 3,
 }
 
-EQUITY_TIPOS = ("acao", "fii", "bdr", "tesouro_direto")
+EQUITY_TIPOS = ("acao", "fii", "bdr", "etf", "fundo", "tesouro_direto")
 
 
 @dataclass(frozen=True)

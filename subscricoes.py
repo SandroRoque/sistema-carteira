@@ -104,7 +104,7 @@ def carregar(conn: Connection, investidor_id: int, ate: date | None = None) -> l
           AND (CAST(:ate AS date) IS NULL OR b.data <= :ate)
           AND (b.movimentacao = ANY(:exercicios) OR b.movimentacao = 'Recibo de Subscrição'
                OR (b.movimentacao = 'Atualização' AND b.sentido = 'Credito'
-                   AND a.tipo IN ('acao', 'fii', 'bdr')))
+                   AND a.tipo IN ('acao', 'fii', 'bdr', 'etf', 'fundo')))
         """,
         i=investidor_id, ate=ate, exercicios=list(_EXERCICIOS),
     )

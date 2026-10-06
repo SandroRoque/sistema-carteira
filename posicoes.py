@@ -63,7 +63,7 @@ from database import fetch_all
 # Constants
 # ---------------------------------------------------------------------------
 
-_EQUITY_TIPOS = {"acao", "fii", "bdr", "tesouro_direto"}
+_EQUITY_TIPOS = {"acao", "fii", "bdr", "etf", "fundo", "tesouro_direto"}
 _SUBSCRICAO_TIPOS = {"direito_subscricao", "recibo_subscricao"}
 
 

@@ -20,6 +20,8 @@ TIPO_LABEL = {
     "acao": "Ações",
     "fii": "FIIs",
     "bdr": "BDRs",
+    "etf": "ETFs",
+    "fundo": "Outros fundos",
     "tesouro_direto": "Tesouro Direto",
     "renda_fixa": "Renda fixa",
     "recibo_subscricao": "Recibos de Subscrição",

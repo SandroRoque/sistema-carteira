@@ -70,7 +70,7 @@ def test_le_os_registros_do_mercado_a_vista():
         ("20160718", "EMPX3F", "020", "EMPRESA X", "ON      NM"),  # fractional: skipped
         ("20160718", "EMPXH20", "070", "EMPX", "ON"),  # option: skipped
     )
-    assert list(eb3._linhas_cotahist(conteudo)) == [(date(2016, 7, 18), "EMPX3", "EMPRESA X", ["ON", "NM"])]
+    assert list(eb3._linhas_cotahist(conteudo)) == [(date(2016, 7, 18), "EMPX3", "EMPRESA X", ["ON", "NM"], "02")]
 
 
 def test_carga_da_nota_resolve_o_nome_para_o_ticker(tabela, usuario_id):

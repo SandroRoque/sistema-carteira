@@ -245,7 +245,7 @@ def _buscar_vendas_mensais(conn: Connection, investidor_id: int, ano: int | None
         JOIN ativos a ON a.id = n.ativo_id
         WHERE n.investidor_id = :investidor_id
           AND n.sentido = 'saida'
-          AND a.tipo IN ('acao', 'fii', 'bdr')
+          AND a.tipo IN ('acao', 'fii', 'bdr', 'etf')
           AND (CAST(:ano AS integer) IS NULL OR EXTRACT(YEAR FROM n.data) = :ano)
         GROUP BY mes, a.tipo
         ORDER BY mes
@@ -269,7 +269,7 @@ def _pct(v: Decimal | None) -> str:
 
 
 def _aliquota(tipo: str) -> Decimal | None:
-    return {"acao": _ALIQUOTA_ACOES, "fii": _ALIQUOTA_FII, "bdr": _ALIQUOTA_BDR}.get(tipo)
+    return {"acao": _ALIQUOTA_ACOES, "fii": _ALIQUOTA_FII, "bdr": _ALIQUOTA_BDR, "etf": _ALIQUOTA_BDR}.get(tipo)
 
 
 def _exibir_rendimentos_secao(

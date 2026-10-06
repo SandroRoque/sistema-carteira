@@ -59,8 +59,20 @@ class Especificacao:
 # Building the table from COTAHIST
 # ---------------------------------------------------------------------------
 
+def baixar(ano: int) -> bytes:
+    """One year of COTAHIST, zipped."""
+    print(f"COTAHIST {ano}...", file=sys.stderr)
+    # B3 refuses urllib's default User-Agent.
+    pedido = urllib.request.Request(URL.format(ano=ano), headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(pedido, timeout=600) as resposta:
+        return resposta.read()
+
+
 def _linhas_cotahist(conteudo: bytes):
-    """(date, ticker, name, specification) of each cash-market quote."""
+    """(date, ticker, name, specification, market group) of each cash-market quote.
+
+    The market group (CODBDI) is B3's own grouping: 02 lot-standard
+    stocks and units, 12 FIIs, 14 ETFs and other funds."""
     with zipfile.ZipFile(io.BytesIO(conteudo)) as z:
         nome = z.namelist()[0]
         with z.open(nome) as f:
@@ -68,19 +80,14 @@ def _linhas_cotahist(conteudo: bytes):
                 if not bruta.startswith("01") or bruta[24:27] != _MERCADO_A_VISTA:
                     continue
                 dia = date(int(bruta[2:6]), int(bruta[6:8]), int(bruta[8:10]))
-                yield dia, bruta[12:24].strip(), bruta[27:39].strip(), bruta[39:49].split()
+                yield dia, bruta[12:24].strip(), bruta[27:39].strip(), bruta[39:49].split(), bruta[10:12]
 
 
 def gerar(anos: list[int], destino: Path = ARQUIVO) -> int:
     """Download COTAHIST for these years and write the table. Returns its row count."""
     vistos: dict[tuple[str, str, str], list[date]] = {}
     for ano in anos:
-        print(f"COTAHIST {ano}...", file=sys.stderr)
-        # B3 refuses urllib's default User-Agent.
-        pedido = urllib.request.Request(URL.format(ano=ano), headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(pedido, timeout=600) as resposta:
-            conteudo = resposta.read()
-        for dia, ticker, nome, especi in _linhas_cotahist(conteudo):
+        for dia, ticker, nome, especi, _ in _linhas_cotahist(baixar(ano)):
             if not especi or especi[0] not in CLASSES:
                 continue
             chave = (nome, especi[0], ticker)

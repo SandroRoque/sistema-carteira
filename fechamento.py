@@ -29,7 +29,7 @@ from database import connect_sistema, fetch_all
 from custo_medio import saldos
 from posicoes import ativos_do_investidor
 
-_EQUITY_TIPOS = {"acao", "fii", "bdr", "tesouro_direto"}
+_EQUITY_TIPOS = {"acao", "fii", "bdr", "etf", "fundo", "tesouro_direto"}
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +283,8 @@ def exibir_fechamento(data_fim: date, data_inicio_ano: date, label: str) -> None
         ("acao",           "AÇÕES"),
         ("fii",            "FIIs"),
         ("bdr",            "BDRs"),
+        ("etf",            "ETFs"),
+        ("fundo",          "OUTROS FUNDOS"),
         ("tesouro_direto", "TESOURO DIRETO"),
     ]
 

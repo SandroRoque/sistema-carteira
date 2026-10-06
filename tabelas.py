@@ -182,7 +182,7 @@ ativos = Table(
     Column("vencimento", Date),
     Column("revisado", Boolean, nullable=False, server_default="false"),
     CheckConstraint(
-        "tipo IN ('acao', 'fii', 'bdr', 'tesouro_direto', 'renda_fixa', "
+        "tipo IN ('acao', 'fii', 'bdr', 'etf', 'fundo', 'tesouro_direto', 'renda_fixa', "
         "'recibo_subscricao', 'direito_subscricao', 'opcao', 'desconhecido')",
         name="tipo_valido",
     ),

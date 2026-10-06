@@ -20,6 +20,9 @@
   <a href="/impostos" aria-current="page">Mês a mês (DARF)</a>
 </nav>
 {{ m.aviso_opcoes(negocios_com_opcoes, "não entra" ~ ("m" if negocios_com_opcoes > 1 else "") ~ " nesta apuração: confira o imposto delas à parte.") }}
+{% if fora_do_darf %}
+<p class="aviso">{{ m.icone_aviso() }}<span class="texto">Vendas de {{ fora_do_darf | join(", ") }} não entram nesta apuração: ETFs de renda fixa e fundos de infraestrutura, FIP ou FIDC são tributados de outra forma.</span></p>
+{% endif %}
 
 {% for d in abertos %}
 {% set vencido = d.vencimento < hoje %}
@@ -27,7 +30,7 @@
   <div>
     <h2 id="darf-{{ loop.index }}">DARF de {{ d.mes | mes_ano }}: {{ d.darf | brl }} {{ "venceu em" if vencido else "até" }} {{ d.vencimento | data }}</h2>
     <p class="sub">
-      {%- if d.base_comum %}15% de {{ d.base_comum | brl }} em ações, BDRs e units{% endif %}
+      {%- if d.base_comum %}15% de {{ d.base_comum | brl }} em ações, BDRs, units e ETFs{% endif %}
       {%- if d.base_comum and d.base_fii %} + {% endif %}
       {%- if d.base_fii %}20% de {{ d.base_fii | brl }} em FIIs{% endif %}
       {%- if d.prejuizo_comum_usado or d.prejuizo_fii_usado %}, já descontado {{ (d.prejuizo_comum_usado + d.prejuizo_fii_usado) | brl }} de prejuízo anterior{% endif %}
@@ -56,7 +59,7 @@
 
 <section class="grade-cards compacta" aria-label="Saldos">
   <div class="stat">
-    <span class="rotulo">Prejuízo a compensar · ações, BDRs, units</span>
+    <span class="rotulo">Prejuízo a compensar · ações, BDRs, units, ETFs</span>
     <strong class="valor">{{ prejuizo_comum | brl }}</strong>
     {% if origem_prejuizo_comum %}<span class="detalhe">de {{ origens(origem_prejuizo_comum, ["acao", "comum"]) }}</span>{% endif %}
   </div>
@@ -84,7 +87,7 @@
   <div class="rolagem">
     <table class="larga">
       <thead>
-        <tr><th>Mês</th><th class="num">Vendas de ações</th><th class="num">Resultado ações</th><th class="num">BDRs e units<small>sem isenção</small></th><th class="num">FIIs</th><th class="num">Imposto</th><th>Situação</th></tr>
+        <tr><th>Mês</th><th class="num">Vendas de ações</th><th class="num">Resultado ações</th><th class="num">BDRs, units e ETFs<small>sem isenção</small></th><th class="num">FIIs e Fiagros</th><th class="num">Imposto</th><th>Situação</th></tr>
       </thead>
       <tbody>
         {% for mes in meses %}

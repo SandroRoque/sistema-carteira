@@ -4,6 +4,7 @@ from datetime import date
 
 from sqlalchemy import Connection
 
+import classes_b3
 import especificacoes_b3
 import tabelas
 from contas import get_or_create_investidor
@@ -28,12 +29,19 @@ def _extrair_ticker(raw: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _infer_tipo(ticker: str | None, doc_type: str) -> str:
-    """Infer asset type from ticker pattern and document type."""
+def _classificar(ticker: str | None, doc_type: str) -> tuple[str, str | None]:
+    """(tipo, subtipo) of a new ativo, from B3's class table or the ticker pattern."""
     if doc_type == "TituloPublico":
-        return "tesouro_direto"
+        return "tesouro_direto", None
     if doc_type == "TituloPrivado":
-        return "renda_fixa"
+        return "renda_fixa", None
+    if ticker and (classe := classes_b3.classe(ticker)):
+        return classe
+    return _infer_tipo(ticker), None
+
+
+def _infer_tipo(ticker: str | None) -> str:
+    """Asset type from the ticker suffix, for tickers B3's table does not know."""
     if ticker:
         if ticker.endswith("11"):
             return "fii"
@@ -141,7 +149,7 @@ def resolve_ou_criar_ativo(
         ticker = especificacoes_b3.subjacente(raw_ticker, data)
     else:
         ticker = _extrair_ticker(raw_ticker) or especificacoes_b3.resolver(raw_ticker, data)
-    tipo = _infer_tipo(ticker, doc_type)
+    tipo, subtipo = _classificar(ticker, doc_type)
 
     # 3. If we have a canonical ticker, reuse an existing ativo with that ticker
     #    to avoid fragmentation (e.g. "PETR4F PN N2" and "PETR4F PN EDJ N2"
@@ -156,15 +164,16 @@ def resolve_ou_criar_ativo(
         conn,
         """
         INSERT INTO ativos
-            (tipo, ticker, nome, cnpj_emissor, emissor, indexador,
+            (tipo, subtipo, ticker, nome, cnpj_emissor, emissor, indexador,
              taxa_prefixada, percentual_do_indexador, emissao, vencimento, revisado)
         VALUES
-            (:tipo, :ticker, :nome, :cnpj_emissor, :emissor, :indexador,
+            (:tipo, :subtipo, :ticker, :nome, :cnpj_emissor, :emissor, :indexador,
              :taxa_prefixada, :percentual_do_indexador, :emissao, :vencimento, false)
         ON CONFLICT (ticker) DO NOTHING
         RETURNING id
         """,
         tipo=tipo,
+        subtipo=subtipo,
         ticker=ticker,
         nome=raw_ticker,
         cnpj_emissor=cnpj_emissor,

@@ -212,13 +212,17 @@ SICALC = "https://sicalc.receita.economia.gov.br/sicalc/principal"
 
 def _regras() -> list[tuple[str, regras_fiscais.Regra]]:
     nomes = {
-        "ALIQUOTA_OPERACOES_COMUNS": "Ações, BDRs e units: 15% sobre o lucro",
+        "ALIQUOTA_OPERACOES_COMUNS": "Ações, BDRs, units e ETFs: 15% sobre o lucro",
         "LIMITE_ISENCAO_ACOES": "Ações: isentas se as vendas de ações no mês somarem até R$ 20 mil. BDRs, ETFs e FIIs não têm essa isenção, mesmo com vendas pequenas",
         "UNITS_SEM_ISENCAO": "Units (ex.: TAEE11) não têm a isenção de ações",
+        "ETF_SEM_ISENCAO": "ETFs de ações (ex.: BOVA11) não têm a isenção de ações",
         "DIREITOS_SEM_ISENCAO": "Direitos de subscrição vendidos: sem isenção",
         "ALIQUOTA_FII": "FIIs: 20% sobre o lucro, sem isenção",
-        "COMPENSACAO_COMUNS": "Prejuízos de ações, BDRs e units abatem lucros futuros dessas operações",
+        "ALIQUOTA_FIAGRO": "Fiagros: 20% sobre o lucro, como FIIs",
+        "COMPENSACAO_COMUNS": "Prejuízos de ações, BDRs, units e ETFs abatem lucros futuros dessas operações",
         "COMPENSACAO_FII": "Prejuízos com FIIs só abatem lucros com FIIs",
+        "COMPENSACAO_FIAGRO_COM_FII": "Prejuízos com Fiagros e FIIs abatem lucros uns dos outros",
+        "FORA_DO_DARF_MENSAL": "ETFs de renda fixa (ex.: IMAB11) e fundos de infraestrutura têm outra tributação e não entram aqui",
         "IRRF_ALIQUOTA": "O 0,005% retido na fonte nas vendas é descontado do imposto",
         "DARF_MINIMO": "Imposto abaixo de R$ 10,00 não gera DARF: soma ao do mês seguinte",
         "VENCIMENTO": "Vencimento: último dia útil do mês seguinte, código 6015",
@@ -232,6 +236,7 @@ def impostos(request: Request, sessao: Sessao, investidor_id: InvestidorId, ano:
     with connect(sessao.usuario_id) as conn:
         meses = apuracao.apuracao(conn, investidor_id)
         com_opcoes = painel.negocios_com_opcoes(conn, investidor_id)
+        fora_do_darf = painel.vendidos_fora_do_darf(conn, investidor_id)
     hoje = date.today()
     anos = sorted({m.mes.year for m in meses}, reverse=True)
     if ano not in anos:
@@ -250,6 +255,7 @@ def impostos(request: Request, sessao: Sessao, investidor_id: InvestidorId, ano:
         "origem_prejuizo_fii": apuracao.origem_prejuizo(meses, fii=True),
         "origem_acumulado": apuracao.origem_acumulado(meses),
         "negocios_com_opcoes": com_opcoes,
+        "fora_do_darf": fora_do_darf,
         "pago_no_ano": sum((m.valor_pago or 0 for m in meses if m.pago_em and m.pago_em.year == ano), painel.ZERO),
         "hoje": hoje,
         "mes_atual": date(hoje.year, hoje.month, 1),

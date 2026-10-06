@@ -67,7 +67,7 @@ app.include_router(importar.router)
 app.include_router(paginas.router)
 
 _TIPOS = [
-    "acao", "fii", "bdr", "tesouro_direto", "renda_fixa",
+    "acao", "fii", "bdr", "etf", "fundo", "tesouro_direto", "renda_fixa",
     "recibo_subscricao", "direito_subscricao", "opcao", "desconhecido",
 ]
 

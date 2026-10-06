@@ -16,6 +16,7 @@ The FastAPI application is under `app/`; Jinja templates belong in `app/template
 - `uv run python carrega_notas.py`: parse configured PDFs and load the database idempotently.
 - `uv run python exporta_csvs.py`: create the diagnostic Excel export.
 - `uv run python especificacoes_b3.py 2015 2026`: rebuild `dados/especificacoes_b3.csv` (public B3 data, committed) from B3's COTAHIST files.
+- `uv run python classes_b3.py 2015 2026`: rebuild `dados/classes_b3.csv` (unit/ETF/FII/Fiagro/other fund for tickers ending in 11; public B3 data, committed) from COTAHIST and B3's instruments register.
 - `docker build -t sistema-carteira .`: build the production image; deploy steps are in `docs/deploy.md`.
 
 Copy `.env.example` to `.env` before running ingestion. Set `NOTAS_DIR` and `DATABASE_URL`; `CARTEIRA_USUARIO_EMAIL` / `CARTEIRA_INVESTIDOR_ID` select the tenant for CLI tools.

@@ -55,11 +55,18 @@ catalog field, never typed from memory.
 - **Units**: taxed without the R$ 20 mil exemption per Solução de Consulta COSIT
   145/2021, seen only through a secondary source; read the primary text
   (`UNITS_SEM_ISENCAO.verificado` is False and the page says so).
-- **Catalog classification**: the loader infers any ticker ending in 11 as a FII,
-  so units (TAEE11) and ETFs (BOVA11) land as FIIs and get the 20% FII rate.
-  The catalog needs a reviewed `tipo`/`subtipo` for units and ETFs (ETFs: 15%,
-  no exemption). `apuracao.categoria` already treats a stock-type ticker ending
-  in 11 as a unit.
+- **Catalog classification** comes from `dados/classes_b3.csv` (`classes_b3.py`).
+  Delisted tickers are known only through COTAHIST, which does not tell ETFs
+  from other funds: a delisted ETF lands as `fundo` (left out of the DARF, with
+  a notice) until an admin retypes it. Rebuild the table now and then so new
+  listings are covered; a ticker missing from it falls back to the suffix
+  (11 → FII).
+- **Fiagro losses** are pooled with FII losses (`COMPENSACAO_FIAGRO_COM_FII`):
+  confirm.
+- **Fixed-income ETFs and infrastructure funds / FIP-IE / FIDC** (tipo `fundo`,
+  or `etf` with subtipo `renda_fixa`) are kept in positions but not taxed:
+  their tax is withheld at source or zero for individuals. The legacy CLI
+  report (`imposto.py`) still applies 15% to every ETF.
 - **Subscription rights** sold in bolsa are treated as regular operations without
   exemption until confirmed (`DIREITOS_SEM_ISENCAO`).
 - **IRRF 0,005% left over** is carried only within the calendar year; confirm.

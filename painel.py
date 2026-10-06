@@ -36,6 +36,8 @@ CLASSES = {
     "acao": "Ações",
     "fii": "FIIs",
     "bdr": "BDRs",
+    "etf": "ETFs",
+    "fundo": "Outros fundos",
     "tesouro_direto": "Tesouro Direto",
     "renda_fixa": "Renda fixa",
     "subscricao": "Direitos e recibos de subscrição",
@@ -46,9 +48,9 @@ ALOCACAO = (
     ("FIIs", ("fii",), "s-2"),
     ("Renda fixa", ("renda_fixa", "tesouro_direto"), "s-3"),
     ("BDRs", ("bdr",), "s-4"),
-    ("Outros", ("subscricao",), "s-outros"),
+    ("Outros", ("etf", "fundo", "subscricao"), "s-outros"),
 )
-_COM_COTACAO = {"acao", "fii", "bdr"}
+_COM_COTACAO = {"acao", "fii", "bdr", "etf", "fundo"}
 _SUBSCRICAO = {"direito_subscricao", "recibo_subscricao"}
 
 CORRETORAS = {
@@ -83,6 +85,19 @@ def negocios_com_opcoes(conn: Connection, investidor_id: int) -> int:
         "WHERE n.investidor_id = :i AND a.tipo = 'opcao'",
         i=investidor_id,
     )
+
+
+def vendidos_fora_do_darf(conn: Connection, investidor_id: int) -> list[str]:
+    """Tickers sold that the monthly DARF leaves out: fixed-income ETFs and
+    other listed funds (regras_fiscais.FORA_DO_DARF_MENSAL)."""
+    return [r["rotulo"] for r in fetch_all(
+        conn,
+        "SELECT DISTINCT coalesce(a.ticker, a.nome) AS rotulo FROM negociacoes n "
+        "JOIN ativos a ON a.id = n.ativo_id "
+        "WHERE n.investidor_id = :i AND n.sentido = 'saida' "
+        "AND (a.tipo = 'fundo' OR (a.tipo = 'etf' AND a.subtipo = 'renda_fixa')) ORDER BY 1",
+        i=investidor_id,
+    )]
 
 
 def nome_exibicao(nome: str | None, ticker: str | None) -> str:

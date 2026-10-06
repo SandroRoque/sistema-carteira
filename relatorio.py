@@ -30,7 +30,7 @@ from posicoes import calcular_posicoes
 # ---------------------------------------------------------------------------
 
 _TIPO_ORDER = [
-    "acao", "fii", "bdr", "tesouro_direto",
+    "acao", "fii", "bdr", "etf", "fundo", "tesouro_direto",
     "renda_fixa", "recibo_subscricao", "direito_subscricao",
 ]
 
@@ -38,6 +38,8 @@ _TIPO_LABEL = {
     "acao":               "Ações",
     "fii":                "FIIs",
     "bdr":                "BDRs",
+    "etf":                "ETFs",
+    "fundo":              "Outros fundos",
     "tesouro_direto":     "Tesouro Direto",
     "renda_fixa":         "Renda Fixa",
     "recibo_subscricao":  "Recibos de Subscrição",
@@ -261,7 +263,7 @@ def _section_posicoes(
 
         sorted_pos = sorted(to_show, key=_display_name)
 
-        if tipo in ("acao", "fii", "bdr", "tesouro_direto"):
+        if tipo in ("acao", "fii", "bdr", "etf", "fundo", "tesouro_direto"):
             if with_prices:
                 headers = ["Ticker", "Qtd", "PM Custo", "Cotação", "Valor Merc.",
                            "P&L Lat.", "Ret. Total", "Rendimentos", "YoC%", "Alertas"]
@@ -545,7 +547,7 @@ def _section_ir(conn: Connection, investidor_id: int) -> str:
                 situacao = "IR retido na fonte"
             elif ganho is not None and ganho <= 0:
                 situacao = "Sem ganho"
-            elif tipo in ("acao", "bdr"):
+            elif tipo in ("acao", "bdr", "etf"):
                 situacao = "DARF 15%"
             elif tipo == "fii":
                 situacao = "DARF 20%"
@@ -590,7 +592,7 @@ def gerar_relatorio(todos: bool = False, com_cotacoes: bool = False) -> Path:
 
         precos: dict[str, Decimal | None] | None = None
         if com_cotacoes:
-            equity_tipos = {"acao", "fii", "bdr", "tesouro_direto"}
+            equity_tipos = {"acao", "fii", "bdr", "etf", "fundo", "tesouro_direto"}
             tickers = [
                 p["ticker"]
                 for p in posicoes
