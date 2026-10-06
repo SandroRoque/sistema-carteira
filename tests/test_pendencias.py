@@ -168,10 +168,13 @@ def com_incorporacao(usuario_id, investidor_a):
 def test_sugere_e_aplica_a_origem_de_uma_incorporacao(com_incorporacao, cliente):
     [p] = _listar(com_incorporacao)
     assert (p.tipo, p.rotulo) == ("sem_custo", "BBBB11")
-    assert p.origens[0][1:] == ("AAAA11", True)
+    assert p.origens[0][1] == "AAAA11"
+    assert p.origens[0][2] == ("a B3 também movimentou AAAA11 em 12/03/2024; "
+                               "AAAA11 saiu da carteira em 18/03/2024")
 
     pagina = cliente.get("/pendencias").text
     assert "Veio de outro ativo" in pagina and "AAAA11 (provável)" in pagina
+    assert "Por que AAAA11:" in pagina
 
     resp = cliente.post(f"/pendencias/conversoes/{p.credito_id}",
                         data={"csrf_token": cliente.csrf, "ativo_origem_id": p.origens[0][0]})
@@ -208,3 +211,15 @@ def test_nao_converte_credito_de_outra_conta(com_incorporacao, investidor_b):
     assert resp.status_code == 422
     with connect_sistema() as conn:
         assert scalar(conn, "SELECT COUNT(*) FROM conversoes") == 0
+
+
+def test_custo_zero_por_botao(com_transferencia, cliente):
+    [p] = _listar(com_transferencia)
+    assert "Recebi de graça" in cliente.get("/pendencias").text
+
+    resp = cliente.post(f"/pendencias/custos/{p.chave}", data={"csrf_token": cliente.csrf, "custo_por_cota": "0"})
+
+    assert resp.status_code == 200 and "Salvo." in resp.text
+    pos = _posicao(com_transferencia, "BBSE3")
+    assert (pos["custo_sem_origem"], pos["custo_total"]) == (False, 0)
+    assert _listar(com_transferencia) == []

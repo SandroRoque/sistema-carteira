@@ -26,6 +26,8 @@ from custo_medio import Saldo, saldos
 from database import execute, fetch_all, fetch_one, scalar
 from posicoes import calcular_posicoes
 
+_ZERO = Decimal("0.000001")
+
 # A B3 statement older than this is worth refreshing.
 EXTRATO_ANTIGO = timedelta(days=40)
 
@@ -41,9 +43,9 @@ class Pendencia:
     # sem_custo: only part of the position (other shares were bought).
     parcial: bool = False
     # sem_custo: the B3 credit, and the ativos held that day it may come
-    # from, as (ativo_id, rótulo, sugerido), likeliest first.
+    # from, as (ativo_id, rótulo, why it is likely or None), likeliest first.
     credito_id: int | None = None
-    origens: tuple[tuple[int, str, bool], ...] = ()
+    origens: tuple[tuple[int, str, str | None], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -67,23 +69,42 @@ def _qtd_em(saldo: Saldo, dia: date) -> Decimal:
     return qty
 
 
+def _zerou_em(saldo: Saldo, depois_de: date, ate: date) -> date | None:
+    """First day in (depois_de, ate] the position reached zero."""
+    for p in saldo.passos:
+        if depois_de < p.evento.data <= ate and p.qty <= _ZERO:
+            return p.evento.data
+    return None
+
+
 def _origens(replays: dict[int, Saldo], rotulos: dict[int, str], destino: int, dia: date,
-             movimentados: set[int]) -> tuple[tuple[int, str, bool], ...]:
+             movimentados: set[int]) -> tuple[tuple[int, str, str | None], ...]:
     """Ativos held on `dia` that a credit of `destino` may have replaced.
 
-    Likelier first: B3 moved it the same day (Atualização of both sides),
-    same company (same 4-letter ticker root), or it closed within a month."""
+    Evidence, strongest first: B3 moved it the same day (an incorporação
+    shows as Atualização of both sides), same company (same 4-letter ticker
+    root), and, only as support, its position closed within a month. It is
+    marked likely with one of the first two; the third alone is too common."""
     raiz = rotulos.get(destino, "")[:4]
     candidatos = []
     for ativo_id, s in replays.items():
-        if ativo_id == destino or _qtd_em(s, dia) <= Decimal("0.000001"):
+        if ativo_id == destino or _qtd_em(s, dia) <= _ZERO:
             continue
-        pontos = 2 * (ativo_id in movimentados) + 2 * (rotulos[ativo_id][:4] == raiz)
-        if _qtd_em(s, dia + timedelta(days=31)) <= Decimal("0.000001"):
-            pontos += 1
-        candidatos.append((-pontos, rotulos[ativo_id], ativo_id))
+        rotulo = rotulos[ativo_id]
+        motivos, forte = [], False
+        if ativo_id in movimentados:
+            motivos.append(f"a B3 também movimentou {rotulo} em {dia:%d/%m/%Y}")
+            forte = True
+        if rotulo[:4] == raiz:
+            motivos.append(f"mesmo código de empresa ({raiz})")
+            forte = True
+        zerou = _zerou_em(s, dia, dia + timedelta(days=31))
+        if zerou:
+            motivos.append(f"{rotulo} saiu da carteira em {zerou:%d/%m/%Y}")
+        pontos = 2 * len(motivos) - (zerou is not None)
+        candidatos.append((-pontos, rotulo, ativo_id, "; ".join(motivos) if forte else None))
     candidatos.sort()
-    return tuple((a, r, p < 0) for p, r, a in candidatos)
+    return tuple((a, r, m) for _, r, a, m in candidatos)
 
 
 def listar(conn: Connection, investidor_id: int) -> list[Pendencia]:
