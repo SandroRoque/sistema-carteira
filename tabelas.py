@@ -21,7 +21,8 @@ CPF, name, address, broker client code — is read during extraction and
 discarded; only what the reports need is persisted.
 
 ativos / ticker_aliases are a shared catalog: a listed instrument (PETR4) is
-the same for every investidor, so it is stored once.
+the same for every investidor, so it is stored once. So is the cotacoes
+price cache.
 
 Types
 -----
@@ -153,6 +154,16 @@ ticker_aliases = Table(
     metadata,
     Column("raw_text", Text, primary_key=True),
     Column("ativo_id", BigInteger, ForeignKey("ativos.id"), nullable=False, index=True),
+)
+
+# Market price cache (see cotacoes.py), shared by every account. preco is NULL
+# when the market data source does not know the ticker.
+cotacoes = Table(
+    "cotacoes",
+    metadata,
+    Column("ticker", Text, primary_key=True),
+    Column("preco", Numeric),
+    Column("atualizado_em", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
 # ---------------------------------------------------------------------------

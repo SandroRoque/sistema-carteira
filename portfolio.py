@@ -202,19 +202,19 @@ def exibir_portfolio(
     with connect_sistema() as conn:
         posicoes = calcular_posicoes(conn, investidor_do_cli(conn))
 
-    precos: dict[str, float | None] | None = None
-    if com_cotacoes:
-        equity_tipos = {"acao", "fii", "bdr", "tesouro_direto"}
-        tickers = [
-            p["ticker"]
-            for p in posicoes
-            if p["tipo"] in equity_tipos and p["ticker"] and p["is_open"]
-        ]
-        if tickers:
-            print(f"  Buscando cotações para {len(tickers)} ativos...", flush=True)
-            precos = buscar_cotacoes(tickers)
-            n_ok = sum(1 for v in precos.values() if v is not None)
-            print(f"  {n_ok}/{len(tickers)} preços obtidos.\n")
+        precos: dict[str, float | None] | None = None
+        if com_cotacoes:
+            equity_tipos = {"acao", "fii", "bdr", "tesouro_direto"}
+            tickers = [
+                p["ticker"]
+                for p in posicoes
+                if p["tipo"] in equity_tipos and p["ticker"] and p["is_open"]
+            ]
+            if tickers:
+                print(f"  Buscando cotações para {len(tickers)} ativos...", flush=True)
+                precos = buscar_cotacoes(conn, tickers)
+                n_ok = sum(1 for v in precos.values() if v is not None)
+                print(f"  {n_ok}/{len(tickers)} preços obtidos.\n")
 
     hoje = date.today().isoformat()
     width = 130 if precos is not None else 80

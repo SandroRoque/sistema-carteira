@@ -596,7 +596,7 @@ def gerar_relatorio(todos: bool = False, com_cotacoes: bool = False) -> Path:
             ]
             if tickers:
                 print(f"  Buscando cotações para {len(tickers)} ativos...", flush=True)
-                precos = buscar_cotacoes(tickers)
+                precos = buscar_cotacoes(conn, tickers)
                 n_ok = sum(1 for v in precos.values() if v is not None)
                 print(f"  {n_ok}/{len(tickers)} preços obtidos.")
 
