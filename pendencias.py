@@ -8,9 +8,13 @@ Pendências (counted in the header badge, each fixable inline):
                 Often an incorporação or conversão: the user can say which
                 ativo they came from and its cost carries over (conversoes)
   vendido_mais  more sold than bought: a purchase note is missing
+  sem_nota      a trade settled at B3 with no note: it counts in the
+                position at the B3 gross value, fees missing, until the note
+                (or a manual entry) arrives
+  divergente    a B3 settlement whose quantity disagrees with the notes
 
 Avisos (informational, not counted): a stale B3 statement, uploads that
-could not be read, B3 settlements with no note or disagreeing with it.
+could not be read.
 """
 
 from __future__ import annotations
@@ -46,6 +50,8 @@ class Pendencia:
     # from, as (ativo_id, rótulo, why it is likely or None), likeliest first.
     credito_id: int | None = None
     origens: tuple[tuple[int, str, str | None], ...] = ()
+    # sem_nota / divergente: the settlement.
+    liquidacao: cobertura.Liquidacao | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +63,11 @@ class Aviso:
 
 def _rotulo(r) -> str:
     return r["ticker"] or r["nome"] or ""
+
+
+def _rotulo_de(conn: Connection, ativo_id: int) -> str:
+    r = fetch_one(conn, "SELECT ticker, nome FROM ativos WHERE id = :id", id=ativo_id)
+    return _rotulo(r) if r else ""
 
 
 def _qtd_em(saldo: Saldo, dia: date) -> Decimal:
@@ -162,6 +173,13 @@ def listar(conn: Connection, investidor_id: int) -> list[Pendencia]:
             pendencias.append(Pendencia(
                 "vendido_mais", p["ativo_id"], p["ativo_id"], p["ticker"] or p["nome"], None, -p["qty"],
             ))
+    sem_nota, divergentes = cobertura.carregar(conn, investidor_id)
+    for tipo, liquidacoes in (("sem_nota", sem_nota), ("divergente", divergentes)):
+        for l in liquidacoes:
+            pendencias.append(Pendencia(
+                tipo, l.ativo_id, l.ativo_id, rotulos.get(l.ativo_id) or _rotulo_de(conn, l.ativo_id),
+                l.data, l.quantidade, liquidacao=l,
+            ))
     return pendencias
 
 
@@ -182,9 +200,6 @@ def avisos(conn: Connection, investidor_id: int, hoje: date | None = None) -> li
         i=investidor_id,
     ):
         resultado.append(Aviso("upload_erro", f"{r['nome_arquivo']}: {r['mensagem']}", r["criado_em"].date()))
-    sem_nota, divergentes = cobertura.carregar(conn, investidor_id)
-    if sem_nota or divergentes:
-        resultado.append(Aviso("liquidacoes", f"{len(sem_nota) + len(divergentes)}"))
     return resultado
 
 

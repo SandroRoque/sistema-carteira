@@ -82,6 +82,30 @@
   </form>
   {{ erro_do_item("sem_custo", p.chave) }}
 
+  {% elif p.tipo == "sem_nota" %}
+  {% set l = p.liquidacao %}
+  <div class="card-titulo">
+    <h2 id="p-{{ loop.index }}">{{ "Compra" if l.sentido == "entrada" else "Venda" }} de {{ p.qtd | qtd }} {{ p.rotulo }} sem nota</h2>
+    <span class="muted">Extrato B3 · liquidada em {{ p.data | data }}</span>
+  </div>
+  <p>O extrato da B3 mostra essa {{ "compra" if l.sentido == "entrada" else "venda" }}{% if l.valor is not none %} de <strong>{{ l.valor | brl }}</strong>{% endif %}, mas nenhuma nota de corretagem a acompanha. Ela já conta na carteira pelo valor da B3, <strong>sem as taxas</strong>: o preço médio{{ " e o resultado da venda ficam" if l.sentido == "saida" else " fica" }} aproximado{{ "s" if l.sentido == "saida" }} até a nota chegar.</p>
+  <p class="muted">Procure a nota do pregão de {{ l.data_pregao | data }} (dois dias úteis antes da liquidação) na corretora.</p>
+  <div class="botoes">
+    <a href="/importar" class="botao primario">Enviar a nota</a>
+    <a href="/negociacoes?ativo={{ p.ativo_id }}" class="botao">Lançar à mão</a>
+  </div>
+
+  {% elif p.tipo == "divergente" %}
+  <div class="card-titulo">
+    <h2 id="p-{{ loop.index }}">{{ p.rotulo }}: B3 e notas não batem</h2>
+    <span class="muted">Extrato B3 · liquidada em {{ p.data | data }}</span>
+  </div>
+  <p>A B3 liquidou {{ "uma compra" if p.liquidacao.sentido == "entrada" else "uma venda" }} de <strong>{{ p.qtd | qtd }}</strong>, mas as notas dos dias anteriores trazem outra quantidade. Ela ficou fora da carteira para não contar as mesmas ações duas vezes. Falta uma nota, ou uma nota foi lida errado.</p>
+  <div class="botoes">
+    <a href="/importar" class="botao primario">Enviar a nota</a>
+    <a href="/posicoes/{{ p.ativo_id }}" class="botao">Ver o histórico</a>
+  </div>
+
   {% elif p.tipo == "vendido_mais" %}
   <div class="card-titulo">
     <h2 id="p-{{ loop.index }}">Vendas de {{ p.rotulo }} maiores que as compras</h2>
@@ -108,11 +132,6 @@
     <div class="linha-campos">
       <p class="texto">O último extrato da B3 vai até <strong>{{ a.data | data }}</strong>. Proventos e eventos depois disso aparecem quando você enviar o próximo.</p>
       <a href="/importar" class="botao">Importar extrato</a>
-    </div>
-    {% elif a.tipo == "liquidacoes" %}
-    <div class="linha-campos">
-      <p class="texto">O extrato da B3 mostra {{ a.texto }} {{ "compra ou venda" if a.texto == "1" else "compras ou vendas" }} sem nota correspondente.</p>
-      <a href="/importar#cobertura" class="botao">Ver quais</a>
     </div>
     {% else %}
     <div class="linha-campos">

@@ -308,7 +308,23 @@ def _gravar_b3(conn: Connection, t: _Trabalho, linhas) -> tuple[str, str, int]:
     mensagem = f"{inseridas} movimentaç{'ão' if inseridas == 1 else 'ões'} importada{'' if inseridas == 1 else 's'}"
     if ignoradas:
         mensagem += f"; {ignoradas} de datas já importadas"
-    return "concluido", mensagem + ".", t.investidor_id
+    mensagem += "."
+    sem_nota = _sem_nota_no_periodo(conn, t.investidor_id, linhas)
+    if sem_nota:
+        mensagem += (f" {sem_nota} compra{'' if sem_nota == 1 else 's'} ou venda{'' if sem_nota == 1 else 's'}"
+                     f" sem nota de corretagem: veja Pendências.")
+    return "concluido", mensagem, t.investidor_id
+
+
+def _sem_nota_no_periodo(conn: Connection, investidor_id: int, linhas) -> int:
+    """B3 settlements in this report's period that no note matches."""
+    import cobertura
+
+    datas = [l.data for l in linhas]
+    if not datas:
+        return 0
+    sem_nota, divergentes = cobertura.carregar(conn, investidor_id)
+    return sum(min(datas) <= l.data <= max(datas) for l in sem_nota + divergentes)
 
 
 def _mensagem_de_falha(tipo: str, motivo: str) -> str:

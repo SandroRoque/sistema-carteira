@@ -120,4 +120,21 @@ def test_pagina_de_importacao_mostra_cobertura(usuario_id, investidor_a):
     pagina = c.get("/importar").text
     assert "O que os documentos cobrem" in pagina
     assert "17/09/2025" in pagina and "Compras e vendas na B3 sem nota" in pagina
-    assert "1 compra ou venda sem nota" in c.get("/pendencias").text
+    pendencias = c.get("/pendencias").text
+    assert "Compra de 10 PETR4 sem nota" in pendencias and "R$ 480,00" in pendencias
+    assert "1 pendência" in c.get("/").text
+
+
+def test_compra_sem_nota_conta_como_pendencia_ate_a_nota_chegar(usuario_id, investidor_a):
+    import pendencias
+
+    _b3(investidor_a,
+        ("Credito", "17/09/2025", "Transferência - Liquidação", "PETR4 - PETROBRAS", "NU", 10, 48.0, 480.0))
+    with connect_sistema() as conn:
+        [p] = pendencias.listar(conn, investidor_a)
+    assert (p.tipo, p.rotulo, p.qtd, p.liquidacao.data_pregao) == ("sem_nota", "PETR4", 10, date(2025, 9, 15))
+
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A, negociacao("PETR4", "entrada", 10, 48.0, date(2025, 9, 15)), data=date(2025, 9, 15)), "1.pdf")
+        assert pendencias.listar(conn, investidor_a) == []

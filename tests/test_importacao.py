@@ -424,3 +424,13 @@ def test_exportacao_lista_envios_sem_o_arquivo(cliente, usuario_id):
 
     assert [e["nome_arquivo"] for e in envios] == ["nota.pdf"]
     assert "conteudo" not in envios[0]
+
+
+def test_relatorio_b3_avisa_compras_sem_nota(usuario_id, investidor_a):
+    compra = ("Credito", "17/03/2026", "Transferência - Liquidação", "PETR4 - PETROBRAS", "NU", 10, 48.0, 480.0)
+    _registrar(usuario_id, _xlsx(_DIVIDENDO, compra), investidor_a)
+    processar_pendentes(_direto)
+
+    assert _upload()["mensagem"] == (
+        "2 movimentações importadas. 1 compra ou venda sem nota de corretagem: veja Pendências."
+    )
