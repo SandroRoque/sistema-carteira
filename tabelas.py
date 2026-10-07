@@ -90,6 +90,9 @@ usuarios = Table(
     Column("bloqueado_ate", DateTime(timezone=True)),
     # The public demo account (demo.py): read-only, entered without a password.
     Column("demo", Boolean, nullable=False, server_default="false"),
+    # Version of the terms of use the account accepted (auth.TERMOS_VERSAO), and when.
+    Column("termos_versao", Text),
+    Column("termos_aceitos_em", DateTime(timezone=True)),
     _criado_em(),
 )
 Index("uq_usuarios_email_lower", func.lower(usuarios.c.email), unique=True)

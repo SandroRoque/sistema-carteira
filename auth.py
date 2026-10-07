@@ -28,6 +28,10 @@ SENHA_MIN = 10
 SENHA_MAX = 256  # bounds Argon2 work per request
 
 _hasher = PasswordHasher()
+
+# Current terms of use (app/templates/termos.html). Changing the text in a way
+# that matters means bumping this: every account accepts again.
+TERMOS_VERSAO = "2026-10-06"
 # Verified when the e-mail does not exist, so response time does not reveal
 # which e-mails have accounts.
 _HASH_FICTICIO = _hasher.hash(secrets.token_urlsafe(16))
@@ -47,6 +51,12 @@ class Sessao:
     email: str
     # The public demo account: read-only (app.seguranca).
     demo: bool = False
+    # Version of the terms of use this account accepted, if any.
+    termos_versao: str | None = None
+
+    @property
+    def termos_pendentes(self) -> bool:
+        return not self.demo and self.termos_versao != TERMOS_VERSAO
 
 
 def _agora() -> datetime:
@@ -186,13 +196,21 @@ def obter_sessao(conn: Connection, token: str | None) -> Sessao | None:
     row = fetch_one(
         conn,
         """
-        SELECT s.usuario_id, s.investidor_id, s.csrf_token, u.e_admin, u.email, u.demo
+        SELECT s.usuario_id, s.investidor_id, s.csrf_token, u.e_admin, u.email, u.demo, u.termos_versao
         FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
         WHERE s.token_hash = :h AND s.expira_em > now()
         """,
         h=_hash_token(token),
     )
     return Sessao(**row) if row else None
+
+
+def aceitar_termos(conn: Connection, usuario_id: int) -> None:
+    execute(
+        conn,
+        "UPDATE usuarios SET termos_versao = :v, termos_aceitos_em = now() WHERE id = :id",
+        v=TERMOS_VERSAO, id=usuario_id,
+    )
 
 
 def usuario_demo(conn: Connection) -> int | None:

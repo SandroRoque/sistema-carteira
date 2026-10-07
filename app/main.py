@@ -37,8 +37,9 @@ from app.seguranca import (
     SemCarteira,
     SemPermissao,
     Sessao,
-    SomenteLeitura,
     SessaoAdmin,
+    SomenteLeitura,
+    TermosPendentes,
     redirecionar,
 )
 from app.templating import render, render_parcial
@@ -88,6 +89,11 @@ def _somente_leitura(request: Request, exc: SomenteLeitura):
         # HTMX does not swap error responses; app.js shows this in the demo banner.
         return PlainTextResponse(str(exc), status_code=403, headers={"X-Somente-Leitura": "1"})
     return render(request, "somente_leitura.html", {"mensagem": str(exc)}, 403)
+
+
+@app.exception_handler(TermosPendentes)
+def _termos_pendentes(request: Request, _exc: TermosPendentes):
+    return redirecionar(request, "/termos")
 
 
 @app.exception_handler(SemCarteira)

@@ -84,6 +84,7 @@ def cadastrar(
         try:
             with connect_sistema() as conn:
                 usuario_id = auth.criar_usuario(conn, email, senha)
+                auth.aceitar_termos(conn, usuario_id)
         except auth.ErroCadastro as exc:
             erro = str(exc)
     if erro:
@@ -103,6 +104,27 @@ def sair(request: Request, sessao: Sessao):
 @router.get("/privacidade")
 def privacidade(request: Request):
     return render(request, "privacidade.html")
+
+
+@router.get("/termos")
+def termos(request: Request):
+    """Public; a logged-in account that has not accepted them gets the form."""
+    with connect_sistema() as conn:
+        sessao = auth.obter_sessao(conn, request.cookies.get(COOKIE_SESSAO))
+    if sessao is not None:
+        request.state.sessao = sessao
+    return render(request, "termos.html", {"versao": date.fromisoformat(auth.TERMOS_VERSAO)})
+
+
+@router.post("/termos")
+def aceitar_termos(request: Request, sessao: Sessao, aceito: str = Form("")):
+    if aceito != "sim":
+        return render(request, "termos.html", {
+            "versao": date.fromisoformat(auth.TERMOS_VERSAO), "erro": "Marque a caixa para continuar.",
+        }, 422)
+    with connect_sistema() as conn:
+        auth.aceitar_termos(conn, sessao.usuario_id)
+    return redirecionar(request, "/")
 
 
 # ---------------------------------------------------------------------------

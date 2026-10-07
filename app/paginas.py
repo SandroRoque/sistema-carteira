@@ -208,28 +208,31 @@ def desfazer_conversao(request: Request, mov_id: int, sessao: Sessao, investidor
 # Impostos
 # ---------------------------------------------------------------------------
 
-SICALC = "https://sicalc.receita.economia.gov.br/sicalc/principal"
+SICALC = "https://sicalc.receita.fazenda.gov.br/sicalc/principal"
+
+
+_TEXTOS_REGRAS = {
+    "ALIQUOTA_OPERACOES_COMUNS": "Ações, BDRs, units e ETFs: 15% sobre o lucro",
+    "LIMITE_ISENCAO_ACOES": "Ações: isentas se as vendas de ações no mês somarem até R$ 20 mil. BDRs, ETFs e FIIs não têm essa isenção, mesmo com vendas pequenas",
+    "UNITS_SEM_ISENCAO": "Units (ex.: TAEE11) não têm a isenção de ações",
+    "ETF_SEM_ISENCAO": "ETFs de ações (ex.: BOVA11) não têm a isenção de ações",
+    "DIREITOS_SEM_ISENCAO": "Direitos de subscrição vendidos: sem isenção",
+    "ALIQUOTA_FII": "FIIs: 20% sobre o lucro, sem isenção",
+    "ALIQUOTA_FIAGRO": "Fiagros: 20% sobre o lucro, como FIIs",
+    "COMPENSACAO_COMUNS": "Prejuízos de ações, BDRs, units e ETFs abatem lucros futuros dessas operações",
+    "COMPENSACAO_FII": "Prejuízos com FIIs só abatem lucros com FIIs",
+    "COMPENSACAO_FIAGRO_COM_FII": "Prejuízos com Fiagros e FIIs abatem lucros uns dos outros",
+    "FORA_DO_DARF_MENSAL": "ETFs de renda fixa (ex.: IMAB11) e fundos de infraestrutura têm outra tributação e não entram aqui",
+    "IRRF_ALIQUOTA": "O 0,005% retido na fonte nas vendas é descontado do imposto",
+    "DARF_MINIMO": "Imposto abaixo de R$ 10,00 não gera DARF: soma ao do mês seguinte",
+    "VENCIMENTO": "Vencimento: último dia útil do mês seguinte, código 6015",
+    "CONVERSAO_CUSTO_TRANSFERIDO": "Incorporações e conversões: as novas cotas ou ações herdam o custo das antigas, sem venda",
+    "DAY_TRADE": "Day trade (compra e venda no mesmo dia e corretora) não é calculado",
+}
 
 
 def _regras() -> list[tuple[str, regras_fiscais.Regra]]:
-    nomes = {
-        "ALIQUOTA_OPERACOES_COMUNS": "Ações, BDRs, units e ETFs: 15% sobre o lucro",
-        "LIMITE_ISENCAO_ACOES": "Ações: isentas se as vendas de ações no mês somarem até R$ 20 mil. BDRs, ETFs e FIIs não têm essa isenção, mesmo com vendas pequenas",
-        "UNITS_SEM_ISENCAO": "Units (ex.: TAEE11) não têm a isenção de ações",
-        "ETF_SEM_ISENCAO": "ETFs de ações (ex.: BOVA11) não têm a isenção de ações",
-        "DIREITOS_SEM_ISENCAO": "Direitos de subscrição vendidos: sem isenção",
-        "ALIQUOTA_FII": "FIIs: 20% sobre o lucro, sem isenção",
-        "ALIQUOTA_FIAGRO": "Fiagros: 20% sobre o lucro, como FIIs",
-        "COMPENSACAO_COMUNS": "Prejuízos de ações, BDRs, units e ETFs abatem lucros futuros dessas operações",
-        "COMPENSACAO_FII": "Prejuízos com FIIs só abatem lucros com FIIs",
-        "COMPENSACAO_FIAGRO_COM_FII": "Prejuízos com Fiagros e FIIs abatem lucros uns dos outros",
-        "FORA_DO_DARF_MENSAL": "ETFs de renda fixa (ex.: IMAB11) e fundos de infraestrutura têm outra tributação e não entram aqui",
-        "IRRF_ALIQUOTA": "O 0,005% retido na fonte nas vendas é descontado do imposto",
-        "DARF_MINIMO": "Imposto abaixo de R$ 10,00 não gera DARF: soma ao do mês seguinte",
-        "VENCIMENTO": "Vencimento: último dia útil do mês seguinte, código 6015",
-        "DAY_TRADE": "Day trade (compra e venda no mesmo dia e corretora) não é calculado",
-    }
-    return [(texto, getattr(regras_fiscais, nome)) for nome, texto in nomes.items()]
+    return [(texto, getattr(regras_fiscais, nome)) for nome, texto in _TEXTOS_REGRAS.items()]
 
 
 def _regras_irpf() -> list[tuple[str, regras_fiscais.Regra]]:
@@ -295,6 +298,7 @@ def impostos(request: Request, sessao: Sessao, investidor_id: InvestidorId, ano:
         "hoje": hoje,
         "mes_atual": date(hoje.year, hoje.month, 1),
         "regras": _regras(),
+        "textos_regras": _TEXTOS_REGRAS,
         "codigo_darf": regras_fiscais.CODIGO_DARF_RENDA_VARIAVEL.valor,
         "sicalc": SICALC,
     })

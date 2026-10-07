@@ -25,7 +25,8 @@
   <a href="/impostos/irpf" aria-current="page">Declaração anual (IRPF)</a>
 </nav>
 
-<p class="sub">Declaração {{ d.ano + 1 }}, ano-calendário {{ d.ano }}. O que esta carteira precisa, na ordem das fichas do programa da Receita: copie cada campo e cole no programa.</p>
+<p class="sub">Declaração {{ d.ano + 1 }}, ano-calendário {{ d.ano }}. O que esta carteira precisa, na ordem das fichas do programa da Receita.</p>
+<p class="nota">{{ m.icone_aviso() }} Tudo aqui sai dos documentos que você enviou: confira cada valor com os informes de rendimentos das corretoras antes de declarar. A declaração é sua; veja os <a href="/termos">termos de uso</a>.</p>
 
 {% if d.incompletos %}
 <p class="aviso">{{ m.icone_aviso() }}<span class="texto">O custo de {{ d.incompletos | map(attribute="ticker") | join(", ") }} está incompleto: o valor em 31/12/{{ d.ano }} pode mudar.</span><a href="/pendencias" class="acao">Informar custo →</a></p>

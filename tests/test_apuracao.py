@@ -172,17 +172,18 @@ def test_pagina_mostra_darf_e_marca_pago(com_darf):
 
     pagina = c.get("/impostos")
     assert pagina.status_code == 200
-    assert "DARF de fev/2026: R$ 750,00" in pagina.text
+    assert "Imposto estimado de fev/2026: R$ 750,00" in pagina.text
     assert "6015" in pagina.text and "31/03/2026" in pagina.text
-    assert "DARF vencido" in c.get("/").text
+    assert "Confira com suas notas" in pagina.text and "Copiar dados" in pagina.text
+    assert "Imposto estimado vencido" in c.get("/").text
 
     resp = c.post("/impostos/darfs/2026-02/pago", data={"csrf_token": c.csrf})
     assert resp.status_code == 200
-    assert "Pago em" in resp.text and "DARF de fev/2026" not in resp.text
-    assert "DARF" not in c.get("/").text.split("Proventos")[0]
+    assert "Pago em" in resp.text and "Imposto estimado de fev/2026" not in resp.text
+    assert "Imposto estimado" not in c.get("/").text.split("Proventos")[0]
 
     c.post("/impostos/darfs/2026-02/desfazer", data={"csrf_token": c.csrf})
-    assert "DARF de fev/2026" in c.get("/impostos").text
+    assert "Imposto estimado de fev/2026" in c.get("/impostos").text
 
 
 def test_nao_marca_pago_mes_sem_darf(com_darf):
@@ -235,3 +236,39 @@ def test_origem_lista_so_ativos_da_categoria():
                   venda(date(2024, 2, 27), "fii", "6.40", "7.00", "BBBB11")])
     assert m.rotulos("fii") == ["BBBB11"]
     assert m.rotulos("acao", "comum") == ["WXYZ3"]
+
+
+def test_mes_com_dados_incompletos_nao_mostra_valor_a_pagar(usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A,
+            negociacao("EMPX4", "entrada", 1000, 20.0, date(2026, 1, 10), linha=1),
+            negociacao("EMPX4", "saida", 1000, 25.0, date(2026, 2, 10), linha=2),
+            negociacao("EMPX4", "entrada", 10, 25.0, date(2026, 2, 10), linha=3),  # day trade
+        ), "1.pdf")
+    c = _cliente_logado()
+
+    pagina = c.get("/impostos").text
+    assert "fev/2026: imposto não estimado, dados incompletos" in pagina
+    assert "Day trade não calculado: EMPX4" in pagina
+    assert "Copiar dados" not in pagina and "Imposto estimado de" not in pagina
+    assert "Imposto a conferir" in c.get("/").text
+
+
+def test_venda_de_unit_depende_de_regra_nao_confirmada():
+    m = apurar([Venda(date(2026, 3, 10), 1, "UNTX11", "comum", D("30000"), D("20000"),
+                      regra_pendente="UNITS_SEM_ISENCAO")])[0]
+    assert m.regras_pendentes == {"UNITS_SEM_ISENCAO": ["UNTX11"]} and not m.confiavel
+
+
+def test_regra_pendente_por_tipo_de_ativo():
+    from custo_medio import Saldo
+
+    def pendente(tipo, ticker, subtipo=None):
+        return apuracao._regra_pendente({"tipo": tipo, "ticker": ticker, "subtipo": subtipo}, Saldo())
+
+    assert pendente("acao", "UNTX11", "unit") == "UNITS_SEM_ISENCAO"
+    assert pendente("direito_subscricao", "EMPX1") == "DIREITOS_SEM_ISENCAO"
+    assert pendente("fii", "AGRO11", "fiagro") == "COMPENSACAO_FIAGRO_COM_FII"
+    assert pendente("acao", "EMPX4") is None
+    assert pendente("etf", "ETFA11", "acoes") is None  # ETF rule is confirmed

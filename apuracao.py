@@ -63,6 +63,9 @@ class Venda:
     quantidade: Decimal | None = None
     # Taken from the B3 statement: no note, proceeds without fees.
     sem_nota: bool = False
+    # Name of a rule in regras_fiscais not yet confirmed at its source that
+    # this sale depends on (e.g. "UNITS_SEM_ISENCAO").
+    regra_pendente: str | None = None
 
     @property
     def resultado(self) -> Decimal | None:
@@ -130,9 +133,20 @@ class Mes:
         return [v for v in self.vendas if v.sem_nota]
 
     @property
+    def regras_pendentes(self) -> dict[str, list[str]]:
+        """{unconfirmed rule: sales (labels) that depend on it}."""
+        saida: dict[str, list[str]] = {}
+        for v in self.vendas:
+            if v.regra_pendente and v.rotulo not in saida.setdefault(v.regra_pendente, []):
+                saida[v.regra_pendente].append(v.rotulo)
+        return saida
+
+    @property
     def confiavel(self) -> bool:
-        """No sale with missing cost or note and no day trade left out."""
-        return not (self.sem_custo or self.custo_incompleto or self.day_trade or self.sem_nota)
+        """No sale with missing cost or note, no day trade left out and no
+        sale depending on a rule not yet confirmed at its source."""
+        return not (self.sem_custo or self.custo_incompleto or self.day_trade or self.sem_nota
+                    or self.regras_pendentes)
 
     @property
     def tem_vendas(self) -> bool:
@@ -271,6 +285,22 @@ def vencimento(mes_apuracao: date) -> date:
 # ---------------------------------------------------------------------------
 
 
+def _regra_pendente(ativo: dict, saldo) -> str | None:
+    """The unconfirmed rule (regras_fiscais, verificado False) a sale of this
+    ativo depends on, if any."""
+    if ativo["tipo"] == "acao" and categoria(ativo["tipo"], ativo["ticker"], ativo["subtipo"]) == "comum":
+        nome = "UNITS_SEM_ISENCAO"
+    elif ativo["tipo"] in ("direito_subscricao", "recibo_subscricao"):
+        nome = "DIREITOS_SEM_ISENCAO"
+    elif ativo["tipo"] == "fii" and ativo["subtipo"] == "fiagro":
+        nome = "COMPENSACAO_FIAGRO_COM_FII"
+    elif any(p.evento.tipo == "conversao_entrada" for p in saldo.passos):
+        nome = "CONVERSAO_CUSTO_TRANSFERIDO"
+    else:
+        return None
+    return None if getattr(R, nome).verificado else nome
+
+
 def apuracao(conn: Connection, investidor_id: int) -> list[Mes]:
     catalogo = {
         r["id"]: r for r in fetch_all(
@@ -284,6 +314,7 @@ def apuracao(conn: Connection, investidor_id: int) -> list[Mes]:
         cat = categoria(a["tipo"], a["ticker"], a["subtipo"])
         if cat is None:
             continue
+        pendente = _regra_pendente(a, s)
         for b in s.baixas:
             if b.evento.tipo not in ("venda", "fracao") or b.evento.custo is None or not b.evento.quantidade:
                 continue  # a sale fully matched as day trade is not a regular sale
@@ -293,6 +324,7 @@ def apuracao(conn: Connection, investidor_id: int) -> list[Mes]:
                 None if b.custo is None else _arredondar(b.custo),
                 incompleto=b.custo is not None and (b.tem_bonif_sem_custo or b.custo_incompleto),
                 tipo=b.evento.tipo, quantidade=b.evento.quantidade, sem_nota=b.evento.sem_nota,
+                regra_pendente=pendente,
             ))
         for dt in s.day_trades:
             m = date(dt.data.year, dt.data.month, 1)

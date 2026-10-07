@@ -64,7 +64,9 @@ def usuario_id(db):
     from database import connect_sistema
 
     with connect_sistema() as conn:
-        return auth.criar_usuario(conn, "ana@example.com", SENHA)
+        usuario_id = auth.criar_usuario(conn, "ana@example.com", SENHA)
+        auth.aceitar_termos(conn, usuario_id)
+        return usuario_id
 
 
 @pytest.fixture
@@ -85,4 +87,5 @@ def investidor_b(db):
 
     with connect_sistema() as conn:
         outro = auth.criar_usuario(conn, "bruno@example.com", SENHA)
+        auth.aceitar_termos(conn, outro)
         return get_or_create_investidor(conn, outro, CPF_B, "Bruno")

@@ -42,6 +42,10 @@ class SemCarteira(Exception):
     pass
 
 
+class TermosPendentes(Exception):
+    """The account has not accepted the current terms of use."""
+
+
 class SomenteLeitura(SemPermissao):
     """A write attempted from the demo account."""
 
@@ -51,6 +55,9 @@ class SomenteLeitura(SemPermissao):
 
 # Writes the demo account may still do: they change only its own session.
 _LIVRES_NA_DEMO = re.compile(r"^/sair$|^/carteiras/\d+/selecionar$")
+# What an account can reach before accepting the terms: the terms themselves,
+# logging out, and its LGPD rights (export, deletion) on /conta.
+_LIVRES_SEM_TERMOS = re.compile(r"^/termos$|^/sair$|^/conta(/|$)|^/privacidade$")
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +106,8 @@ async def sessao_atual(
             raise SemPermissao("Token CSRF ausente ou inválido.")
         if sessao.demo and not _LIVRES_NA_DEMO.match(request.url.path):
             raise SomenteLeitura()
+    if sessao.termos_pendentes and not _LIVRES_SEM_TERMOS.match(request.url.path):
+        raise TermosPendentes()
     return sessao
 
 

@@ -12,7 +12,11 @@
 {% if darf %}
 <a href="/impostos?ano={{ darf.mes.year }}" class="aviso">
   {{ m.icone_aviso() }}
-  <span class="texto"><strong>{{ "DARF vencido" if darf.vencimento < hoje else "DARF a pagar" }}: {{ darf.darf | brl }}</strong> · vendas de {{ darf.mes | mes_ano }}, {{ "venceu em" if darf.vencimento < hoje else "vence em" }} {{ darf.vencimento | data }}</span>
+  {% if darf.confiavel %}
+  <span class="texto"><strong>Imposto estimado {{ "vencido" if darf.vencimento < hoje else "a pagar" }}: {{ darf.darf | brl }}</strong> · vendas de {{ darf.mes | mes_ano }}, {{ "venceu em" if darf.vencimento < hoje else "vence em" }} {{ darf.vencimento | data }}</span>
+  {% else %}
+  <span class="texto"><strong>Imposto a conferir</strong> · vendas de {{ darf.mes | mes_ano }} com dados incompletos; o prazo é {{ darf.vencimento | data }}</span>
+  {% endif %}
   <span class="acao">Ver →</span>
 </a>
 {% endif %}
@@ -43,9 +47,15 @@
   </a>
   {% if darf %}
   <a class="stat alerta" href="/impostos?ano={{ darf.mes.year }}">
-    <span class="rotulo">{{ "DARF vencido" if darf.vencimento < hoje else "DARF a pagar" }}</span>
+    {% if darf.confiavel %}
+    <span class="rotulo">Imposto estimado {{ "vencido" if darf.vencimento < hoje else "a pagar" }}</span>
     <strong class="valor">{{ darf.darf | brl }}</strong>
     <span class="detalhe">Vendas de {{ darf.mes | mes_ano }} · {{ "venceu em" if darf.vencimento < hoje else "vence em" }} {{ darf.vencimento | data }} →</span>
+    {% else %}
+    <span class="rotulo">Imposto a conferir</span>
+    <strong class="valor">—</strong>
+    <span class="detalhe">Vendas de {{ darf.mes | mes_ano }} com dados incompletos · prazo {{ darf.vencimento | data }} →</span>
+    {% endif %}
   </a>
   {% endif %}
 </section>
