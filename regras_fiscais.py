@@ -13,6 +13,10 @@ Primary sources consulted on 2026-10-06:
   L-9430        Lei nº 9.430/1996, art. 68.
   L-8668        Lei nº 8.668/1993, art. 20-D (incluído pela Lei nº 14.130/2021),
                 texto atualizado no portal da Câmara dos Deputados.
+  PGD-2026      Programa IRPF 2026 v1.5 (Receita Federal): tabelas
+                lib/resources/tipoBens.xml (vigência 05/03/2026),
+                tipoRendIsento.xml, tipoRendTributExclusiva.xml, and its
+                help, AjudaIRPF.pdf ("Ajuda"), consulted on 2026-10-06.
 """
 
 from __future__ import annotations
@@ -111,3 +115,33 @@ DARF_MINIMO = Regra(Decimal("10.00"), "L-9430 art. 68", True)
 
 # Not computed by the app.
 DAY_TRADE = Regra("não apurado", "PR-IRPF-2026 q.706, a (20%)", True)
+
+
+# ── Declaração anual (IRPF): fichas e códigos ─────────────────────────────
+#
+# Bens e Direitos: (grupo, código). CNPJ is mandatory for groups 03 and 07,
+# not for 04-04 (Ajuda p.183). A listed asset carries its ticker as
+# "Código de Negociação" (Ajuda p.184). Assets are declared at cost.
+
+BEM_ACOES = Regra(("03", "01"), "PGD-2026 tipoBens: 03-01 Ações (inclusive as listadas em bolsa)", True)
+# Units are certificates of deposit of shares: declared as shares by the
+# usual reading of 03-01, which the table does not spell out.
+BEM_UNITS = Regra(("03", "01"), "a confirmar: a tabela não cita units", False)
+BEM_BDR = Regra(("04", "04"), "PGD-2026 tipoBens: 04-04 Ativos negociados em bolsa no Brasil (BDRs, opções...)", True)
+BEM_FIAGRO = Regra(("07", "02"), "PGD-2026 tipoBens: 07-02 Fiagro - Lei 8.668/1993", True)
+BEM_FII = Regra(("07", "03"), "PGD-2026 tipoBens: 07-03 Fundos de Investimento Imobiliário (FII)", True)
+BEM_ETF = Regra(("07", "06"), "PGD-2026 tipoBens: 07-06 ... ETF - Entidade de investimento - Lei 14.754/2023", True)
+BEM_ETF_RENDA_FIXA = Regra(("07", "08"), "PGD-2026 tipoBens: 07-08 Fundos de Índice de Renda Fixa (ETFs)", True)
+BEM_FUNDO_INFRA = Regra(
+    ("07", "10"), "PGD-2026 tipoBens: 07-10 Fundos de Infraestrutura, FIDC e outros (alíquota 0%) - Lei 12.431", True)
+
+# Rendimentos Isentos e Não Tributáveis (line codes of the 2026 program).
+ISENTO_DIVIDENDOS = Regra("09", "PGD-2026 tipoRendIsento; Ajuda p.87: 09 - Lucros e dividendos recebidos", True)
+ISENTO_ACOES_ATE_20_MIL = Regra(
+    "20", "Ajuda p.103: 20 - Ganhos líquidos ... ações ... até R$ 20.000,00 em cada mês", True)
+# FII and Fiagro distributions have no line of their own: "99 - Outros",
+# which can also be filled from the 07-02/07-03 asset (Ajuda p.113, Atenção 4).
+ISENTO_RENDIMENTOS_FII = Regra("99", "Ajuda p.111-113: 99 - Outros, Atenção 4; PR-IRPF-2026 q.738, VII", True)
+
+# Rendimentos Sujeitos à Tributação Exclusiva/Definitiva.
+EXCLUSIVO_JCP = Regra("10", "PGD-2026 tipoRendTributExclusiva; Ajuda p.118: 10 - Juros sobre capital próprio", True)

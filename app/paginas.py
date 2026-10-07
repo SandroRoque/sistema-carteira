@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse
 import apuracao
 import formato
 import graficos
+import irpf
 import painel
 import pendencias
 import regras_fiscais
@@ -229,6 +230,40 @@ def _regras() -> list[tuple[str, regras_fiscais.Regra]]:
         "DAY_TRADE": "Day trade (compra e venda no mesmo dia e corretora) não é calculado",
     }
     return [(texto, getattr(regras_fiscais, nome)) for nome, texto in nomes.items()]
+
+
+def _regras_irpf() -> list[tuple[str, regras_fiscais.Regra]]:
+    nomes = {
+        "BEM_ACOES": "Ações: grupo 03, código 01",
+        "BEM_UNITS": "Units: grupo 03, código 01, como ações",
+        "BEM_BDR": "BDRs: grupo 04, código 04",
+        "BEM_FII": "FIIs: grupo 07, código 03",
+        "BEM_FIAGRO": "Fiagros: grupo 07, código 02",
+        "BEM_ETF": "ETFs de ações: grupo 07, código 06",
+        "BEM_ETF_RENDA_FIXA": "ETFs de renda fixa: grupo 07, código 08",
+        "BEM_FUNDO_INFRA": "Fundos de infraestrutura: grupo 07, código 10",
+        "ISENTO_DIVIDENDOS": "Dividendos: rendimento isento, linha 09",
+        "ISENTO_RENDIMENTOS_FII": "Rendimentos de FII e Fiagro: rendimento isento, linha 99 (Outros)",
+        "ISENTO_ACOES_ATE_20_MIL": "Lucro com ações em meses de vendas até R$ 20 mil: rendimento isento, linha 20",
+        "EXCLUSIVO_JCP": "Juros sobre capital próprio: tributação exclusiva, linha 10",
+    }
+    return [(texto, getattr(regras_fiscais, nome)) for nome, texto in nomes.items()]
+
+
+@router.get("/impostos/irpf", response_class=HTMLResponse)
+def declaracao_anual(request: Request, sessao: Sessao, investidor_id: InvestidorId, ano: int | None = None):
+    with connect(sessao.usuario_id) as conn:
+        anos = irpf.anos(conn, investidor_id)
+        if ano not in anos:
+            ano = anos[0]
+        d = irpf.declaracao(conn, investidor_id, ano)
+        com_opcoes = painel.negocios_com_opcoes(conn, investidor_id)
+    return render(request, "irpf.html", {
+        "d": d,
+        "anos": anos,
+        "negocios_com_opcoes": com_opcoes,
+        "regras": _regras_irpf(),
+    })
 
 
 @router.get("/impostos", response_class=HTMLResponse)

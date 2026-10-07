@@ -111,13 +111,22 @@ def _baixar_cadastro() -> tuple[date, str]:
     raise RuntimeError("B3 não serviu o cadastro de instrumentos dos últimos dias")
 
 
+def _registros(texto: str) -> list[dict]:
+    linhas = texto.splitlines()
+    inicio = next(i for i, linha in enumerate(linhas) if linha.startswith("RptDt;"))
+    return list(csv.DictReader(linhas[inicio:], delimiter=";"))
+
+
+def isins(texto: str) -> dict[str, str]:
+    """{ticker: ISIN} of the cash-market tickers in the instruments register."""
+    return {r["TckrSymb"]: r["ISIN"] for r in _registros(texto) if r["SgmtNm"] == "CASH" and r.get("ISIN")}
+
+
 def ler_cadastro(texto: str) -> dict[str, tuple[str, str]]:
     """{ticker: (category, name)} of cash-market tickers ending in 11, with the
     fixed-income ETFs (listed in the fixed-income market, with a primary-market
     ETF instrument on the same asset) marked as 'ETF RENDA FIXA'."""
-    linhas = texto.splitlines()
-    inicio = next(i for i, linha in enumerate(linhas) if linha.startswith("RptDt;"))
-    registros = list(csv.DictReader(linhas[inicio:], delimiter=";"))
+    registros = _registros(texto)
     com_etf = {r["Asst"] for r in registros if r["SctyCtgyNm"].startswith("ETF PRIMARY MARKET")}
     saida = {}
     for r in registros:

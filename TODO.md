@@ -39,14 +39,30 @@ The legacy SQLite held B3 rows and aliases pointing at deleted ativos.
 `migra_sqlite.py` kept those rows with `ativo_id = NULL`, matching what the old
 reports showed. Re-attach them to an ativo if these positions should be tracked.
 
-### IRPF codes must be verified before the IRPF assistant ships
+### IRPF assistant: codes to re-check every year, and what it does not cover
 
-Every Receita code the app shows (Bens e Direitos grupo/código, Rendimentos Isentos
-and Tributação Exclusiva lines, DARF código 6015) lives in one module with the
-official source cited next to each code and tests pinning them. Check each against
-the current year's Receita material ("Perguntas e Respostas" and the IRPF program)
-before release, and again every year. Company/fund CNPJs come from a sourced
-catalog field, never typed from memory.
+Every Receita code the app shows lives in `regras_fiscais.py` with its source.
+The 2026 codes were read from the IRPF 2026 program itself (v1.5: the tables in
+`lib/resources/tipoBens.xml`, `tipoRendIsento.xml`, `tipoRendTributExclusiva.xml`
+and its `help/AjudaIRPF.pdf`). Each year, download the new program from
+downloadirpf.receita.fazenda.gov.br and compare those tables. Rebuild
+`dados/cnpjs.csv` (`cnpjs.py`) at the same time.
+
+Open points on `/impostos/irpf`:
+
+- **Units** are declared as 03-01 (shares); the table does not name units
+  (`BEM_UNITS.verificado` is False).
+- **FIP, FIDC and unrecognized funds** get no code: 07-06, 07-07 and 07-10 all
+  fit depending on the fund. The page says "confira".
+- **CNPJ gaps**: ETFs, infrastructure funds and FIDCs (CVM's reports for them
+  carry no ISIN), and FIIs whose ISIN changed or that stopped reporting. An
+  admin can set `ativos.cnpj_emissor`, which takes precedence.
+- **Not covered**: fixed income and Tesouro Direto (group 04-02/04-03 and their
+  income), subscription rights and receipts, bonus shares (line 18), BDR
+  dividends (taxable), ETF and other funds' distributions, and the month-by-month
+  Renda Variável sheet (the page links to the monthly tax page instead).
+- **Line 20** sums the gains of exempt months; it does not net a month's losses
+  against other months, matching the program's per-month sheet. Confirm.
 
 ### Monthly tax: open points
 
