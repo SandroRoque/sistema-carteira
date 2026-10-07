@@ -29,10 +29,10 @@
 <p class="nota">{{ m.icone_aviso() }} Tudo aqui sai dos documentos que você enviou: confira cada valor com os informes de rendimentos das corretoras antes de declarar. A declaração é sua; veja os <a href="/termos">termos de uso</a>.</p>
 
 {% if d.incompletos %}
-<p class="aviso">{{ m.icone_aviso() }}<span class="texto">O custo de {{ d.incompletos | map(attribute="ticker") | join(", ") }} está incompleto: o valor em 31/12/{{ d.ano }} pode mudar.</span><a href="/pendencias" class="acao">Informar custo →</a></p>
+<p class="aviso">{{ m.icone_aviso() }}<span class="texto">O custo de {{ d.incompletos | map(attribute="rotulo") | join(", ") }} está incompleto: o valor em 31/12/{{ d.ano }} pode mudar.</span><a href="/pendencias" class="acao">Informar custo →</a></p>
 {% endif %}
 {% if d.sem_cnpj %}
-<p class="aviso">{{ m.icone_aviso() }}<span class="texto">Não encontramos o CNPJ de {{ d.sem_cnpj | map(attribute="ticker") | join(", ") }} nos dados da CVM. O programa exige o CNPJ: copie-o do informe de rendimentos da corretora.</span></p>
+<p class="aviso">{{ m.icone_aviso() }}<span class="texto">Falta o CNPJ de {{ d.sem_cnpj | map(attribute="rotulo") | join(", ") }}: não está nos documentos nem nos dados da CVM. O programa exige o CNPJ: copie-o do informe de rendimentos da corretora.</span></p>
 {% endif %}
 {{ m.aviso_opcoes(negocios_com_opcoes, "não aparece" ~ ("m" if negocios_com_opcoes > 1 else "") ~ " aqui.") }}
 
@@ -47,12 +47,12 @@
         {% for b in d.bens %}
         <tr>
           <td>{{ codigo(b.codigo) }}</td>
-          <td><a href="/posicoes/{{ b.ativo_id }}" class="ativo-link">{{ b.ticker }}</a></td>
-          <td>{{ cnpj(b.cnpj) if b.codigo is none or b.codigo.valor[0] != "04" else (b.cnpj or "—") }}</td>
+          <td>{% if b.renda_fixa %}<span class="muted">—</span><small><a href="/posicoes/{{ b.ativo_id }}">{{ b.rotulo }}</a></small>{% else %}<a href="/posicoes/{{ b.ativo_id }}" class="ativo-link">{{ b.ticker }}</a>{% endif %}</td>
+          <td>{{ cnpj(b.cnpj) if b.codigo is none or b.codigo.valor != ("04", "04") else (b.cnpj or "—") }}</td>
           <td>{{ b.discriminacao }}</td>
           <td class="num">{{ b.custo_anterior | brl }}</td>
           <td class="num">{{ b.custo | brl }}{% if b.incompleto %}<small>custo incompleto</small>{% endif %}</td>
-          <td><button type="button" class="link pequeno" data-copiar="{{ b.discriminacao }}" aria-label="Copiar a discriminação de {{ b.ticker }}">Copiar</button></td>
+          <td><button type="button" class="link pequeno" data-copiar="{{ b.discriminacao }}" aria-label="Copiar a discriminação de {{ b.rotulo }}">Copiar</button></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -61,7 +61,7 @@
   {% else %}
   <p class="vazio">Nenhuma posição em bolsa em 31/12/{{ d.ano - 1 }} ou 31/12/{{ d.ano }}.</p>
   {% endif %}
-  <p class="nota">Renda fixa e Tesouro Direto ainda não aparecem aqui: use o informe de rendimentos da corretora.</p>
+  {% if d.tem_renda_fixa %}<p class="nota">Renda fixa e Tesouro aparecem pelo valor aplicado que ainda estava investido em 31/12. Para o Tesouro, o emissor é o Tesouro Nacional: confira o CNPJ no informe da corretora.</p>{% endif %}
 </section>
 
 {% macro tabela_rendimentos(linhas, titulo_valor) %}
@@ -102,6 +102,9 @@
   {% endif %}
 </section>
 
+{% if d.tem_renda_fixa %}
+<p class="aviso">{{ m.icone_aviso() }}<span class="texto">Os rendimentos de renda fixa e Tesouro não estão nas fichas acima: o imposto retido na fonte não vem nos documentos enviados. Copie-os do informe de rendimentos da corretora: CDB, Tesouro e outros títulos tributados na linha {{ linha_aplicacoes }} da Tributação Exclusiva; LCI, LCA, CRI e CRA na linha {{ linha_lci }} dos Isentos.</span></p>
+{% endif %}
 {% if d.fora %}
 <p class="aviso">{{ m.icone_aviso() }}<span class="texto">Proventos de {{ d.fora | list | join(", ") }} ({{ d.fora.values() | sum | brl }}) não estão nas fichas acima: dividendos de BDR não são isentos, e rendimentos de ETFs e outros fundos têm regras próprias. Confira no informe da corretora.</span></p>
 {% endif %}

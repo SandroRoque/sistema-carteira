@@ -57,8 +57,12 @@ Open points on `/impostos/irpf`:
 - **CNPJ gaps**: ETFs, infrastructure funds and FIDCs (CVM's reports for them
   carry no ISIN), and FIIs whose ISIN changed or that stopped reporting. An
   admin can set `ativos.cnpj_emissor`, which takes precedence.
-- **Not covered**: fixed income and Tesouro Direto (group 04-02/04-03 and their
-  income), subscription rights and receipts, bonus shares (line 18), BDR
+- **Fixed income and Tesouro** appear in Bens e Direitos at the principal still
+  applied (04-02 taxed, 04-03 exempt, by the bond's kind; debentures get no
+  code). Their income (Exclusiva line 06, Isentos line 12) is not computed: the
+  tax withheld at source is not in the documents, so the page points to the
+  broker's informe. Tesouro has no issuer CNPJ on record.
+- **Not covered**: subscription rights and receipts, bonus shares (line 18), BDR
   dividends (taxable), ETF and other funds' distributions, and the month-by-month
   Renda Variável sheet (the page links to the monthly tax page instead).
 - **Line 20** sums the gains of exempt months; it does not net a month's losses

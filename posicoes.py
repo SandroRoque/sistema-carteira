@@ -52,6 +52,7 @@ Every query is scoped to a single investidor_id.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from sqlalchemy import Connection
 
@@ -72,8 +73,8 @@ _SUBSCRICAO_TIPOS = {"direito_subscricao", "recibo_subscricao"}
 # ---------------------------------------------------------------------------
 
 
-def _negocios_rf(conn: Connection, investidor_id: int) -> dict[int, dict]:
-    """Principal invested and redeemed for renda_fixa ativos."""
+def _negocios_rf(conn: Connection, investidor_id: int, ate: date | None = None) -> dict[int, dict]:
+    """Principal invested and redeemed for renda_fixa ativos, up to `ate`."""
     rows = fetch_all(
         conn,
         """
@@ -87,14 +88,16 @@ def _negocios_rf(conn: Connection, investidor_id: int) -> dict[int, dict]:
         JOIN ativos a ON a.id = n.ativo_id
         WHERE n.investidor_id = :investidor_id
           AND a.tipo = 'renda_fixa'
+          AND (CAST(:ate AS date) IS NULL OR n.data <= :ate)
         GROUP BY n.ativo_id
         """,
         investidor_id=investidor_id,
+        ate=ate,
     )
     return {r["ativo_id"]: dict(r) for r in rows}
 
 
-def _rf_b3_vencimentos(conn: Connection, investidor_id: int) -> dict[int, Decimal]:
+def _rf_b3_vencimentos(conn: Connection, investidor_id: int, ate: date | None = None) -> dict[int, Decimal]:
     """Qty returned via B3 VENCIMENTO/RESGATE events (no brokerage note issued).
 
     For renda_fixa instruments that matured and were redeemed without a
@@ -113,11 +116,30 @@ def _rf_b3_vencimentos(conn: Connection, investidor_id: int) -> dict[int, Decima
           AND movimentacao IN ('VENCIMENTO/RESGATE SALDO EM CONTA', 'VENCIMENTO')
           AND sentido = 'Debito'
           AND ativo_id IS NOT NULL
+          AND (CAST(:ate AS date) IS NULL OR data <= :ate)
         GROUP BY ativo_id
         """,
         investidor_id=investidor_id,
+        ate=ate,
     )
     return {r["ativo_id"]: r["qty_vencida"] for r in rows}
+
+
+def saldos_renda_fixa(
+    conn: Connection, investidor_id: int, ate: date | None = None
+) -> dict[int, tuple[Decimal, Decimal]]:
+    """{ativo_id: (remaining units, principal still applied)} of renda_fixa
+    ativos on `ate`. Redemptions count from the trade notes or, when larger,
+    from B3's maturity events: CDBs that matured without a note, without
+    double-counting when both record the same redemption."""
+    vencidos = _rf_b3_vencimentos(conn, investidor_id, ate)
+    saida = {}
+    for ativo_id, rf in _negocios_rf(conn, investidor_id, ate).items():
+        entrada = rf["qty_entrada"] or 0
+        restante = max(0, entrada - max(rf["qty_saida"] or 0, vencidos.get(ativo_id) or 0))
+        fracao = (restante / entrada) if entrada > 0 else 0
+        saida[ativo_id] = (Decimal(restante), Decimal((rf["principal_investido"] or 0) * fracao))
+    return saida
 
 
 def _subscricao_posicoes(conn: Connection, investidor_id: int) -> dict[int, dict]:
@@ -271,8 +293,7 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
     ativos = ativos_do_investidor(conn, investidor_id)
 
     saldos_equity  = saldos(conn, investidor_id)
-    neg_rf         = _negocios_rf(conn, investidor_id)
-    rf_vencidos    = _rf_b3_vencimentos(conn, investidor_id)
+    saldos_rf      = saldos_renda_fixa(conn, investidor_id)
     subscricoes    = _subscricao_posicoes(conn, investidor_id)
     # Receipts already turned into shares (B3 never debits them).
     recibos_convertidos: dict[int, Decimal] = {}
@@ -333,25 +354,11 @@ def calcular_posicoes(conn: Connection, investidor_id: int) -> list[dict]:
                 pos["is_open"]             = saldo.qty > 0.001
 
         elif tipo == "renda_fixa":
-            rf = neg_rf.get(ativo_id)
-            if rf is None:
+            if ativo_id not in saldos_rf:
                 continue
-
-            qty_entrada         = rf["qty_entrada"]         or 0
-            qty_saida_neg       = rf["qty_saida"]           or 0
-            principal_investido = rf["principal_investido"] or 0
-
-            # Use the larger of: negociacoes resgate qty vs B3 vencimento qty.
-            # This covers CDBs that matured without a brokerage note, without
-            # double-counting when both sources record the same redemption.
-            qty_vencida_b3 = rf_vencidos.get(ativo_id) or 0
-            qty_saida      = max(qty_saida_neg, qty_vencida_b3)
-
-            remaining        = max(0, qty_entrada - qty_saida)
-            frac_outstanding = (remaining / qty_entrada) if qty_entrada > 0 else 0
-
+            remaining, custo = saldos_rf[ativo_id]
             pos["qty"]         = remaining
-            pos["custo_total"] = principal_investido * frac_outstanding
+            pos["custo_total"] = custo
             pos["is_open"]     = remaining > 0.001
 
         elif tipo in _SUBSCRICAO_TIPOS:

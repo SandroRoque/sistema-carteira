@@ -6,8 +6,9 @@ Isentos, Tributação Exclusiva) and the exempt stock gains. Every code comes
 from regras_fiscais, with its source; CNPJs come from the catalog or from
 CVM's data (cnpjs.py), never typed in.
 
-Fixed income and Tesouro Direto are not covered yet: the brokers' informes
-de rendimentos give their values.
+Fixed income and Tesouro Direto appear as assets (at the amount applied);
+their income is not computed, because the tax withheld at source is not in
+the documents: the brokers' informes de rendimentos give it.
 """
 
 from __future__ import annotations
@@ -26,14 +27,29 @@ import painel
 import regras_fiscais as R
 from custo_medio import saldos
 from database import fetch_all
+from posicoes import saldos_renda_fixa
 
 ZERO = Decimal(0)
-TIPOS = ("acao", "bdr", "fii", "etf", "fundo")
+TIPOS = ("acao", "bdr", "fii", "etf", "fundo", "tesouro_direto")
+
+# First word of a private bond's name (the nota's title) → taxed or exempt.
+_TITULOS_TRIBUTAVEIS = {"CDB", "RDB", "LC", "LF"}
+_TITULOS_ISENTOS = {"LCI", "LCA", "LCD", "CRI", "CRA", "LIG"}
 
 
-def codigo_do_bem(tipo: str, subtipo: str | None) -> R.Regra | None:
+def codigo_do_bem(tipo: str, subtipo: str | None, nome: str | None = None) -> R.Regra | None:
     """Bens e Direitos (grupo, código) of an asset, or None when the app
-    cannot tell (FIP, FIDC and unrecognized funds have more than one)."""
+    cannot tell (FIP, FIDC and unrecognized funds have more than one; a
+    debenture is exempt only when incentivized)."""
+    if tipo == "tesouro_direto":
+        return R.BEM_TITULOS_TRIBUTAVEIS
+    if tipo == "renda_fixa":
+        especie = (nome or "").split()[0].upper() if (nome or "").strip() else ""
+        if especie in _TITULOS_TRIBUTAVEIS:
+            return R.BEM_TITULOS_TRIBUTAVEIS
+        if especie in _TITULOS_ISENTOS:
+            return R.BEM_TITULOS_ISENTOS
+        return None
     if tipo == "acao":
         return R.BEM_UNITS if subtipo == "unit" else R.BEM_ACOES
     if tipo == "bdr":
@@ -47,7 +63,7 @@ def codigo_do_bem(tipo: str, subtipo: str | None) -> R.Regra | None:
     return None
 
 
-_UNIDADE = {"acao": ("ação", "ações"), "bdr": ("BDR", "BDRs")}
+_UNIDADE = {"acao": ("ação", "ações"), "bdr": ("BDR", "BDRs"), "tesouro_direto": ("título", "títulos")}
 
 
 def _unidade(tipo: str, subtipo: str | None, qtd: Decimal) -> str:
@@ -73,11 +89,25 @@ class Bem:
     custodia: list[str]
     # Part of the cost is unknown (bonus or credited shares counted at zero).
     incompleto: bool = False
+    # A bond's description ("CDB Banco X, 110% do CDI, vencimento 15/03/2027"):
+    # it replaces the quantity and average price, which say little for bonds.
+    titulo: str | None = None
+
+    @property
+    def rotulo(self) -> str:
+        """How the page names it: the ticker, or a bond's short description."""
+        return self.titulo.split(",")[0] if self.titulo else self.ticker
+
+    @property
+    def renda_fixa(self) -> bool:
+        return self.tipo in ("renda_fixa", "tesouro_direto")
 
     @property
     def discriminacao(self) -> str:
         nome = f" ({self.nome})" if self.nome else ""
-        if self.qtd <= 0:
+        if self.titulo:
+            texto = f"{self.titulo}. " + ("Valor aplicado." if self.qtd > 0 else "Resgatado no ano.")
+        elif self.qtd <= 0:
             texto = f"{self.ticker}{nome}: posição encerrada no ano."
         else:
             preco = formato.brl(self.custo / self.qtd)
@@ -119,7 +149,11 @@ class Declaracao:
     @property
     def sem_cnpj(self) -> list[Bem]:
         """Bens whose code requires a CNPJ the app could not find."""
-        return [b for b in self.bens if not b.cnpj and b.codigo is not None and b.codigo.valor[0] != "04"]
+        return [b for b in self.bens if not b.cnpj and b.codigo is not None and b.codigo.valor != ("04", "04")]
+
+    @property
+    def tem_renda_fixa(self) -> bool:
+        return any(b.renda_fixa for b in self.bens)
 
 
 def _emissor(ativo: dict) -> tuple[str | None, str]:
@@ -151,42 +185,62 @@ def _custodia(conn: Connection, investidor_id: int, ate: date) -> dict[int, list
     return {k: sorted(v) for k, v in por_ativo.items()}
 
 
+def _titulo(a: dict) -> str:
+    """'CDB Banco X, 110% do CDI, vencimento 15/03/2027' from the catalog."""
+    especie = (a["nome"] or "").split()[0] if (a["nome"] or "").strip() else "Título"
+    partes = [f"{especie} {a['emissor']}" if a["emissor"] else especie]
+    if indexador := painel.descricao_indexador(a):
+        partes.append(indexador)
+    if a["vencimento"]:
+        partes.append(f"vencimento {formato.data(a['vencimento'])}")
+    return ", ".join(partes)
+
+
 def bens(conn: Connection, investidor_id: int, ano: int) -> list[Bem]:
     fim_anterior, fim = date(ano - 1, 12, 31), date(ano, 12, 31)
-    antes = saldos(conn, investidor_id, fim_anterior, TIPOS)
-    agora = saldos(conn, investidor_id, fim, TIPOS)
-    ids = [i for i in set(antes) | set(agora)
-           if (antes.get(i) and antes[i].qty > 0) or (agora.get(i) and agora[i].qty > 0)]
+    # {ativo_id: (qty, cost, cost incomplete)} on each date.
+    posicoes: list[dict[int, tuple[Decimal, Decimal, bool]]] = []
+    for dia in (fim_anterior, fim):
+        abertas = {i: (s.qty, s.custo, s.tem_bonif_sem_custo or s.custo_desconhecido)
+                   for i, s in saldos(conn, investidor_id, dia, TIPOS).items() if s.qty > 0}
+        abertas.update({i: (q, c, False) for i, (q, c) in saldos_renda_fixa(conn, investidor_id, dia).items() if q > 0})
+        posicoes.append(abertas)
+    antes, agora = posicoes
+    ids = sorted(set(antes) | set(agora))
     if not ids:
         return []
     catalogo = {r["id"]: dict(r) for r in fetch_all(
-        conn, "SELECT id, tipo, subtipo, ticker, nome, cnpj_emissor, emissor FROM ativos WHERE id = ANY(:ids)",
+        conn,
+        "SELECT id, tipo, subtipo, ticker, nome, cnpj_emissor, emissor, indexador, taxa_prefixada, "
+        "percentual_do_indexador, vencimento FROM ativos WHERE id = ANY(:ids)",
         ids=ids,
     )}
     custodia = _custodia(conn, investidor_id, fim)
     lista = []
     for i in ids:
-        a, s0, s1 = catalogo[i], antes.get(i), agora.get(i)
+        a = catalogo[i]
+        q0, c0, _ = antes.get(i, (ZERO, ZERO, False))
+        q1, c1, incompleto = agora.get(i, (ZERO, ZERO, False))
         cnpj, nome = _emissor(a)
-        aberto = s1 if s1 and s1.qty > 0 else None
         lista.append(Bem(
             ativo_id=i,
             ticker=a["ticker"] or a["nome"] or "",
-            nome=nome,
+            nome="" if a["tipo"] == "renda_fixa" else nome,
             tipo=a["tipo"],
             subtipo=a["subtipo"],
-            codigo=codigo_do_bem(a["tipo"], a["subtipo"]),
+            codigo=codigo_do_bem(a["tipo"], a["subtipo"], a["nome"]),
             cnpj=cnpj,
-            qtd_anterior=s0.qty if s0 and s0.qty > 0 else ZERO,
-            custo_anterior=_centavos(s0.custo) if s0 and s0.qty > 0 else ZERO,
-            qtd=aberto.qty if aberto else ZERO,
-            custo=_centavos(aberto.custo) if aberto else ZERO,
+            qtd_anterior=q0,
+            custo_anterior=_centavos(c0),
+            qtd=q1,
+            custo=_centavos(c1),
             custodia=custodia.get(i, []),
-            incompleto=bool(aberto and (aberto.tem_bonif_sem_custo or aberto.custo_desconhecido)),
+            incompleto=incompleto,
+            titulo=_titulo(a) if a["tipo"] == "renda_fixa" else None,
         ))
     ordem = {"03": 0, "04": 1, "07": 2}
     lista.sort(key=lambda b: (ordem.get(b.codigo.valor[0], 9) if b.codigo else 9,
-                              b.codigo.valor if b.codigo else ("", ""), b.ticker))
+                              b.codigo.valor if b.codigo else ("", ""), b.rotulo))
     return lista
 
 

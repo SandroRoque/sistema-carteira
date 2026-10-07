@@ -127,6 +127,10 @@ BEM_ACOES = Regra(("03", "01"), "PGD-2026 tipoBens: 03-01 Ações (inclusive as 
 # Units are certificates of deposit of shares: declared as shares by the
 # usual reading of 03-01, which the table does not spell out.
 BEM_UNITS = Regra(("03", "01"), "a confirmar: a tabela não cita units", False)
+BEM_TITULOS_TRIBUTAVEIS = Regra(
+    ("04", "02"), "PGD-2026 tipoBens: 04-02 Títulos públicos e privados sujeitos à tributação (Tesouro Direto, CDB, RDB e Outros)", True)
+BEM_TITULOS_ISENTOS = Regra(
+    ("04", "03"), "PGD-2026 tipoBens: 04-03 Títulos isentos de tributação (LCI, LCA, LCD, CRI, CRA, LIG, Debêntures de Infraestrutura e outros)", True)
 BEM_BDR = Regra(("04", "04"), "PGD-2026 tipoBens: 04-04 Ativos negociados em bolsa no Brasil (BDRs, opções...)", True)
 BEM_FIAGRO = Regra(("07", "02"), "PGD-2026 tipoBens: 07-02 Fiagro - Lei 8.668/1993", True)
 BEM_FII = Regra(("07", "03"), "PGD-2026 tipoBens: 07-03 Fundos de Investimento Imobiliário (FII)", True)
@@ -143,5 +147,11 @@ ISENTO_ACOES_ATE_20_MIL = Regra(
 # which can also be filled from the 07-02/07-03 asset (Ajuda p.113, Atenção 4).
 ISENTO_RENDIMENTOS_FII = Regra("99", "Ajuda p.111-113: 99 - Outros, Atenção 4; PR-IRPF-2026 q.738, VII", True)
 
+# Income of exempt bonds (LCI, LCA, CRI, CRA...). Shown as a pointer only: the
+# app does not compute fixed-income income.
+ISENTO_LCI_LCA = Regra("12", "PGD-2026 tipoRendIsento: 12 - Rendimentos de poupanças, letras hipotecárias, LCI, LCA, CRI, CRA", True)
+
 # Rendimentos Sujeitos à Tributação Exclusiva/Definitiva.
+# Income of taxed bonds and Tesouro, net of the tax withheld at source.
+EXCLUSIVO_APLICACOES = Regra("06", "PGD-2026 tipoRendTributExclusiva; Ajuda p.116: 06 - Rendimentos de aplicações financeiras", True)
 EXCLUSIVO_JCP = Regra("10", "PGD-2026 tipoRendTributExclusiva; Ajuda p.118: 10 - Juros sobre capital próprio", True)

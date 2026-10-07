@@ -240,6 +240,8 @@ def _regras_irpf() -> list[tuple[str, regras_fiscais.Regra]]:
         "BEM_ACOES": "Ações: grupo 03, código 01",
         "BEM_UNITS": "Units: grupo 03, código 01, como ações",
         "BEM_BDR": "BDRs: grupo 04, código 04",
+        "BEM_TITULOS_TRIBUTAVEIS": "Tesouro Direto, CDB, RDB e outros títulos tributados: grupo 04, código 02",
+        "BEM_TITULOS_ISENTOS": "LCI, LCA, CRI, CRA e outros títulos isentos: grupo 04, código 03",
         "BEM_FII": "FIIs: grupo 07, código 03",
         "BEM_FIAGRO": "Fiagros: grupo 07, código 02",
         "BEM_ETF": "ETFs de ações: grupo 07, código 06",
@@ -249,6 +251,8 @@ def _regras_irpf() -> list[tuple[str, regras_fiscais.Regra]]:
         "ISENTO_RENDIMENTOS_FII": "Rendimentos de FII e Fiagro: rendimento isento, linha 99 (Outros)",
         "ISENTO_ACOES_ATE_20_MIL": "Lucro com ações em meses de vendas até R$ 20 mil: rendimento isento, linha 20",
         "EXCLUSIVO_JCP": "Juros sobre capital próprio: tributação exclusiva, linha 10",
+        "EXCLUSIVO_APLICACOES": "Rendimentos de CDB, Tesouro e outros títulos tributados: tributação exclusiva, linha 06 (do informe da corretora)",
+        "ISENTO_LCI_LCA": "Rendimentos de LCI, LCA, CRI e CRA: rendimento isento, linha 12 (do informe da corretora)",
     }
     return [(texto, getattr(regras_fiscais, nome)) for nome, texto in nomes.items()]
 
@@ -266,6 +270,8 @@ def declaracao_anual(request: Request, sessao: Sessao, investidor_id: Investidor
         "anos": anos,
         "negocios_com_opcoes": com_opcoes,
         "regras": _regras_irpf(),
+        "linha_aplicacoes": regras_fiscais.EXCLUSIVO_APLICACOES.valor,
+        "linha_lci": regras_fiscais.ISENTO_LCI_LCA.valor,
     })
 
 
