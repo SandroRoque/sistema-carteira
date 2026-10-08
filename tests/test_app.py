@@ -147,6 +147,10 @@ def test_headers_de_seguranca(client):
     resp = client.get("/")
     assert "default-src 'self'" in resp.headers["content-security-policy"]
     assert resp.headers["x-frame-options"] == "DENY"
+    assert resp.headers["cache-control"] == "no-store"
+    assert resp.headers["cross-origin-opener-policy"] == "same-origin"
+    # Static assets stay cacheable.
+    assert "cache-control" not in client.get("/static/style.css").headers
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +202,8 @@ def test_valor_da_negociacao_arredonda_centavo_para_cima(client, ativo_id, inves
     ("quantidade", "NaN"),
     ("preco_unitario", "Infinity"),
     ("taxas", "-Infinity"),
+    ("quantidade", "1E+99999"),
+    ("preco_unitario", "2000000000000"),
 ])
 def test_rejeita_negociacao_invalida(client, ativo_id, campo, valor):
     resp = client.post(

@@ -216,9 +216,18 @@ class PendenciaInvalida(ValueError):
     pass
 
 
-def informar_custo_bonificacao(conn: Connection, investidor_id: int, mov_id: int, custo: Decimal) -> None:
+CUSTO_MAXIMO = Decimal("1e12")
+
+
+def _validar_custo(custo: Decimal) -> None:
     if custo < 0:
         raise PendenciaInvalida("O custo não pode ser negativo.")
+    if custo > CUSTO_MAXIMO:
+        raise PendenciaInvalida("Custo grande demais.")
+
+
+def informar_custo_bonificacao(conn: Connection, investidor_id: int, mov_id: int, custo: Decimal) -> None:
+    _validar_custo(custo)
     alterada = scalar(
         conn,
         """
@@ -236,8 +245,7 @@ def informar_custo_bonificacao(conn: Connection, investidor_id: int, mov_id: int
 
 
 def informar_custo_sem_nota(conn: Connection, investidor_id: int, ativo_id: int, custo: Decimal) -> None:
-    if custo < 0:
-        raise PendenciaInvalida("O custo não pode ser negativo.")
+    _validar_custo(custo)
     if not fetch_one(
         conn,
         "SELECT 1 FROM b3_movimentacoes WHERE investidor_id = :i AND ativo_id = :a LIMIT 1",

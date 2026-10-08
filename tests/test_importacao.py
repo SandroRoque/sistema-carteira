@@ -84,8 +84,18 @@ def _esgota_memoria():
     return bytearray(1024**3)
 
 
+def _oom_score_adj():
+    with open("/proc/self/oom_score_adj") as f:
+        return int(f.read())
+
+
 def test_isolado_devolve_resultado():
     assert executar_isolado(_soma, 2, 3) == 5
+
+
+@pytest.mark.skipif(not os.path.exists("/proc/self/oom_score_adj"), reason="Linux only")
+def test_isolado_e_o_primeiro_alvo_do_oom_killer():
+    assert executar_isolado(_oom_score_adj) == 1000
 
 
 @pytest.mark.parametrize("funcao, motivo, kw", [

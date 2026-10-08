@@ -105,6 +105,17 @@ def test_valor_invalido_mostra_erro_no_item(com_bonificacao, cliente):
     assert len(_listar(com_bonificacao)) == 1
 
 
+def test_custo_absurdo_e_recusado(com_bonificacao, cliente):
+    [p] = _listar(com_bonificacao)
+
+    resp = cliente.post(f"/pendencias/bonificacoes/{p.chave}",
+                        data={"csrf_token": cliente.csrf, "custo_por_cota": "1E+99999"})
+
+    assert resp.status_code == 422
+    assert "grande demais" in resp.text
+    assert len(_listar(com_bonificacao)) == 1
+
+
 def test_nao_resolve_pendencia_de_outra_conta(com_bonificacao, investidor_b):
     [p] = _listar(com_bonificacao)
     bruno = _cliente()

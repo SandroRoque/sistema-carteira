@@ -191,6 +191,12 @@ class SegurancaMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+        if not request.url.path.startswith("/static/"):
+            # Pages carry financial data: keep them out of browser and proxy
+            # caches, so they cannot be reopened from history after logout.
+            response.headers["Cache-Control"] = "no-store"
         if cookie_secure():
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response

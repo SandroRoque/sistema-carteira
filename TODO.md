@@ -136,6 +136,22 @@ verification at sign-up).
 
 Lockout counts failures per e-mail. An attacker spraying one password across many
 e-mails is not throttled; add per-IP rate limiting at the edge (proxy/CDN) or in the app.
+The flip side: anyone who knows an e-mail can keep that account locked out with five
+wrong passwords every 15 minutes.
+
+Before keying anything on the client IP: the Dockerfile runs uvicorn with
+`--forwarded-allow-ips "*"`, which takes the leftmost X-Forwarded-For entry, and
+the client controls that one. Use Fly's `Fly-Client-IP` header instead.
+
+### The parsing child is not a confidentiality boundary
+
+isolamento.py contains crashes, hangs and memory blowups, but the child runs as
+the same user with the parent's environment (DATABASE_URL, CPF_HMAC_KEY) and
+sends its result back as a pickle. Code execution through a parser bug (MuPDF,
+openpyxl) would therefore reach the database and the parent process. To harden:
+start the child with `subprocess` and a scrubbed environment, return plain data
+(JSON) instead of pickled objects, and add seccomp/no-network if the platform
+allows it.
 
 ### Options are stored but not calculated
 

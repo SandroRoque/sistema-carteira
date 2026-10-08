@@ -71,6 +71,14 @@ def _filho(emissor, funcao, args, memoria_limite: int) -> None:
     os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     resource.setrlimit(resource.RLIMIT_AS, (memoria_limite, memoria_limite))
+    # The address-space cap is above a small machine's RAM (virtual memory
+    # runs well past resident), so the kernel's OOM killer may act first:
+    # make this process its first choice, not the web server.
+    try:
+        with open("/proc/self/oom_score_adj", "w") as f:
+            f.write("1000")
+    except OSError:
+        pass  # not Linux, or no procfs
     try:
         resultado = (True, funcao(*args))
     except BaseException as exc:  # noqa: BLE001 — everything is reported to the parent

@@ -187,6 +187,11 @@ def _next_linha(conn, investidor_id: int, nota_id: str) -> int:
     )
 
 
+# Typed quantities and prices above this are mistakes; huge exponents
+# (1E+99999) would also overflow the cent rounding below.
+_VALOR_MAXIMO = Decimal("1e12")
+
+
 def _centavos(valor: Decimal) -> Decimal:
     """Money rounded to the cent, half up (round() on Decimal is half-even)."""
     return valor.quantize(Decimal("0.01"), ROUND_HALF_UP)
@@ -210,6 +215,8 @@ def negociacoes_create(
         return _erro("Quantidade deve ser positiva")
     if preco_unitario < 0 or taxas < 0:
         return _erro("Preço e taxas não podem ser negativos")
+    if max(quantidade, preco_unitario, taxas) > _VALOR_MAXIMO:
+        return _erro("Valor grande demais")
 
     valor_bruto = _centavos(quantidade * preco_unitario)
     if sentido == "entrada":
