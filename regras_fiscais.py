@@ -94,14 +94,15 @@ COMPENSACAO_COMUNS = Regra("comuns com comuns", "PR-IRPF-2026 q.709; RIR/2018 ar
 COMPENSACAO_FII = Regra("FII só com FII", "IN-1585 art. 37, §2º", True)
 
 # Incorporação, fusão, conversão: the new shares or quotas take over the
-# cost of the old ones; no sale and no tax at the event. For FIIs merging
-# into FIIs (same tax regime, same holders, no assets distributed) there is
-# no withholding: Lei 14.754/2023 art. 30, §2º — read through a secondary
-# source, confirm on Planalto. For stocks (incorporação de ações) the
-# Receita's position is disputed: confirm before relying on it.
+# cost of the old ones; no sale and no tax at the event. No source found yet.
+# Lei 14.754/2023 art. 30, §2º (no IRRF on mergers of funds of the same
+# regime) does NOT cover FIIs or Fiagros: its art. 39, I leaves them under
+# Lei 8.668/1993 (Planalto, read 2026-10-08). For stocks, the Receita treats
+# incorporação de ações as a sale taxed as ganho de capital (PR-IRPF-2026
+# q.603). See TODO.md.
 CONVERSAO_CUSTO_TRANSFERIDO = Regra(
     "custo das antigas passa às novas",
-    "Lei 14.754/2023 art. 30, §2º, para FIIs (conferir o texto); ações: a confirmar",
+    "sem fonte para FIIs (Lei 14.754/2023 art. 39, I exclui FIIs); ações: PR-IRPF-2026 q.603 trata como alienação",
     False,
 )
 

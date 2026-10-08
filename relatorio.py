@@ -573,7 +573,7 @@ def _section_ir(conn: Connection, investidor_id: int) -> str:
 | BDRs | Vendas ≤ R$20k/mês → isento; acima → DARF 15% | Vigente desde 2023 |
 | JCP | 15% retido na fonte | Declarar no IRPF |
 | Dividendos | Isentos (PF) | Legislação atual |
-| Rend. FII | Isentos (PF, cota ≥ 10%, fundo com 50+ cotistas) | Verificar cada fundo |
+| Rend. FII | Isentos (PF com menos de 10% das cotas, fundo com 100+ cotistas; Lei 11.033 art. 3º, §1º) | Verificar cada fundo |
 | Renda Fixa | IR retido na fonte (22,5% → 15% regressivo) | Declarar no IRPF |
 """)
 

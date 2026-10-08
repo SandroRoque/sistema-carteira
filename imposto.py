@@ -486,7 +486,7 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
         ("ETFs",        "Renda variável: DARF 15%; renda fixa: retido",      "sem isenção"),
         ("JCP",         "15% retido na fonte",                               "declarar IRPF"),
         ("Dividendos",  "Isentos (PF)",                                      "legislação atual"),
-        ("Rend. FII",   "Isentos (PF cota ≥ 10% fundo com 50+ cotistas)",    "verificar cada fundo"),
+        ("Rend. FII",   "Isentos (PF < 10% das cotas, fundo com 100+ cotistas)", "verificar cada fundo"),
         ("Renda Fixa",  "IR retido na fonte (tabela regressiva 22.5%→15%)",  "declarar IRPF"),
     ]
     for tipo, regra, obs in rules:

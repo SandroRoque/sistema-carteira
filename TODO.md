@@ -76,9 +76,12 @@ Open points on `/impostos/irpf`:
 - Whether day-trade sales count toward the R$ 20 mil limit: currently they do not.
   PR-IRPF-2026 q.707 only says the exemption does not apply to day trade.
 - **Incorporação / conversão** (`CONVERSAO_CUSTO_TRANSFERIDO`): the new shares
-  take the old ones' cost, no sale. For FII → FII this follows Lei 14.754/2023
-  art. 30 §2º, read only through a secondary source (Planalto was unreachable);
-  confirm the primary text. For stocks (incorporação de ações) the Receita's
+  take the old ones' cost, no sale. For FII → FII there is no source yet: Lei
+  14.754/2023 art. 30, §2º (no IRRF when funds of the same regime merge) does
+  not apply, because its art. 39, I leaves FIIs and Fiagros out ("Ficam
+  ressalvadas do disposto nesta Lei as regras aplicáveis aos [...] FII e [...]
+  Fiagro"; Planalto, read 2026-10-08). Look for a Solução de Consulta on FII
+  mergers. For stocks (incorporação de ações) the Receita's
   view is that the transfer is a sale: PR-IRPF-2026 q.603 ("a transferência
   destas para o capital social da companhia incorporadora caracteriza alienação
   cujo valor, se superior ao indicado na declaração de bens [...] é tributado
