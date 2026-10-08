@@ -1,5 +1,5 @@
 """PDF extraction pieces that do not need a real nota: bundles of several
-notas in one PDF, the newer Nu amount format and unsupported layouts."""
+notas in one PDF and the newer Nu amount format."""
 
 from decimal import Decimal
 
