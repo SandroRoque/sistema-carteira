@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 
 from models import Movimentacao, NotaCorretagem, TituloPrivado, TituloPublico
+
+ZERO = Decimal(0)
 
 
 @dataclass
@@ -27,37 +30,37 @@ class NotaRecord:
     comando: str | None
     mercado: str | None
     status: str | None
-    liquido_para: float | None
+    liquido_para: Decimal | None
     # resumo dos negócios (NotaCorretagem only)
-    debentures: float | None
-    vendas_a_vista: float | None
-    compras_a_vista: float | None
-    opcoes_compras: float | None
-    opcoes_vendas: float | None
-    operacoes_a_termo: float | None
-    valor_das_operacoes_com_titulos_publicos: float | None
-    valor_das_operacoes: float | None
-    valor_liquido_das_operacoes: float | None
+    debentures: Decimal | None
+    vendas_a_vista: Decimal | None
+    compras_a_vista: Decimal | None
+    opcoes_compras: Decimal | None
+    opcoes_vendas: Decimal | None
+    operacoes_a_termo: Decimal | None
+    valor_das_operacoes_com_titulos_publicos: Decimal | None
+    valor_das_operacoes: Decimal | None
+    valor_liquido_das_operacoes: Decimal | None
     # resumo financeiro (NotaCorretagem only)
-    taxa_de_liquidacao: float | None
-    taxa_de_registro: float | None
-    total_clearing_cblc: float | None
-    taxa_de_termo_opcoes: float | None
-    taxa_a_n_a: float | None
-    emolumentos: float | None
-    total_bolsa: float | None
-    corretagem: float | None
-    iss: float | None
-    irrf_sobre_operacoes: float | None
-    outras: float | None
-    total_corretagem_despesas: float | None
-    taxa_operacional: float | None
-    execucao: float | None
-    taxa_de_custodia: float | None
-    impostos: float | None
-    pis_cofins: float | None
-    taxa_de_transferencia_de_ativos: float | None
-    execucao_casa: float | None
+    taxa_de_liquidacao: Decimal | None
+    taxa_de_registro: Decimal | None
+    total_clearing_cblc: Decimal | None
+    taxa_de_termo_opcoes: Decimal | None
+    taxa_a_n_a: Decimal | None
+    emolumentos: Decimal | None
+    total_bolsa: Decimal | None
+    corretagem: Decimal | None
+    iss: Decimal | None
+    irrf_sobre_operacoes: Decimal | None
+    outras: Decimal | None
+    total_corretagem_despesas: Decimal | None
+    taxa_operacional: Decimal | None
+    execucao: Decimal | None
+    taxa_de_custodia: Decimal | None
+    impostos: Decimal | None
+    pis_cofins: Decimal | None
+    taxa_de_transferencia_de_ativos: Decimal | None
+    execucao_casa: Decimal | None
 
 
 @dataclass
@@ -72,29 +75,29 @@ class NegociacaoRecord:
     sentido: str  # 'entrada' | 'saida'
     tipo: str     # 'compra' | 'venda' | 'aquisicao' | 'resgate'
     debito_credito: str | None
-    quantidade: float | None
-    preco_unitario: float | None
-    valor_bruto: float | None
-    taxas_proporcionais: float
-    valor_liquido: float | None
+    quantidade: Decimal | None
+    preco_unitario: Decimal | None
+    valor_bruto: Decimal | None
+    taxas_proporcionais: Decimal
+    valor_liquido: Decimal | None
     mercado: str | None
     tipo_de_mercado: str | None
     prazo: str | None
     observacao: str | None
     indexador: str | None
-    taxa_cupom_percentual: float | None
-    percentual_do_indexador: float | None
+    taxa_cupom_percentual: Decimal | None
+    percentual_do_indexador: Decimal | None
     emissao: date | None
     vencimento: date | None
     custodia: str | None
     tipo_emitente: str | None
     conta_bancaria: str | None
     rendimentos: str | None
-    imposto_de_renda_federal: float | None
-    iof: float | None
+    imposto_de_renda_federal: Decimal | None
+    iof: Decimal | None
     especificacao_observacao: str | None
-    tx_bvmf: float | None
-    tx_agente_custodia: float | None
+    tx_bvmf: Decimal | None
+    tx_agente_custodia: Decimal | None
 
 
 @dataclass
@@ -107,7 +110,7 @@ class DocumentoTransformado:
 # Fee distribution
 # ---------------------------------------------------------------------------
 
-def _distribuir_taxas(valores_brutos: list[float], total_taxas: float) -> list[float]:
+def _distribuir_taxas(valores_brutos: list[Decimal], total_taxas: Decimal) -> list[Decimal]:
     """Distribui total_taxas proporcionalmente aos valores_brutos (abs).
 
     Usa o método 'maior resto' para corrigir erros de arredondamento:
@@ -115,7 +118,7 @@ def _distribuir_taxas(valores_brutos: list[float], total_taxas: float) -> list[f
     """
     n = len(valores_brutos)
     if n == 0 or total_taxas == 0:
-        return [0.0] * n
+        return [ZERO] * n
 
     abs_valores = [abs(v) for v in valores_brutos]
     total_abs = sum(abs_valores)
@@ -136,15 +139,15 @@ def _distribuir_taxas(valores_brutos: list[float], total_taxas: float) -> list[f
     return allocated
 
 
-def _total_taxas_nota(nota: NotaCorretagem) -> float:
+def _total_taxas_nota(nota: NotaCorretagem) -> Decimal:
     """Total broker fees for a nota.
 
     Computed as the difference between the net trade value and what the
     client actually pays/receives.  This is broker-agnostic and avoids
     double-counting subtotal columns.
     """
-    liq_ops = nota.valor_liquido_das_operacoes or 0.0
-    liq_para = nota.liquido_para or 0.0
+    liq_ops = nota.valor_liquido_das_operacoes or ZERO
+    liq_para = nota.liquido_para or ZERO
     # For a net buyer: liq_ops < 0, liq_para < liq_ops  → result > 0
     # For a net seller: liq_ops > 0, liq_para < liq_ops → result > 0
     return round(liq_ops - liq_para, 2)
@@ -214,16 +217,16 @@ def transformar(resultado: NotaCorretagem | TituloPublico | TituloPrivado) -> Do
 
 def _transformar_nota_corretagem(nota: NotaCorretagem) -> DocumentoTransformado:
     movs = nota.movimentacoes
-    valores_brutos = [m.valor_ajuste or 0.0 for m in movs]
+    valores_brutos = [m.valor_ajuste or ZERO for m in movs]
     total_taxas = _total_taxas_nota(nota)
     taxas_por_mov = _distribuir_taxas(valores_brutos, total_taxas)
 
     negociacoes = []
     for i, (mov, taxa) in enumerate(zip(movs, taxas_por_mov)):
         tipo = _tipo_nota_corretagem(mov.compra_venda)
-        valor_bruto = mov.valor_ajuste or 0.0
+        valor_bruto = mov.valor_ajuste or ZERO
         # Buys: fees increase cost.  Sells: fees reduce proceeds.
-        sinal = 1.0 if tipo == "compra" else -1.0
+        sinal = 1 if tipo == "compra" else -1
         valor_liquido = round(valor_bruto + sinal * taxa, 2)
 
         negociacoes.append(NegociacaoRecord(
@@ -318,7 +321,7 @@ def _transformar_nota_corretagem(nota: NotaCorretagem) -> DocumentoTransformado:
 
 
 def _transformar_titulo_publico(doc: TituloPublico) -> DocumentoTransformado:
-    valor_total = doc.valor_total or 0.0
+    valor_total = doc.valor_total or ZERO
     tipo = _tipo_titulo_publico(doc.tipo)
 
     negociacao = NegociacaoRecord(
@@ -334,7 +337,7 @@ def _transformar_titulo_publico(doc: TituloPublico) -> DocumentoTransformado:
         quantidade=doc.quantidade,
         preco_unitario=doc.valor_1_titulo,
         valor_bruto=valor_total,
-        taxas_proporcionais=0.0,  # fees embedded in price for gov bonds
+        taxas_proporcionais=ZERO,  # fees embedded in price for gov bonds
         valor_liquido=valor_total,
         mercado=doc.mercado,
         tipo_de_mercado=None,
@@ -413,8 +416,8 @@ def _transformar_titulo_publico(doc: TituloPublico) -> DocumentoTransformado:
 
 
 def _transformar_titulo_privado(doc: TituloPrivado) -> DocumentoTransformado:
-    valor_bruto = doc.valor_da_operacao or 0.0
-    valor_liquido = doc.valor_liquido or 0.0
+    valor_bruto = doc.valor_da_operacao or ZERO
+    valor_liquido = doc.valor_liquido or ZERO
     taxas = round(abs(valor_bruto - valor_liquido), 2)
     tipo = _tipo_titulo_privado(doc.nota_de)
 

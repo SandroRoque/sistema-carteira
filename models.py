@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 
 
 @dataclass(frozen=True)
@@ -88,9 +89,9 @@ class Movimentacao:
     compra_venda: str
     tipo_de_mercado: str
     especificacao_do_titulo: str
-    quantidade: float | None
-    preco_ajuste: float | None
-    valor_ajuste: float | None
+    quantidade: Decimal | None
+    preco_ajuste: Decimal | None
+    valor_ajuste: Decimal | None
     debito_credito: str
     prazo: str | None = None
     observacao: str | None = None
@@ -129,38 +130,38 @@ class NotaCorretagem:
     uf: str | None = None
     cep: str | None = None
     # resumo dos negócios
-    debentures: float | None = None
-    vendas_a_vista: float | None = None
-    compras_a_vista: float | None = None
-    opcoes_compras: float | None = None
-    opcoes_vendas: float | None = None
-    operacoes_a_termo: float | None = None
-    valor_das_operacoes_com_titulos_publicos: float | None = None
-    valor_das_operacoes: float | None = None
+    debentures: Decimal | None = None
+    vendas_a_vista: Decimal | None = None
+    compras_a_vista: Decimal | None = None
+    opcoes_compras: Decimal | None = None
+    opcoes_vendas: Decimal | None = None
+    operacoes_a_termo: Decimal | None = None
+    valor_das_operacoes_com_titulos_publicos: Decimal | None = None
+    valor_das_operacoes: Decimal | None = None
     # resumo financeiro (all optional — broker-specific subsets)
-    valor_liquido_das_operacoes: float | None = None
-    taxa_de_liquidacao: float | None = None
-    taxa_de_registro: float | None = None
-    total_clearing_cblc: float | None = None
-    taxa_de_termo_opcoes: float | None = None
-    taxa_a_n_a: float | None = None
-    emolumentos: float | None = None
-    total_bolsa: float | None = None
-    corretagem: float | None = None
-    iss: float | None = None
-    irrf_sobre_operacoes_base_0_00: float | None = None
-    outras: float | None = None
-    total_corretagem_despesas: float | None = None
-    liquido_para: float | None = None
+    valor_liquido_das_operacoes: Decimal | None = None
+    taxa_de_liquidacao: Decimal | None = None
+    taxa_de_registro: Decimal | None = None
+    total_clearing_cblc: Decimal | None = None
+    taxa_de_termo_opcoes: Decimal | None = None
+    taxa_a_n_a: Decimal | None = None
+    emolumentos: Decimal | None = None
+    total_bolsa: Decimal | None = None
+    corretagem: Decimal | None = None
+    iss: Decimal | None = None
+    irrf_sobre_operacoes_base_0_00: Decimal | None = None
+    outras: Decimal | None = None
+    total_corretagem_despesas: Decimal | None = None
+    liquido_para: Decimal | None = None
     # XP-specific
-    taxa_operacional: float | None = None
-    execucao: float | None = None
-    taxa_de_custodia: float | None = None
-    impostos: float | None = None
+    taxa_operacional: Decimal | None = None
+    execucao: Decimal | None = None
+    taxa_de_custodia: Decimal | None = None
+    impostos: Decimal | None = None
     # Safra-specific
-    pis_cofins: float | None = None
-    taxa_de_transferencia_de_ativos: float | None = None
-    execucao_casa: float | None = None
+    pis_cofins: Decimal | None = None
+    taxa_de_transferencia_de_ativos: Decimal | None = None
+    execucao_casa: Decimal | None = None
     # movimentações table
     movimentacoes: list[Movimentacao] = field(default_factory=list)
 
@@ -195,11 +196,11 @@ class TituloPublico:
     tipo: str
     data_de_operacao: date
     titulo: str
-    quantidade: float | None
-    valor_total: float | None
-    valor_1_titulo: float | None = None
-    tx_bvmf: float | None = None
-    tx_agente_custodia: float | None = None
+    quantidade: Decimal | None
+    valor_total: Decimal | None
+    valor_1_titulo: Decimal | None = None
+    tx_bvmf: Decimal | None = None
+    tx_agente_custodia: Decimal | None = None
 
     def validate(self) -> None:
         missing = [
@@ -231,24 +232,24 @@ class TituloPrivado:
     cnpj_emissor: str
     indexador: str
     titulo: str
-    quantidade_valor_nominal: float | None
-    preco_unitario_da_operacao: float | None
-    valor_da_operacao: float | None
-    valor_liquido: float | None
+    quantidade_valor_nominal: Decimal | None
+    preco_unitario_da_operacao: Decimal | None
+    valor_da_operacao: Decimal | None
+    valor_liquido: Decimal | None
     # optional
     local: str | None = None
     conta_bancaria: str | None = None
     tipo_emitente: str | None = None
-    taxa_cupom_percentual: float | None = None
-    percentual_do_indexador: float | None = None
+    taxa_cupom_percentual: Decimal | None = None
+    percentual_do_indexador: Decimal | None = None
     prazo: str | None = None
     custodia: str | None = None
     emissao: date | None = None
     vencimento: date | None = None
     rendimentos: str | None = None
-    imposto_de_renda_federal: float | None = None
-    iof: float | None = None
-    outras: float | None = None
+    imposto_de_renda_federal: Decimal | None = None
+    iof: Decimal | None = None
+    outras: Decimal | None = None
     especificacao_observacao: str | None = None
     comando: str | None = None
 

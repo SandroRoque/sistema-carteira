@@ -16,16 +16,6 @@ A manual review pass can detect duplicates and merge them by re-pointing the rel
 **Proper fix (future):** Normalize `titulo` strings at extraction time, or add a post-load
 deduplication step that matches by `(cnpj_emissor, indexador, taxa_prefixada, percentual_do_indexador, emissao, vencimento)`.
 
-### Ingestion still parses numbers as float
-
-Calculations and reports use `Decimal` (NUMERIC is loaded as Decimal), but the
-PDF extraction side — `parsers.py`, `models.py`, `transformer.py` (fee split) —
-still turns document text into float before it is stored. (B3 reports already
-parse straight to Decimal.)
-It is harmless today (values have at most 2 decimals and the fee split rounds
-to the cent; stored data checked on 2026-10-05), but parsing straight to
-`Decimal` would make the pipeline exact end to end.
-
 ### A Nu Invest nota has a misextracted CPF
 
 The key-value finder merged the client name and CPF; `cpf_cliente` got a value that

@@ -6,6 +6,8 @@ or wrong, CPFs without leading zeros or left blank, cells wrapped over several
 lines, two notas under one number, a page printed in landscape.
 """
 
+from decimal import Decimal
+
 import fitz
 import pytest
 
@@ -108,8 +110,8 @@ def test_le_compra_da_xp_com_rotulos_acentuados_e_sinal_de_debito():
     assert m.especificacao_do_titulo == "EMPRESA X ON NM"
     assert (m.compra_venda, m.tipo_de_mercado, m.quantidade, m.preco_ajuste, m.valor_ajuste) == ("C", "VISTA", 1000, 1.0, 1000.0)
     assert nota.valor_liquido_das_operacoes == -1000.0
-    assert nota.liquido_para == -1000.35
-    assert nota.taxa_de_liquidacao == -0.25
+    assert nota.liquido_para == Decimal("-1000.35")
+    assert nota.taxa_de_liquidacao == Decimal("-0.25")
 
 
 def test_letras_erradas_nao_invertem_compra():
@@ -120,8 +122,8 @@ def test_letras_erradas_nao_invertem_compra():
             financeiro=_financeiro_compra("C", "C", "C"))
     nota = _uma(doc)
     assert nota.valor_liquido_das_operacoes == -1000.0
-    assert nota.liquido_para == -1000.35
-    assert nota.emolumentos == -0.05
+    assert nota.liquido_para == Decimal("-1000.35")
+    assert nota.emolumentos == Decimal("-0.05")
 
 
 def test_venda_mantem_o_credito():
@@ -264,3 +266,18 @@ def test_pagina_impressa_em_paisagem():
     pagina.set_rotation(90)
     [nota] = extrair_notas(girado.tobytes())
     assert nota.movimentacoes[0].especificacao_do_titulo == "EMPRESA X ON NM"
+
+
+def test_identidade_nao_muda_com_decimal():
+    """Nota ids loaded when parsing produced floats must stay the same."""
+    import hashlib
+    from datetime import date
+
+    from extractors.sinacor import _identidade
+    from models import Movimentacao
+
+    mov = Movimentacao("BOVESPA", "C", "VISTA", "EMPRESA X ON", Decimal("100"), Decimal("12.5"),
+                       Decimal("1250.00"), "D")
+    esperado = hashlib.sha256(b"C:100.0:1250.0|-1250.4").hexdigest()[:8]
+
+    assert _identidade("7", date(2025, 3, 10), [mov], Decimal("-1250.40")) == f"7-20250310-{esperado}"

@@ -21,6 +21,7 @@ import hashlib
 import re
 import unicodedata
 from dataclasses import dataclass
+from decimal import Decimal
 
 import fitz
 
@@ -83,6 +84,9 @@ def normalizar(texto: str) -> str:
     """Lowercase letters and digits only, accents removed."""
     sem_acento = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
     return "".join(c for c in sem_acento.lower() if c.isalnum())
+
+
+CENTAVO = Decimal("0.01")
 
 
 @dataclass(frozen=True)
@@ -148,7 +152,7 @@ def _valor_apos(linha: list[Palavra], inicio: int) -> str | None:
     return f"{valor} {sinal}".strip()
 
 
-def valores_do_resumo(linhas: list[list[Palavra]], campos: dict[str, list[str]]) -> dict[str, float | None]:
+def valores_do_resumo(linhas: list[list[Palavra]], campos: dict[str, list[str]]) -> dict[str, Decimal | None]:
     """Each field's amount; the last occurrence wins (a nota over several
     pages repeats the summary, and only the last page has the totals)."""
     resultado = {}
@@ -378,7 +382,7 @@ def negocios(linhas: list[list[Palavra]]) -> list[Movimentacao]:
 # The nota
 # ---------------------------------------------------------------------------
 
-def _sinal_do_liquido(resumo: dict) -> float:
+def _sinal_do_liquido(resumo: dict) -> Decimal:
     """Net value of the trades, with the sign the trade totals give it.
 
     Some XP notas print C beside it even for a purchase; when the printed
@@ -388,30 +392,38 @@ def _sinal_do_liquido(resumo: dict) -> float:
     vendas = (resumo["vendas_a_vista"] or 0) + (resumo["opcoes_vendas"] or 0)
     compras = (resumo["compras_a_vista"] or 0) + (resumo["opcoes_compras"] or 0)
     esperado = round(vendas - compras, 2)
-    if esperado and abs(abs(valor) - abs(esperado)) <= 0.01:
+    if esperado and abs(abs(valor) - abs(esperado)) <= CENTAVO:
         return esperado
     return valor
 
 
-def _sinal_do_liquido_para(resumo: dict) -> float:
+def _sinal_do_liquido_para(resumo: dict) -> Decimal:
     """'Líquido para' is the net value minus the fees, and fees are never
     negative. Some XP notas print C beside it on a purchase: when the printed
     letter would make the fees negative, the other sign is the right one."""
     liquido = resumo["liquido_para"]
-    if resumo["valor_liquido_das_operacoes"] - liquido < -0.01:
+    if resumo["valor_liquido_das_operacoes"] - liquido < -CENTAVO:
         return -liquido
     return liquido
 
 
-def _identidade(numero: str, pregao, movimentacoes: list[Movimentacao], liquido_para: float) -> str:
+def _como_float(valor: Decimal | None) -> float | None:
+    return None if valor is None else float(valor)
+
+
+def _identidade(numero: str, pregao, movimentacoes: list[Movimentacao], liquido_para: Decimal) -> str:
     """The nota's id: printed number, trading date and a fingerprint of its trades.
 
     The printed number alone is not unique: newer XP notas print a short
     per-day sequence ("1"), and XP issues the stock and the options trades of
     a day as separate notas under one number. The fingerprint uses only
-    quantities and amounts, so the same nota sent twice keeps the same id."""
-    negocios = "|".join(sorted(f"{m.compra_venda}:{m.quantidade}:{m.valor_ajuste}" for m in movimentacoes))
-    digest = hashlib.sha256(f"{negocios}|{liquido_para}".encode()).hexdigest()[:8]
+    quantities and amounts, so the same nota sent twice keeps the same id.
+    Numbers enter it as they did when parsing produced floats ("100.0"),
+    so ids of notas already loaded do not change."""
+    negocios = "|".join(sorted(
+        f"{m.compra_venda}:{_como_float(m.quantidade)}:{_como_float(m.valor_ajuste)}" for m in movimentacoes
+    ))
+    digest = hashlib.sha256(f"{negocios}|{_como_float(liquido_para)}".encode()).hexdigest()[:8]
     return f"{numero}-{pregao:%Y%m%d}-{digest}"
 
 

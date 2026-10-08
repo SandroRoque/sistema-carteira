@@ -1,4 +1,15 @@
 
+from decimal import Decimal, InvalidOperation
+
+
+def _decimal(texto: str) -> Decimal:
+    # Decimal accepts "NaN" and "Infinity"; a document never means either.
+    valor = Decimal(texto)
+    if not valor.is_finite():
+        raise ValueError("not a finite number")
+    return valor
+
+
 def br_date_parser(date_str):
     """Parses a date string in the format 'DD/MM/YYYY' and returns a datetime.date object."""
     from datetime import datetime
@@ -9,7 +20,7 @@ def br_date_parser(date_str):
 
 
 def br_number_parser(number_str):
-    """Parses a Brazilian-formatted number string and returns a float."""
+    """Parses a Brazilian-formatted number string and returns a Decimal."""
     cleaned_input = number_str.strip()
     if cleaned_input in {"", "-"}:
         return None
@@ -24,15 +35,15 @@ def br_number_parser(number_str):
         else:
             cleaned_str = cleaned_input.replace(".", "").replace(",", ".")
 
-        return float(cleaned_str)
-    except ValueError:
+        return _decimal(cleaned_str)
+    except (ValueError, InvalidOperation):
         raise ValueError(
             f"Invalid number format: {number_str}. Expected format is like '1.234,56'."
         )
 
 
 def percent_parser(percent_str):
-    """Parses a percentage string like '110.50 %' and returns a float."""
+    """Parses a percentage string like '110.50 %' and returns a Decimal."""
     cleaned_input = percent_str.strip()
     if cleaned_input in {"", "-"}:
         return None
@@ -46,15 +57,15 @@ def percent_parser(percent_str):
         else:
             cleaned_str = cleaned_input.replace(".", "").replace(",", ".")
 
-        return float(cleaned_str)
-    except ValueError:
+        return _decimal(cleaned_str)
+    except (ValueError, InvalidOperation):
         raise ValueError(
             f"Invalid percent format: {percent_str}. Expected format is like '110.50 %'."
         )
 
 
 def money_parser(money_str):
-    """Parses a money string in the format '1.234,56' and returns a float."""
+    """Parses a money string in the format '1.234,56' and returns a Decimal."""
     cleaned_input = money_str.strip()
     if cleaned_input in {"", "-"}:
         return None
@@ -72,10 +83,10 @@ def money_parser(money_str):
         cleaned_input = cleaned_input.replace("|", " ").strip()
 
         tokens = cleaned_input.split()
-        sign = 1.0
+        sign = 1
         if tokens and tokens[-1] in {"C", "D"}:
             if tokens[-1] == "D":
-                sign = -1.0
+                sign = -1
             cleaned_input = " ".join(tokens[:-1]).strip()
 
         if cleaned_input in {"", "-"}:
@@ -83,8 +94,8 @@ def money_parser(money_str):
 
         # Remove thousand separators, then replace decimal comma with dot
         cleaned_str = cleaned_input.replace(".", "").replace(",", ".")
-        return float(cleaned_str) * sign
-    except ValueError:
+        return _decimal(cleaned_str) * sign
+    except (ValueError, InvalidOperation):
         raise ValueError(f"Invalid money format: {money_str}. Expected format is '1.234,56'.")
 
 

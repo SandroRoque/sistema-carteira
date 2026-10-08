@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 import pytest
 
@@ -15,13 +16,23 @@ def test_br_date_parser_rejects_invalid_date():
 
 
 def test_br_number_parser_parses_brazilian_number():
-    assert br_number_parser("1.234,56") == 1234.56
+    assert br_number_parser("1.234,56") == Decimal("1234.56")
 
 
-def test_br_number_parser_returns_float_for_integer_like_input():
+def test_parsers_return_exact_decimals():
     value = br_number_parser("14")
-    assert value == 14.0
-    assert isinstance(value, float)
+    assert value == 14
+    assert isinstance(value, Decimal)
+    # No binary rounding: what the document prints is what is stored.
+    assert money_parser("0,10") + money_parser("0,20") == Decimal("0.30")
+
+
+@pytest.mark.parametrize("texto", ["NaN", "Infinity", "-inf"])
+def test_parsers_reject_non_finite_values(texto):
+    with pytest.raises(ValueError):
+        br_number_parser(texto)
+    with pytest.raises(ValueError):
+        money_parser(texto)
 
 
 def test_br_number_parser_parses_percent_value():
@@ -50,7 +61,7 @@ def test_money_parser_parses_credit_marker_as_positive():
 
 
 def test_money_parser_parses_debit_marker_as_negative():
-    assert money_parser("0,60| D") == -0.6
+    assert money_parser("0,60| D") == Decimal("-0.60")
 
 
 @pytest.mark.parametrize("empty_value", ["", " ", "-"])

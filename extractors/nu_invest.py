@@ -1,4 +1,5 @@
 import re
+from decimal import Decimal
 
 import fitz
 
@@ -170,7 +171,7 @@ def _extract_nota_corretagem(page: fitz.Page) -> NotaCorretagem:
     )
 
 
-def _irrf(texto: str) -> float | None:
+def _irrf(texto: str) -> Decimal | None:
     """The IRRF amount; the value may come joined with the rest of the label
     ("Base R$ 0,00 R$ 0,00"), so take the last amount."""
     valores = re.findall(r"-?(?:R\$\s*)?[\d.]+,\d{2}", texto)

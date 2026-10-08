@@ -1,6 +1,8 @@
 """PDF extraction pieces that do not need a real nota: bundles of several
 notas in one PDF, the newer Nu amount format and unsupported layouts."""
 
+from decimal import Decimal
+
 import fitz
 import pytest
 
@@ -17,14 +19,14 @@ def _doc(*paginas: str) -> fitz.Document:
 
 
 def test_valor_com_sinal_antes_do_real():
-    assert money_parser("-R$ 1.234,56") == -1234.56
-    assert money_parser("R$ 1.234,56") == 1234.56
-    assert money_parser("1.234,56 D") == -1234.56
+    assert money_parser("-R$ 1.234,56") == Decimal("-1234.56")
+    assert money_parser("R$ 1.234,56") == Decimal("1234.56")
+    assert money_parser("1.234,56 D") == Decimal("-1234.56")
 
 
 def test_irrf_ignora_a_base_no_rotulo():
     assert _irrf("Base R$ 0,00 R$ 0,00") == 0.0
-    assert _irrf("Base R$ 2.500,00 R$ 0,13") == 0.13
+    assert _irrf("Base R$ 2.500,00 R$ 0,13") == Decimal("0.13")
     assert _irrf("0,00") == 0.0
 
 
