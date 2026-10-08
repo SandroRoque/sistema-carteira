@@ -34,7 +34,7 @@ from sqlalchemy import Connection
 
 import formato
 from database import connect_sistema, execute, fetch_one, scalar
-from isolamento import FalhaIsolada, executar_isolado
+from isolamento import FalhaIsolada, executar_isolado, proteger_processo_pai
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +191,16 @@ def ler_relatorio_b3(conteudo: bytes):
 _LEITORES = {"nota": ler_nota, "b3": ler_relatorio_b3}
 
 
+def ler_isolado(funcao, conteudo: bytes):
+    """Run a parser in the isolated child, accepting back only parse records."""
+    from carrega_b3 import LinhaB3
+    from transformer import DocumentoTransformado, NegociacaoRecord, NotaRecord
+
+    return executar_isolado(
+        funcao, conteudo, tipos=(DocumentoTransformado, NotaRecord, NegociacaoRecord, LinhaB3)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Processing (background job, owner connection)
 # ---------------------------------------------------------------------------
@@ -210,7 +220,7 @@ class _Trabalho:
 Executor = Callable[..., Any]
 
 
-def processar_pendentes(executar: Executor = executar_isolado) -> int:
+def processar_pendentes(executar: Executor = ler_isolado) -> int:
     """Process queued uploads until none is left. Returns how many were handled.
 
     `executar(funcao, conteudo)` runs a parser; tests pass a direct call.
@@ -387,7 +397,7 @@ def _finalizar_em(
 class Trabalhador:
     """Runs processar_pendentes in a background thread, on demand."""
 
-    def __init__(self, executar: Executor = executar_isolado):
+    def __init__(self, executar: Executor = ler_isolado):
         self._executar = executar
         self._acordar = threading.Event()
         self._parar = threading.Event()
@@ -395,6 +405,7 @@ class Trabalhador:
 
     def iniciar(self) -> None:
         if self._thread is None:
+            proteger_processo_pai()
             self._thread = threading.Thread(target=self._laco, name="importacao", daemon=True)
             self._thread.start()
 

@@ -143,15 +143,16 @@ Before keying anything on the client IP: the Dockerfile runs uvicorn with
 `--forwarded-allow-ips "*"`, which takes the leftmost X-Forwarded-For entry, and
 the client controls that one. Use Fly's `Fly-Client-IP` header instead.
 
-### The parsing child is not a confidentiality boundary
+### The parsing child still has network access
 
-isolamento.py contains crashes, hangs and memory blowups, but the child runs as
-the same user with the parent's environment (DATABASE_URL, CPF_HMAC_KEY) and
-sends its result back as a pickle. Code execution through a parser bug (MuPDF,
-openpyxl) would therefore reach the database and the parent process. To harden:
-start the child with `subprocess` and a scrubbed environment, return plain data
-(JSON) instead of pickled objects, and add seccomp/no-network if the platform
-allows it.
+isolamento.py starts the child with a scrubbed environment (no DATABASE_URL or
+CPF_HMAC_KEY), exchanges tagged JSON instead of pickle (the parent rebuilds only
+the parse dataclasses it allows), and makes the web process non-dumpable so the
+child cannot read its /proc environ or memory. What is left: the child runs as
+the same user and can open network connections, so code execution through a
+parser bug could still read files that user can read and talk to the outside.
+To harden further: a separate user (needs root to switch), a network namespace
+or seccomp filter, if the platform allows it.
 
 ### Options are stored but not calculated
 

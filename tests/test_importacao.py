@@ -89,8 +89,78 @@ def _oom_score_adj():
         return int(f.read())
 
 
+def _ambiente_inicial():
+    """Variable names the child was started with (later imports may set more)."""
+    with open("/proc/self/environ", "rb") as f:
+        return sorted(v.split(b"=", 1)[0].decode() for v in f.read().split(b"\0") if v)
+
+
+
+
+def _documento():
+    from decimal import Decimal
+    return [documento(CPF_A, negociacao(quantidade=3, preco=12.34)), {"x": Decimal("1.10")}]
+
+
+def _bytes(conteudo):
+    return conteudo[::-1]
+
+
 def test_isolado_devolve_resultado():
     assert executar_isolado(_soma, 2, 3) == 5
+    assert executar_isolado(_bytes, b"\x00\xff%PDF") == b"FDP%\xff\x00"
+
+
+@pytest.mark.skipif(not os.path.exists("/proc/self/environ"), reason="Linux only")
+def test_isolado_nao_herda_segredos(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://segredo")
+    monkeypatch.setenv("CPF_HMAC_KEY", "segredo")
+    nomes = executar_isolado(_ambiente_inicial)
+    assert "DATABASE_URL" not in nomes and "CPF_HMAC_KEY" not in nomes
+
+
+_PAI_PROTEGIDO = """
+import os, sys
+sys.path[:0] = [sys.argv[1], sys.argv[2]]
+from isolamento import FalhaIsolada, executar_isolado, proteger_processo_pai
+from modulo_filho import le_ambiente_do_pai
+print(executar_isolado(le_ambiente_do_pai) > 0)
+proteger_processo_pai()
+try:
+    executar_isolado(le_ambiente_do_pai)
+except FalhaIsolada as exc:
+    print(exc.motivo)
+"""
+
+
+@pytest.mark.skipif(not os.path.exists("/proc/self/environ"), reason="Linux only")
+def test_filho_nao_le_o_ambiente_do_pai_protegido(tmp_path):
+    import subprocess
+    import sys
+
+    (tmp_path / "modulo_filho.py").write_text(
+        "import os\n"
+        "def le_ambiente_do_pai():\n"
+        "    with open(f'/proc/{os.getppid()}/environ', 'rb') as f:\n"
+        "        return len(f.read())\n"
+    )
+    raiz = os.path.dirname(os.path.abspath(importacao.__file__))
+    saida = subprocess.run(
+        [sys.executable, "-c", _PAI_PROTEGIDO, raiz, str(tmp_path)],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert saida == ["True", "PermissionError"]
+
+
+def test_isolado_reconstroi_so_os_tipos_permitidos():
+    from transformer import DocumentoTransformado, NegociacaoRecord, NotaRecord
+
+    tipos = (DocumentoTransformado, NotaRecord, NegociacaoRecord)
+    assert executar_isolado(_documento, tipos=tipos) == _documento()
+    # A child cannot make the parent build any other class.
+    with pytest.raises(FalhaIsolada) as exc:
+        executar_isolado(_documento, tipos=(NotaRecord,))
+    assert exc.value.motivo == "resposta"
 
 
 @pytest.mark.skipif(not os.path.exists("/proc/self/oom_score_adj"), reason="Linux only")

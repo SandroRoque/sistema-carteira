@@ -65,8 +65,9 @@ retenção deles; a política de privacidade informa esse prazo.
   banco (`ck_uploads_conteudo_so_ate_processar`) impede que o conteúdo continue
   gravado depois disso. Ficam o nome do arquivo, o resultado e o hash SHA-256 do
   conteúdo, para detectar reenvio do mesmo arquivo; somem com a conta.
-- A leitura dos arquivos roda num processo separado (`isolamento.py`); mensagens de
-  erro mostradas ou registradas nunca incluem o conteúdo do documento.
+- A leitura dos arquivos roda num processo separado (`isolamento.py`), sem acesso às
+  credenciais do banco nem à chave do HMAC de CPF; mensagens de erro mostradas ou
+  registradas nunca incluem o conteúdo do documento.
 - Dados da carteira: enquanto a conta existir.
 - Logs da aplicação: sem dados pessoais (ver Segurança); retenção do provedor.
 
