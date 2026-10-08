@@ -2,6 +2,7 @@
 {% block title %}Conta — Carteira{% endblock %}
 {% block largura %} estreito{% endblock %}
 
+{% import "macros.html" as m %}
 {% block content %}
 <div>
   <h1>Conta</h1>
@@ -33,8 +34,14 @@
     </table>
   </div>
   {% else %}
-  <p class="vazio">Nenhuma carteira ainda. <a href="/importar">Importe uma nota</a> para criar a primeira.</p>
+  <p class="vazio">Nenhuma carteira ainda. <a href="/importar">Importe uma nota</a> para criar a primeira, ou crie pelo CPF.</p>
   {% endif %}
+  <details{% if erro_carteira %} open{% endif %}>
+    <summary>Nova carteira pelo CPF</summary>
+    <p class="nota">Para quem envia só extratos da B3, que não trazem CPF. Notas com esse CPF caem na mesma carteira.</p>
+    {% if erro_carteira %}<p class="erro" role="alert">{{ erro_carteira }}</p>{% endif %}
+    {{ m.form_nova_carteira(sessao, "/conta", "Criar") }}
+  </details>
 </section>
 
 <section class="card" aria-labelledby="registros">

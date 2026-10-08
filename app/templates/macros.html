@@ -58,3 +58,19 @@
 {%- else -%}Sem cotações: valores pelo custo
 {%- endif -%}
 {%- endmacro %}
+
+{% macro form_nova_carteira(sessao, voltar, titulo="Criar carteira pelo CPF") -%}
+<form method="post" action="/carteiras" class="linha-campos">
+  <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+  <input type="hidden" name="voltar" value="{{ voltar }}">
+  <label class="curto">
+    CPF do titular
+    <input type="text" name="cpf" inputmode="numeric" autocomplete="off" required maxlength="14" placeholder="000.000.000-00">
+  </label>
+  <label class="curto">
+    Apelido (opcional)
+    <input type="text" name="apelido" maxlength="60" placeholder="ex.: Eu, Esposa">
+  </label>
+  <button type="submit">{{ titulo }}</button>
+</form>
+{%- endmacro %}

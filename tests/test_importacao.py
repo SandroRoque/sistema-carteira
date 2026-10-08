@@ -464,7 +464,44 @@ def test_pagina_de_importacao_sem_carteira(db, usuario_id):
     resp = c.get("/importar")
 
     assert resp.status_code == 200
-    assert "envie antes ao menos uma nota" in resp.text
+    assert "Começar só com extratos da B3" in resp.text
+
+
+def test_conta_so_com_b3_cria_carteira_pelo_cpf(db, usuario_id):
+    c = _cliente()
+    csrf = _login(c)
+
+    resp = c.post("/carteiras", data={"csrf_token": csrf, "cpf": "111.444.777-35",
+                                      "apelido": "Eu", "voltar": "/importar"})
+    assert resp.status_code == 200 and "Carteira dos relatórios da B3" in resp.text
+    with connect_sistema() as conn:
+        carteira = fetch_one(conn, "SELECT * FROM investidores WHERE usuario_id = :u", u=usuario_id)
+    assert (carteira["apelido"], carteira["cpf_mascarado"]) == ("Eu", "***.444.777-**")
+    assert "11144477735" not in str(dict(carteira))
+
+    # The same CPF again selects the same portfolio; a nota with it lands there too.
+    c.post("/carteiras", data={"csrf_token": csrf, "cpf": "11144477735"})
+    with connect_sistema() as conn:
+        assert scalar(conn, "SELECT COUNT(*) FROM investidores") == 1
+
+    # And B3 reports can now be imported into it.
+    resp = c.post("/importar", files=[("arquivos", ("mov.xlsx", _xlsx(_DIVIDENDO)))],
+                  data={"csrf_token": csrf, "carteira_b3": str(carteira["id"])})
+    assert resp.status_code == 200
+    processar_pendentes(_direto)
+    assert _upload()["status"] == "concluido"
+
+
+@pytest.mark.parametrize("voltar", ["/importar", "/conta", "https://evil.example"])
+def test_carteira_com_cpf_invalido_e_recusada(db, usuario_id, voltar):
+    c = _cliente()
+    csrf = _login(c)
+
+    resp = c.post("/carteiras", data={"csrf_token": csrf, "cpf": "111.444.777-00", "voltar": voltar})
+
+    assert resp.status_code == 422 and "CPF inválido" in resp.text
+    with connect_sistema() as conn:
+        assert scalar(conn, "SELECT COUNT(*) FROM investidores") == 0
 
 
 def test_envio_enfileira_e_acorda_o_worker(cliente, investidor_a, acordado):

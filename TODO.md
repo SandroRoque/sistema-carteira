@@ -114,12 +114,6 @@ use the Sinacor layout too, so an extractor for it would be reusable.
 There is no real-PDF regression fixture for any layout yet: a sanitized
 sample would still carry real trades, so it needs the owner's consent.
 
-### B3-only accounts cannot import
-
-A portfolio is created from the CPF on a nota, and B3 reports carry no CPF, so an
-account must upload at least one nota before it can import B3 reports. Offer a way
-to create a portfolio directly (asking for the CPF, stored only as HMAC + mask).
-
 ### Import worker wakes only in its own process
 
 Uploads wake the worker thread of the process that received them. That covers one

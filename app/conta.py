@@ -143,6 +143,39 @@ def conta(request: Request, sessao: Sessao):
     return render(request, "conta.html")
 
 
+_ERRO_CPF = "CPF inválido: confira os 11 dígitos."
+
+
+@router.post("/carteiras")
+def criar_carteira(
+    request: Request,
+    sessao: Sessao,
+    cpf: str = Form(""),
+    apelido: str = Form(""),
+    voltar: str = Form("/conta"),
+):
+    """Create a portfolio from a CPF typed by the user, for accounts that start
+    with B3 reports (which carry no CPF). Like a nota, the CPF is kept only as
+    an HMAC and a mask; the same CPF twice selects the existing portfolio."""
+    from contas import get_or_create_investidor
+
+    voltar = voltar if voltar in ("/conta", "/importar") else "/conta"
+    try:
+        with connect(sessao.usuario_id) as conn:
+            investidor_id = get_or_create_investidor(
+                conn, sessao.usuario_id, cpf[:20], apelido.strip()[:60] or None
+            )
+    except ValueError:
+        if voltar == "/importar":
+            from app.importar import _pagina
+
+            return _pagina(request, sessao, [("", _ERRO_CPF)], 422)
+        return render(request, "conta.html", {"erro_carteira": _ERRO_CPF}, 422)
+    with connect_sistema() as conn:
+        auth.selecionar_investidor(conn, request.cookies[COOKIE_SESSAO], investidor_id)
+    return redirecionar(request, voltar)
+
+
 @router.post("/carteiras/{investidor_id}/selecionar")
 def selecionar_carteira(request: Request, investidor_id: int, sessao: Sessao):
     with connect(sessao.usuario_id) as conn:

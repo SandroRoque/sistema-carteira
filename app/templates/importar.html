@@ -69,11 +69,19 @@
     </label>
   </div>
   {% else %}
-  <p class="muted centro">Para relatórios da B3, envie antes ao menos uma nota: a carteira é criada a partir do CPF dela.</p>
+  <p class="muted centro">Notas criam a carteira a partir do CPF impresso nelas. Só tem extratos da B3? Crie a carteira abaixo antes de enviá-los.</p>
   {% endif %}
   <p class="muted centro">Os arquivos são apagados assim que lidos. Guardamos as operações e um código derivado do CPF, nunca o CPF, o nome ou o endereço. <a href="/privacidade">Privacidade</a></p>
   <noscript><div class="botoes"><button type="submit" class="primario">Enviar</button></div></noscript>
 </form>
+
+{% if not carteiras %}
+<section class="card" aria-labelledby="nova-carteira">
+  <h2 id="nova-carteira">Começar só com extratos da B3</h2>
+  <p class="nota">O extrato da B3 não traz CPF. Informe o do titular: guardamos só um código derivado dele e a forma mascarada, como fazemos com as notas.</p>
+  {{ m.form_nova_carteira(sessao, "/importar") }}
+</section>
+{% endif %}
 
 {% if cobertura %}
 <section class="card" id="cobertura" aria-labelledby="cobertura-titulo">
