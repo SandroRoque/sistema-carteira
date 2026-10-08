@@ -143,13 +143,16 @@ There is no "forgot password" flow yet; `admin.py definir-senha` is the only way
 reset a password. Needs a transactional e-mail provider before launch (also for e-mail
 verification at sign-up).
 
-### Account lockout can be triggered by anyone
+### Login waits: what is left
 
-Failed logins are limited per e-mail (5, then a 15-minute lock) and per client
-IP (20 per 15 minutes, any e-mail; `Fly-Client-IP` on Fly). The per-account
-lock still lets anyone who knows an e-mail keep that account locked out, from
-many addresses. Options: a growing delay instead of a hard lock, or letting a
-device that logged in before skip the lock (needs a device cookie).
+Failed logins are limited per IP (20 per 15 minutes, any e-mail) and per
+account: from the 5th failure in a row the account waits 30 s, doubling up to
+15 min. A browser that logged in to the account before (signed `dispositivo`
+cookie) skips the account's wait, so someone who only knows the e-mail cannot
+keep its owner out of a device already used. A new device can still be kept
+waiting. A device cookie cannot be revoked: it is an HMAC under CPF_HMAC_KEY,
+which must not rotate. It only skips the wait and never logs anyone in; if
+revocation matters, store device tokens in a table instead.
 
 ### The parsing child still has network access
 

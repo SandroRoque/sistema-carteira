@@ -16,6 +16,7 @@ from database import connect, connect_sistema, fetch_one, scalar
 from settings import atras_do_fly, cookie_secure
 
 COOKIE_SESSAO = "sessao"
+COOKIE_DISPOSITIVO = "dispositivo"  # auth.token_dispositivo; outlives the session
 METODOS_SEGUROS = frozenset({"GET", "HEAD", "OPTIONS"})
 METODOS_COM_CORPO = frozenset({"POST", "PUT", "PATCH"})
 
@@ -73,6 +74,18 @@ def definir_cookie_sessao(response: Response, token: str) -> None:
         secure=cookie_secure(),
         samesite="lax",
         path="/",
+    )
+
+
+def definir_cookie_dispositivo(response: Response, usuario_id: int) -> None:
+    response.set_cookie(
+        COOKIE_DISPOSITIVO,
+        auth.token_dispositivo(usuario_id),
+        max_age=int(auth.DURACAO_DISPOSITIVO.total_seconds()),
+        httponly=True,
+        secure=cookie_secure(),
+        samesite="strict",
+        path="/entrar",
     )
 
 

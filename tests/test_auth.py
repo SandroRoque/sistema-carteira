@@ -37,22 +37,86 @@ def test_email_duplicado_ignora_maiusculas(usuario_id):
         auth.criar_usuario(conn, "ANA@example.com", SENHA)
 
 
-def test_bloqueia_apos_falhas_seguidas(usuario_id):
-    with connect_sistema() as conn:
-        for _ in range(auth.MAX_FALHAS_LOGIN):
-            assert auth.autenticar(conn, "ana@example.com", "senha-errada-123") is None
-        # Locked: even the right password is refused.
-        assert auth.autenticar(conn, "ana@example.com", SENHA) is None
+def _errar(conn, vezes, dispositivo=None):
+    for _ in range(vezes):
+        assert auth.autenticar(conn, "ana@example.com", "senha-errada-123", dispositivo) is None
 
-        # Once the lock expires, the right password works and the counter resets.
-        execute(
-            conn,
-            "UPDATE usuarios SET bloqueado_ate = :t WHERE id = :id",
-            t=datetime.now(timezone.utc) - timedelta(seconds=1),
-            id=usuario_id,
-        )
+
+def _vencer_espera(conn, usuario_id, ha=timedelta(seconds=1)):
+    execute(conn, "UPDATE usuarios SET bloqueado_ate = :t WHERE id = :id",
+            t=datetime.now(timezone.utc) - ha, id=usuario_id)
+
+
+def _espera(conn, usuario_id):
+    ate = scalar(conn, "SELECT bloqueado_ate FROM usuarios WHERE id = :id", id=usuario_id)
+    return ate - datetime.now(timezone.utc)
+
+
+def test_espera_cresce_a_cada_falha():
+    assert auth.espera(auth.MAX_FALHAS_LOGIN - 1) == timedelta(0)
+    assert auth.espera(auth.MAX_FALHAS_LOGIN) == timedelta(seconds=30)
+    assert auth.espera(auth.MAX_FALHAS_LOGIN + 1) == timedelta(minutes=1)
+    assert auth.espera(auth.MAX_FALHAS_LOGIN + 3) == timedelta(minutes=4)
+    assert auth.espera(auth.MAX_FALHAS_LOGIN + 20) == auth.BLOQUEIO_LOGIN
+
+
+def test_espera_apos_falhas_seguidas(usuario_id):
+    with connect_sistema() as conn:
+        _errar(conn, auth.MAX_FALHAS_LOGIN)
+        # Waiting: even the right password is refused.
+        assert auth.autenticar(conn, "ana@example.com", SENHA) is None
+        assert timedelta(seconds=25) < _espera(conn, usuario_id) <= timedelta(seconds=30)
+
+        # After the wait, one more failure waits twice as long.
+        _vencer_espera(conn, usuario_id)
+        _errar(conn, 1)
+        assert timedelta(seconds=55) < _espera(conn, usuario_id) <= timedelta(minutes=1)
+
+        # The right password after the wait works and the counter resets.
+        _vencer_espera(conn, usuario_id)
         assert auth.autenticar(conn, "ana@example.com", SENHA) == usuario_id
         assert scalar(conn, "SELECT falhas_login FROM usuarios WHERE id = :id", id=usuario_id) == 0
+
+
+def test_falhas_de_dias_atras_sao_esquecidas(usuario_id):
+    with connect_sistema() as conn:
+        _errar(conn, auth.MAX_FALHAS_LOGIN + 3)
+        _vencer_espera(conn, usuario_id, auth.ESQUECER_FALHAS + timedelta(minutes=1))
+        _errar(conn, 1)
+        assert scalar(conn, "SELECT falhas_login FROM usuarios WHERE id = :id", id=usuario_id) == 1
+
+
+def test_aparelho_conhecido_nao_espera(usuario_id):
+    with connect_sistema() as conn:
+        _errar(conn, auth.MAX_FALHAS_LOGIN)
+        dispositivo = auth.dispositivo_de(auth.token_dispositivo(usuario_id))
+        assert dispositivo == usuario_id
+        assert auth.autenticar(conn, "ana@example.com", SENHA, dispositivo) == usuario_id
+
+
+def test_cookie_de_aparelho_falso_ou_de_outra_conta_nao_vale(usuario_id):
+    token = auth.token_dispositivo(usuario_id)
+    assert auth.dispositivo_de(token[:-1] + ("0" if token[-1] != "0" else "1")) is None
+    assert auth.dispositivo_de(f"{usuario_id + 1}.{token.partition('.')[2]}") is None
+    assert auth.dispositivo_de("") is None and auth.dispositivo_de(None) is None
+    with connect_sistema() as conn:
+        _errar(conn, auth.MAX_FALHAS_LOGIN)
+        # A genuine cookie of another account does not skip this one's wait.
+        assert auth.autenticar(conn, "ana@example.com", SENHA, usuario_id + 1) is None
+
+
+def test_login_pela_web_lembra_o_aparelho(usuario_id):
+    from test_app import _cliente
+
+    cliente = _cliente()
+    r = cliente.post("/entrar", data={"email": "ana@example.com", "senha": SENHA}, follow_redirects=False)
+    assert r.status_code == 303 and "dispositivo" in r.cookies
+    cliente.post("/sair")
+    with connect_sistema() as conn:
+        _errar(conn, auth.MAX_FALHAS_LOGIN)
+    # Someone else made the account wait; this browser logged in before.
+    r = cliente.post("/entrar", data={"email": "ana@example.com", "senha": SENHA}, follow_redirects=False)
+    assert r.status_code == 303
 
 
 def test_sessao_guarda_so_hash_do_token(usuario_id):

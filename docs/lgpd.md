@@ -79,8 +79,10 @@ retenção deles; a política de privacidade informa esse prazo.
 - Isolamento entre contas: todo acesso filtra por `investidor_id`, e o banco reforça
   isso com row-level security (papel `carteira_app`), para que um filtro esquecido no
   código não vaze dados. Testado em `tests/test_rls.py`.
-- Senhas com Argon2id e bloqueio após tentativas erradas; sessões com cookie
-  `HttpOnly`/`Secure`/`SameSite=Lax`, guardadas só como hash; CSRF por token e mesma origem.
+- Senhas com Argon2id; após 5 tentativas erradas a conta espera (30 s, dobrando até
+  15 min), exceto no aparelho que já entrou nela (cookie `dispositivo`, assinado, só
+  enviado a `/entrar`); sessões com cookie `HttpOnly`/`Secure`/`SameSite=Lax`, guardadas
+  só como hash; CSRF por token e mesma origem.
 - CSP restrita a `'self'`: nenhum script de terceiros roda nas páginas.
 - Nada de dados pessoais em logs ou mensagens de erro (`cpf_parser` não ecoa o valor;
   Sentry com `send_default_pii=False`).

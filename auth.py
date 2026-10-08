@@ -23,8 +23,16 @@ from sqlalchemy.exc import IntegrityError
 from database import execute, fetch_one, scalar
 
 DURACAO_SESSAO = timedelta(days=30)
+# Per account: from the 5th failure in a row the account waits before the
+# next attempt, 30 s at first and doubling up to 15 min. A device that logged
+# in to the account before (cookie from dispositivo_conhecido) skips the wait,
+# so someone who only knows the e-mail cannot keep its owner out.
 MAX_FALHAS_LOGIN = 5
-BLOQUEIO_LOGIN = timedelta(minutes=15)
+ESPERA_INICIAL = timedelta(seconds=30)
+BLOQUEIO_LOGIN = timedelta(minutes=15)  # longest wait
+# Failures older than this (since the last wait ended) are forgotten.
+ESQUECER_FALHAS = timedelta(days=1)
+DURACAO_DISPOSITIVO = timedelta(days=365)
 # Per client IP, whatever the e-mail: stops one password sprayed across many
 # accounts. Generous enough for a household or office behind one NAT.
 MAX_FALHAS_IP = 20
@@ -118,8 +126,37 @@ def verificar_senha(conn: Connection, usuario_id: int, senha: str) -> bool:
         return False
 
 
-def autenticar(conn: Connection, email: str, senha: str) -> int | None:
-    """usuario_id when the credentials are valid and the account is not locked."""
+def espera(falhas: int) -> timedelta:
+    """How long the account waits after its `falhas`-th failure in a row."""
+    if falhas < MAX_FALHAS_LOGIN:
+        return timedelta(0)
+    return min(ESPERA_INICIAL * 2 ** (falhas - MAX_FALHAS_LOGIN), BLOQUEIO_LOGIN)
+
+
+def _assinatura_dispositivo(usuario_id: int) -> str:
+    from settings import cpf_hmac_key
+
+    return hmac.new(cpf_hmac_key(), f"dispositivo:{usuario_id}".encode(), hashlib.sha256).hexdigest()
+
+
+def token_dispositivo(usuario_id: int) -> str:
+    """Cookie value marking this browser as one that logged in to the account.
+    It does not log anyone in: it only lets its holder skip the account's wait."""
+    return f"{usuario_id}.{_assinatura_dispositivo(usuario_id)}"
+
+
+def dispositivo_de(token: str | None) -> int | None:
+    """usuario_id a device cookie was issued for, if it is genuine."""
+    usuario, _, assinatura = (token or "").partition(".")
+    if not usuario.isdigit() or not hmac.compare_digest(assinatura, _assinatura_dispositivo(int(usuario))):
+        return None
+    return int(usuario)
+
+
+def autenticar(conn: Connection, email: str, senha: str, dispositivo: int | None = None) -> int | None:
+    """usuario_id when the credentials are valid and the account is not
+    waiting after failures. `dispositivo` is the usuario_id of a device
+    cookie the browser sent (dispositivo_de): for that account, no wait."""
     senha = senha[:SENHA_MAX]
     row = fetch_one(
         conn,
@@ -136,32 +173,31 @@ def autenticar(conn: Connection, email: str, senha: str) -> int | None:
             pass
         return None
 
+    conhecido = dispositivo == row["id"]
     if row["bloqueado_ate"]:
-        if row["bloqueado_ate"] > _agora():
+        if row["bloqueado_ate"] > _agora() and not conhecido:
             return None
-        # Lock expired: start counting failures from zero again.
-        execute(
-            conn,
-            "UPDATE usuarios SET falhas_login = 0, bloqueado_ate = NULL WHERE id = :id",
-            id=row["id"],
-        )
+        if row["bloqueado_ate"] <= _agora() - ESQUECER_FALHAS:
+            execute(
+                conn,
+                "UPDATE usuarios SET falhas_login = 0, bloqueado_ate = NULL WHERE id = :id",
+                id=row["id"],
+            )
 
     try:
         _hasher.verify(row["senha_hash"], senha)
     except (VerificationError, InvalidHashError):
-        execute(
-            conn,
-            """
-            UPDATE usuarios
-            SET falhas_login = falhas_login + 1,
-                bloqueado_ate = CASE WHEN falhas_login + 1 >= :max
-                                     THEN now() + :bloqueio ELSE bloqueado_ate END
-            WHERE id = :id
-            """,
-            max=MAX_FALHAS_LOGIN,
-            bloqueio=BLOQUEIO_LOGIN,
+        # Counted from a known device too: other browsers wait. The known
+        # device itself is still limited per IP (ip_bloqueado).
+        falhas = scalar(
+            conn, "UPDATE usuarios SET falhas_login = falhas_login + 1 WHERE id = :id RETURNING falhas_login",
             id=row["id"],
         )
+        if falhas >= MAX_FALHAS_LOGIN:
+            execute(
+                conn, "UPDATE usuarios SET bloqueado_ate = now() + :espera WHERE id = :id",
+                espera=espera(falhas), id=row["id"],
+            )
         return None
 
     novo_hash = _hasher.hash(senha) if _hasher.check_needs_rehash(row["senha_hash"]) else row["senha_hash"]
