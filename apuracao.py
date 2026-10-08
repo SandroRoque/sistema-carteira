@@ -77,7 +77,9 @@ class Mes:
     mes: date  # first day
     vendas: list[Venda] = field(default_factory=list)
     irrf: Decimal = ZERO
-    day_trade: list[str] = field(default_factory=list)
+    day_trade: list[str] = field(default_factory=list)  # ativos day-traded this month
+    resultado_day_trade: Decimal = ZERO
+    irrf_day_trade: Decimal = ZERO  # estimated 1% withheld by the broker
 
     vendas_acoes: Decimal = ZERO
     resultado_acoes: Decimal = ZERO
@@ -91,8 +93,11 @@ class Mes:
     prejuizo_fii_usado: Decimal = ZERO
     prejuizo_comum_saldo: Decimal = ZERO  # after this month
     prejuizo_fii_saldo: Decimal = ZERO
+    prejuizo_day_trade_usado: Decimal = ZERO
+    prejuizo_day_trade_saldo: Decimal = ZERO
     base_comum: Decimal = ZERO
     base_fii: Decimal = ZERO
+    base_day_trade: Decimal = ZERO
     ir_bruto: Decimal = ZERO
     irrf_usado: Decimal = ZERO
     acumulado_anterior: Decimal = ZERO  # below-minimum tax brought in
@@ -109,7 +114,7 @@ class Mes:
 
     @property
     def resultado_tributavel(self) -> Decimal:
-        return self.base_comum + self.base_fii
+        return self.base_comum + self.base_fii + self.base_day_trade
 
     @property
     def ganho_isento(self) -> Decimal:
@@ -143,10 +148,9 @@ class Mes:
 
     @property
     def confiavel(self) -> bool:
-        """No sale with missing cost or note, no day trade left out and no
-        sale depending on a rule not yet confirmed at its source."""
-        return not (self.sem_custo or self.custo_incompleto or self.day_trade or self.sem_nota
-                    or self.regras_pendentes)
+        """No sale with missing cost or note and no sale depending on a rule
+        not yet confirmed at its source."""
+        return not (self.sem_custo or self.custo_incompleto or self.sem_nota or self.regras_pendentes)
 
     @property
     def tem_vendas(self) -> bool:
@@ -163,11 +167,14 @@ def _arredondar(v: Decimal) -> Decimal:
 
 
 def apurar(vendas: list[Venda], irrf: dict[date, Decimal] | None = None,
-           day_trade: dict[date, list[str]] | None = None) -> list[Mes]:
+           day_trade: dict[date, list[str]] | None = None,
+           resultados_day_trade: dict[date, tuple[Decimal, Decimal]] | None = None) -> list[Mes]:
     """Monthly calculation over the whole history (losses and below-minimum
-    amounts carry across months and years)."""
+    amounts carry across months and years). `resultados_day_trade` maps a
+    month to (day-trade result, IRRF withheld on it)."""
     irrf = irrf or {}
     day_trade = day_trade or {}
+    resultados_day_trade = resultados_day_trade or {}
     meses: dict[date, Mes] = {}
     for v in vendas:
         meses.setdefault(date(v.data.year, v.data.month, 1), Mes(date(v.data.year, v.data.month, 1))).vendas.append(v)
@@ -175,8 +182,11 @@ def apurar(vendas: list[Venda], irrf: dict[date, Decimal] | None = None,
         meses.setdefault(m, Mes(m)).irrf = valor
     for m, ativos in day_trade.items():
         meses.setdefault(m, Mes(m)).day_trade = ativos
+    for m, (resultado, retido) in resultados_day_trade.items():
+        mes = meses.setdefault(m, Mes(m))
+        mes.resultado_day_trade, mes.irrf_day_trade = resultado, retido
 
-    prejuizo_comum = prejuizo_fii = ZERO
+    prejuizo_comum = prejuizo_fii = prejuizo_day_trade = ZERO
     irrf_saldo = ZERO
     acumulado = ZERO
     ano_irrf = None
@@ -203,15 +213,21 @@ def apurar(vendas: list[Venda], irrf: dict[date, Decimal] | None = None,
         m.base_comum, prejuizo_comum, m.prejuizo_comum_usado = _compensar(resultado_comum, prejuizo_comum)
         m.base_fii, prejuizo_fii, m.prejuizo_fii_usado = _compensar(m.resultado_fii, prejuizo_fii)
         m.prejuizo_comum_saldo, m.prejuizo_fii_saldo = prejuizo_comum, prejuizo_fii
+        # Day trade: its own loss pool, 20%, no exemption.
+        m.base_day_trade, prejuizo_day_trade, m.prejuizo_day_trade_usado = _compensar(
+            m.resultado_day_trade, prejuizo_day_trade
+        )
+        m.prejuizo_day_trade_saldo = prejuizo_day_trade
 
         m.ir_bruto = (m.base_comum * R.ALIQUOTA_OPERACOES_COMUNS.valor
-                      + m.base_fii * R.ALIQUOTA_FII.valor)
+                      + m.base_fii * R.ALIQUOTA_FII.valor
+                      + m.base_day_trade * R.ALIQUOTA_DAY_TRADE.valor)
 
         # Withholding offsets the tax of the month and, if left over, of
         # later months of the same year.
         if ano_irrf != chave.year:
             irrf_saldo, ano_irrf = ZERO, chave.year
-        irrf_saldo += m.irrf
+        irrf_saldo += m.irrf + m.irrf_day_trade
         m.irrf_usado = min(irrf_saldo, m.ir_bruto)
         irrf_saldo -= m.irrf_usado
 
@@ -308,6 +324,8 @@ def apuracao(conn: Connection, investidor_id: int) -> list[Mes]:
         )
     }
     vendas, day_trade = [], defaultdict(list)
+    # {(day, broker): result}: same-day losses offset before the 1% withholding.
+    por_dia: dict[tuple[date, str | None], Decimal] = defaultdict(lambda: ZERO)
     for ativo_id, s in saldos(conn, investidor_id, tipos=_TIPOS_BOLSA).items():
         a = catalogo[ativo_id]
         rotulo = a["ticker"] or a["nome"] or ""
@@ -330,6 +348,7 @@ def apuracao(conn: Connection, investidor_id: int) -> list[Mes]:
             m = date(dt.data.year, dt.data.month, 1)
             if rotulo not in day_trade[m]:
                 day_trade[m].append(rotulo)
+            por_dia[(dt.data, dt.corretora)] += dt.resultado
 
     irrf = {
         r["mes"]: r["irrf"] for r in fetch_all(
@@ -344,7 +363,13 @@ def apuracao(conn: Connection, investidor_id: int) -> list[Mes]:
             dispensa=R.IRRF_DISPENSA_ATE.valor,
         )
     }
-    meses = apurar(vendas, irrf, dict(day_trade))
+    resultados_day_trade: dict[date, tuple[Decimal, Decimal]] = {}
+    for (dia, _corretora), resultado in por_dia.items():
+        m = date(dia.year, dia.month, 1)
+        total, retido = resultados_day_trade.get(m, (ZERO, ZERO))
+        retido += _arredondar(max(resultado, ZERO) * R.IRRF_DAY_TRADE.valor)
+        resultados_day_trade[m] = (total + _arredondar(resultado), retido)
+    meses = apurar(vendas, irrf, dict(day_trade), resultados_day_trade)
     pagos = {
         r["mes"]: r for r in fetch_all(
             conn, "SELECT mes, valor_pago, pago_em FROM darfs_pagos WHERE investidor_id = :i", i=investidor_id

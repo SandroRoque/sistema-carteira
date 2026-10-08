@@ -140,7 +140,7 @@ def test_apuracao_a_partir_das_notas(usuario_id, investidor_a):
         meses = apuracao.apuracao(conn, investidor_a)
 
     [fev] = meses
-    # 10 shares bought and sold that day are day trade (not computed); the
+    # 10 shares bought and sold that day are day trade (at no gain here); the
     # regular sale is the other 990, at the January cost.
     assert (fev.vendas_acoes, fev.resultado_acoes) == (D("24750.00"), D("4950.00"))
     assert fev.darf == D("742.50")
@@ -244,13 +244,13 @@ def test_mes_com_dados_incompletos_nao_mostra_valor_a_pagar(usuario_id, investid
             CPF_A,
             negociacao("EMPX4", "entrada", 1000, 20.0, date(2026, 1, 10), linha=1),
             negociacao("EMPX4", "saida", 1000, 25.0, date(2026, 2, 10), linha=2),
-            negociacao("EMPX4", "entrada", 10, 25.0, date(2026, 2, 10), linha=3),  # day trade
+            negociacao("EMPZ3", "saida", 100, 10.0, date(2026, 2, 11), linha=3),  # nothing bought before
         ), "1.pdf")
     c = _cliente_logado()
 
     pagina = c.get("/impostos").text
     assert "fev/2026: imposto não estimado, dados incompletos" in pagina
-    assert "Day trade não calculado: EMPX4" in pagina
+    assert "Venda sem custo conhecido: EMPZ3" in pagina
     assert "Copiar dados" not in pagina and "Imposto estimado de" not in pagina
     assert "Imposto a conferir" in c.get("/").text
 
@@ -272,3 +272,62 @@ def test_regra_pendente_por_tipo_de_ativo():
     assert pendente("fii", "AGRO11", "fiagro") == "COMPENSACAO_FIAGRO_COM_FII"
     assert pendente("acao", "EMPX4") is None
     assert pendente("etf", "ETFA11", "acoes") is None  # ETF rule is confirmed
+
+
+# ---------------------------------------------------------------------------
+# Day trade (PR-IRPF-2026 q.705-715)
+# ---------------------------------------------------------------------------
+
+
+def test_day_trade_paga_20_por_cento_sem_isencao_com_prejuizo_proprio():
+    meses = apurar([], resultados_day_trade={
+        date(2026, 1, 1): (D("-300.00"), D(0)),
+        date(2026, 2, 1): (D("1000.00"), D("10.00")),
+    })
+    jan, fev = meses
+    assert (jan.base_day_trade, jan.prejuizo_day_trade_saldo, jan.darf) == (0, D("300.00"), 0)
+    # The January day-trade loss offsets February's day-trade gain; 20% of the
+    # rest, less the 1% the broker withheld.
+    assert (fev.prejuizo_day_trade_usado, fev.base_day_trade) == (D("300.00"), D("700.00"))
+    assert (fev.ir_bruto, fev.irrf_usado, fev.darf) == (D("140.00"), D("10.00"), D("130.00"))
+    assert fev.confiavel
+
+
+def test_prejuizo_de_day_trade_nao_abate_operacoes_comuns():
+    meses = apurar(
+        [Venda(date(2026, 2, 10), 1, "BDRX34", "comum", D("5000"), D("4000"))],
+        resultados_day_trade={date(2026, 2, 1): (D("-800.00"), D(0))},
+    )
+    [fev] = meses
+    assert fev.base_comum == D("1000") and fev.prejuizo_day_trade_saldo == D("800.00")
+    assert fev.darf == D("150.00")
+
+
+def test_irrf_de_day_trade_so_vale_no_mesmo_ano():
+    meses = apurar([], resultados_day_trade={
+        date(2026, 12, 1): (D("-100.00"), D("50.00")),
+        date(2027, 1, 1): (D("1000.00"), D(0)),
+    })
+    # December's withholding is not carried into January (the loss is: 20% of 900).
+    assert meses[-1].irrf_usado == 0 and meses[-1].darf == D("180.00")
+
+
+def test_day_trade_a_partir_das_notas(usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A,
+            # Same day, same broker: day trade with a 500 gain.
+            negociacao("EMPX4", "entrada", 100, 20.0, date(2026, 3, 10), linha=1),
+            negociacao("EMPX4", "saida", 100, 25.0, date(2026, 3, 10), linha=2),
+            # A losing day trade the same day offsets it before the 1% withholding.
+            negociacao("EMPY3", "entrada", 100, 10.0, date(2026, 3, 10), linha=3),
+            negociacao("EMPY3", "saida", 100, 9.0, date(2026, 3, 10), linha=4),
+        ), "1.pdf")
+        [mar] = apuracao.apuracao(conn, investidor_a)
+
+    assert mar.vendas == [] and sorted(mar.day_trade) == ["EMPX4", "EMPY3"]
+    assert (mar.resultado_day_trade, mar.irrf_day_trade) == (D("400.00"), D("4.00"))
+    assert mar.darf == D("76.00")  # 20% of 400, less 4 withheld
+
+    pagina = _cliente_logado().get("/impostos?ano=2026").text
+    assert "20% de R$ 400,00 em day trade" in pagina

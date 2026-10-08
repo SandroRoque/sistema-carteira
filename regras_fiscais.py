@@ -6,9 +6,9 @@ TODO.md, "IRPF codes must be verified"). `VERIFICADO` says whether the
 rule was checked against the primary source; anything False must be
 confirmed before it is relied on, and the UI should say so.
 
-Primary sources consulted on 2026-10-06:
+Primary sources consulted on 2026-10-06 (day trade: 2026-10-08):
   PR-IRPF-2026  Receita Federal, "Perguntas e Respostas IRPF 2026", v1.00
-                (2026-04-23), questions 706, 707, 709, 730.
+                (2026-04-23), questions 705-715, 730.
   IN-1585       Instrução Normativa RFB nº 1.585/2015, arts. 37 and 56.
   L-9430        Lei nº 9.430/1996, art. 68.
   L-8668        Lei nº 8.668/1993, art. 20-D (incluído pela Lei nº 14.130/2021),
@@ -113,8 +113,19 @@ VENCIMENTO = Regra("último dia útil do mês subsequente", "PR-IRPF-2026 q.730;
 # A DARF below R$ 10,00 is not issued: the amount carries to later months.
 DARF_MINIMO = Regra(Decimal("10.00"), "L-9430 art. 68", True)
 
-# Not computed by the app.
-DAY_TRADE = Regra("não apurado", "PR-IRPF-2026 q.706, a (20%)", True)
+# ── Day trade ─────────────────────────────────────────────────────────────
+#
+# Bought and sold the same day, same ativo, same broker (q.705; matched in
+# custo_medio). Gains taxed at 20%, never exempt (q.707, Atenção); losses
+# offset only day-trade gains, in the month or later (q.709, Atenção).
+ALIQUOTA_DAY_TRADE = Regra(Decimal("0.20"), "PR-IRPF-2026 q.706, a; IN-1585 art. 65", True)
+DAY_TRADE_SEM_ISENCAO = Regra("sem isenção", "PR-IRPF-2026 q.707 (Atenção)", True)
+COMPENSACAO_DAY_TRADE = Regra("day trade só com day trade", "PR-IRPF-2026 q.709 (Atenção); IN-1585 art. 64", True)
+# The broker withholds 1% of the day's positive day-trade result (same-day
+# losses offset first, q.705). Deductible from the month's tax and, if left
+# over, from later months of the same calendar year only (q.714, q.715).
+# The documents do not carry it: the app estimates it from the trades.
+IRRF_DAY_TRADE = Regra(Decimal("0.01"), "PR-IRPF-2026 q.712-715; Lei 9.959/2000 art. 8º; IN-1585 art. 65", True)
 
 
 # ── Declaração anual (IRPF): fichas e códigos ─────────────────────────────

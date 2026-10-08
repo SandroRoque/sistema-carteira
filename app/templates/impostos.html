@@ -30,7 +30,6 @@
   {% if d.sem_custo %}<li>Venda sem custo conhecido: {{ d.sem_custo | map(attribute="rotulo") | unique | join(", ") }}. <a href="/pendencias">Informar custo</a></li>{% endif %}
   {% if d.custo_incompleto %}<li>Custo incompleto: {{ d.custo_incompleto | map(attribute="rotulo") | unique | join(", ") }}. <a href="/pendencias">Ver pendências</a></li>{% endif %}
   {% if d.sem_nota %}<li>Venda sem nota, com o valor do extrato B3 sem taxas: {{ d.sem_nota | map(attribute="rotulo") | unique | join(", ") }}. <a href="/importar">Enviar a nota</a></li>{% endif %}
-  {% if d.day_trade %}<li>Day trade não calculado: {{ d.day_trade | join(", ") }}.</li>{% endif %}
   {% for nome, rotulos in d.regras_pendentes.items() %}<li>Regra ainda não confirmada na fonte oficial ({{ textos_regras.get(nome, nome) }}): {{ rotulos | join(", ") }}.</li>{% endfor %}
 </ul>
 {%- endmacro %}
@@ -45,8 +44,10 @@
       {%- if d.base_comum %}15% de {{ d.base_comum | brl }} em ações, BDRs, units e ETFs{% endif %}
       {%- if d.base_comum and d.base_fii %} + {% endif %}
       {%- if d.base_fii %}20% de {{ d.base_fii | brl }} em FIIs{% endif %}
-      {%- if d.prejuizo_comum_usado or d.prejuizo_fii_usado %}, já descontado {{ (d.prejuizo_comum_usado + d.prejuizo_fii_usado) | brl }} de prejuízo anterior{% endif %}
-      {%- if d.irrf_usado %}, menos {{ d.irrf_usado | brl }} retidos na fonte{% endif %}
+      {%- if d.base_day_trade and (d.base_comum or d.base_fii) %} + {% endif %}
+      {%- if d.base_day_trade %}20% de {{ d.base_day_trade | brl }} em day trade{% endif %}
+      {%- if d.prejuizo_comum_usado or d.prejuizo_fii_usado or d.prejuizo_day_trade_usado %}, já descontado {{ (d.prejuizo_comum_usado + d.prejuizo_fii_usado + d.prejuizo_day_trade_usado) | brl }} de prejuízo anterior{% endif %}
+      {%- if d.irrf_usado %}, menos {{ d.irrf_usado | brl }} retidos na fonte{% if d.irrf_day_trade %} (o de day trade, 1% do lucro do dia, é estimado: confira na nota){% endif %}{% endif %}
       {%- if d.acumulado_anterior %}, mais {{ d.acumulado_anterior | brl }} de meses abaixo de R$ 10{% endif %}.
       {% if vencido %}O Sicalc calcula multa e juros do atraso.{% endif %}
     </p>
@@ -95,6 +96,13 @@
     <strong class="valor">{{ prejuizo_fii | brl }}</strong>
     {% if origem_prejuizo_fii %}<span class="detalhe">de {{ origens(origem_prejuizo_fii, ["fii"]) }}</span>{% endif %}
   </div>
+  {% if prejuizo_day_trade %}
+  <div class="stat">
+    <span class="rotulo">Prejuízo a compensar · day trade</span>
+    <strong class="valor">{{ prejuizo_day_trade | brl }}</strong>
+    <span class="detalhe">só abate lucros com day trade</span>
+  </div>
+  {% endif %}
   {% if acumulado %}
   <div class="stat">
     <span class="rotulo">Imposto abaixo de R$ 10 acumulado</span>
@@ -146,7 +154,7 @@
             {% else %}
             <span class="tag">Sem imposto</span>
             {% endif %}
-            {% if mes.day_trade %}<small>{{ m.icone_aviso() }} Day trade não calculado: {{ mes.day_trade | join(", ") }}</small>{% endif %}
+            {% if mes.day_trade %}<small>Day trade ({{ mes.day_trade | join(", ") }}): <span class="{{ m.classe_resultado(mes.resultado_day_trade) }}">{{ mes.resultado_day_trade | brl_sinal }}</span>, 20% sem isenção{% if mes.irrf_day_trade %}; IRRF estimado {{ mes.irrf_day_trade | brl }}{% endif %}</small>{% endif %}
             {% if mes.sem_custo %}<small><a href="/pendencias">Venda sem custo conhecido</a>: {{ mes.sem_custo | map(attribute="rotulo") | unique | join(", ") }} fora do cálculo</small>{% endif %}
             {% if mes.custo_incompleto %}<small><a href="/pendencias">Custo incompleto</a>: {{ mes.custo_incompleto | map(attribute="rotulo") | unique | join(", ") }}</small>{% endif %}
             {% for nome, rotulos in mes.regras_pendentes.items() %}<small>{{ m.icone_aviso() }} Regra não confirmada ({{ textos_regras.get(nome, nome) }}): {{ rotulos | join(", ") }}</small>{% endfor %}

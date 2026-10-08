@@ -67,14 +67,26 @@ Open points on `/impostos/irpf`:
 - **IRRF 0,005% left over** is carried only within the calendar year; confirm.
 - **31/12** is treated as a non-business day for DARF due dates (banks closed);
   confirm against Receita's calendar.
-- **Day trade** is separated from the position (q.705) but not taxed (20%, own
-  loss pool, 1% IRRF): months with day trade are flagged instead.
+- **Day trade** is taxed (20%, no exemption, own loss pool; PR-IRPF-2026
+  q.705-715). The 1% the broker withholds is not read from the notas: it is
+  estimated as 1% of each day's net day-trade result per broker, and the page
+  says so. Read it from the nota where the layout prints it ("IRRF Day Trade").
+  Check also that no layout folds it into `irrf_sobre_operacoes` (the 0,005%),
+  or it would be deducted twice.
 - Whether day-trade sales count toward the R$ 20 mil limit: currently they do not.
+  PR-IRPF-2026 q.707 only says the exemption does not apply to day trade.
 - **Incorporação / conversão** (`CONVERSAO_CUSTO_TRANSFERIDO`): the new shares
   take the old ones' cost, no sale. For FII → FII this follows Lei 14.754/2023
   art. 30 §2º, read only through a secondary source (Planalto was unreachable);
   confirm the primary text. For stocks (incorporação de ações) the Receita's
-  view is disputed: confirm. Cash paid in the event (a Resgate of the old
+  view is that the transfer is a sale: PR-IRPF-2026 q.603 ("a transferência
+  destas para o capital social da companhia incorporadora caracteriza alienação
+  cujo valor, se superior ao indicado na declaração de bens [...] é tributado
+  pela diferença a maior, como ganho de capital"). That is ganho de capital
+  (GCAP), outside the monthly bolsa calculation, and courts have disagreed. The
+  app still carries the cost over with no gain: decide whether to flag stock
+  conversions as a possible GCAP event. A merger of companies (incorporação de
+  sociedade) is a different event. Cash paid in the event (a Resgate of the old
   quotas, a redemption of a temporary class) is not taxed or offset against the cost yet.
 - **One-to-many conversions** (one class into two new ones): the whole cost goes to
   the ativo the user picks; the other credit stays at zero cost.

@@ -227,7 +227,9 @@ _TEXTOS_REGRAS = {
     "DARF_MINIMO": "Imposto abaixo de R$ 10,00 não gera DARF: soma ao do mês seguinte",
     "VENCIMENTO": "Vencimento: último dia útil do mês seguinte, código 6015",
     "CONVERSAO_CUSTO_TRANSFERIDO": "Incorporações e conversões: as novas cotas ou ações herdam o custo das antigas, sem venda",
-    "DAY_TRADE": "Day trade (compra e venda no mesmo dia e corretora) não é calculado",
+    "ALIQUOTA_DAY_TRADE": "Day trade (compra e venda do mesmo ativo no mesmo dia e corretora): 20% sobre o lucro, sem isenção",
+    "COMPENSACAO_DAY_TRADE": "Prejuízos com day trade só abatem lucros com day trade",
+    "IRRF_DAY_TRADE": "No day trade a corretora retém 1% do lucro do dia; estimamos esse valor e o descontamos do imposto do mês ou de meses seguintes do mesmo ano",
 }
 
 
@@ -294,6 +296,7 @@ def impostos(request: Request, sessao: Sessao, investidor_id: InvestidorId, ano:
         "abertos": apuracao.em_aberto(meses),
         "prejuizo_comum": ultimo.prejuizo_comum_saldo if ultimo else painel.ZERO,
         "prejuizo_fii": ultimo.prejuizo_fii_saldo if ultimo else painel.ZERO,
+        "prejuizo_day_trade": ultimo.prejuizo_day_trade_saldo if ultimo else painel.ZERO,
         "acumulado": ultimo.acumulado if ultimo else painel.ZERO,
         "origem_prejuizo_comum": apuracao.origem_prejuizo(meses),
         "origem_prejuizo_fii": apuracao.origem_prejuizo(meses, fii=True),
