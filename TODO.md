@@ -48,9 +48,16 @@ Open points on `/impostos/irpf`:
 
 `apuracao.py` applies the rules in `regras_fiscais.py`. Still to settle:
 
-- **Units**: taxed without the R$ 20 mil exemption per Solução de Consulta COSIT
-  145/2021, seen only through a secondary source; read the primary text
-  (`UNITS_SEM_ISENCAO.verificado` is False and the page says so).
+- **Units**: taxed without the R$ 20 mil exemption, attributed to Solução de
+  Consulta COSIT 145/2021 (`UNITS_SEM_ISENCAO.verificado` is False and the page
+  says so). The official text is at
+  normas.receita.fazenda.gov.br/sijut2consulta/anexoOutros.action?idArquivoBinario=62757
+  but only opens in a browser (it failed with curl and WebFetch on 2026-10-08).
+  Secondary summaries say SC 145/2021 is about ETF quotas and subscription
+  warrants: the exemption covers only "ativos da espécie ações" (IN-1585 art.
+  59, I). The link to units (certificados de depósito de ações) comes from
+  commentators, not from a quoted passage. Read the PDF: if it does not name
+  units, find the act that does, or decide on the reading.
 - **Catalog classification** comes from `dados/classes_b3.csv` (`classes_b3.py`).
   Delisted tickers are known only through COTAHIST, which does not tell ETFs
   from other funds: a delisted ETF lands as `fundo` (left out of the DARF, with
@@ -58,13 +65,15 @@ Open points on `/impostos/irpf`:
   listings are covered; a ticker missing from it falls back to the suffix
   (11 → FII).
 - **Fiagro losses** are pooled with FII losses (`COMPENSACAO_FIAGRO_COM_FII`):
-  confirm.
+  confirm (PR-IRPF-2026 says nothing on it).
 - **Fixed-income ETFs and infrastructure funds / FIP-IE / FIDC** (tipo `fundo`,
   or `etf` with subtipo `renda_fixa`) are kept in positions but not taxed:
   their tax is withheld at source or zero for individuals.
 - **Subscription rights** sold in bolsa are treated as regular operations without
   exemption until confirmed (`DIREITOS_SEM_ISENCAO`).
 - **IRRF 0,005% left over** is carried only within the calendar year; confirm.
+  PR-IRPF-2026 q.706 only says it is deducted from the monthly tax; the
+  same-year limit is explicit for day trade (q.715), not for the 0,005%.
 - **31/12** is treated as a non-business day for DARF due dates (banks closed);
   confirm against Receita's calendar.
 - **Day trade** is taxed (20%, no exemption, own loss pool; PR-IRPF-2026
