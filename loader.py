@@ -320,6 +320,54 @@ def _nome_da_opcao(neg: NegociacaoRecord) -> str:
     return f"{neg.raw_ticker} · opção de {especie} · venc. {neg.prazo or '?'}"
 
 
+# Ids of the market-standard layout: printed number, date, trade fingerprint
+# (extractors.sinacor._identidade). Nu's own layout uses the printed number.
+_ID_SINACOR = re.compile(r"^.+-\d{8}-[0-9a-f]{8}$")
+
+
+def _negocios(itens) -> list[tuple]:
+    centavo = Decimal("0.01")
+    return sorted(
+        (n["sentido"], Decimal(str(n["quantidade"] or 0)).normalize(),
+         Decimal(str(n["valor_bruto"] or 0)).quantize(centavo))
+        for n in itens
+    )
+
+
+def _mesma_nota_em_outro_modelo(conn: Connection, investidor_id: int, doc: DocumentoTransformado) -> bool:
+    """The nota is already loaded from the broker's other layout.
+
+    Nu offers each nota in its own layout and in the market-standard one,
+    and the two get ids of different forms. A nota of the other form with
+    the same broker, day, final amount and trades is the same nota."""
+    nota = doc.nota
+    if nota.doc_type != "NotaCorretagem" or nota.liquido_para is None:
+        return False
+    sinacor = bool(_ID_SINACOR.match(nota.nota_id))
+    candidatas = fetch_all(
+        conn,
+        """
+        SELECT nota_id FROM notas
+        WHERE investidor_id = :i AND corretora_id = :c AND doc_type = :d
+          AND data_pregao = :dia AND liquido_para = :liquido
+        """,
+        i=investidor_id, c=nota.corretora_id, d=nota.doc_type, dia=nota.data_pregao, liquido=nota.liquido_para,
+    )
+    novos = _negocios(dataclasses.asdict(n) for n in doc.negociacoes)
+    for r in candidatas:
+        if bool(_ID_SINACOR.match(r["nota_id"])) == sinacor:
+            continue  # same layout, different nota: two notas can match by chance
+        existentes = fetch_all(
+            conn,
+            "SELECT sentido, quantidade, valor_bruto FROM negociacoes "
+            "WHERE investidor_id = :i AND corretora_id = :c AND nota_id = :n",
+            i=investidor_id, c=nota.corretora_id, n=r["nota_id"],
+        )
+        if _negocios(existentes) == novos:
+            return True
+    return False
+
+
 def _completar_irrf_day_trade(conn: Connection, investidor_id: int, nota: NotaRecord) -> None:
     """A nota loaded before the day-trade IRRF was read gets it when sent
     again; nothing else of a loaded nota changes."""
@@ -353,6 +401,8 @@ def carregar(
     investidor_id = investidor_da_nota(conn, usuario_id, nota, carteira)
     if ja_processado(conn, investidor_id, nota.nota_id, nota.corretora_id, nota.doc_type):
         _completar_irrf_day_trade(conn, investidor_id, nota)
+        return False
+    if _mesma_nota_em_outro_modelo(conn, investidor_id, doc):
         return False
 
     _inserir_nota(conn, investidor_id, nota, filename)

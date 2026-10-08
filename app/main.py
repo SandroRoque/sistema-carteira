@@ -44,7 +44,7 @@ from app.seguranca import (
 )
 from app.templating import render, render_parcial
 from database import connect, execute, fetch_all, fetch_one, scalar
-from importacao import trabalhador, worker_habilitado
+from importacao import escutar_uploads, ouvinte, trabalhador, worker_habilitado
 
 _HERE = Path(__file__).parent
 
@@ -54,7 +54,10 @@ _HERE = Path(__file__).parent
 async def _ciclo_de_vida(_app: FastAPI):
     if worker_habilitado():
         trabalhador.iniciar()
+    if escutar_uploads():
+        ouvinte.iniciar()
     yield
+    ouvinte.parar()
     trabalhador.parar()
 
 

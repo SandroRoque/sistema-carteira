@@ -407,6 +407,29 @@ def test_trabalhador_processa_ao_ser_acordado(usuario_id, investidor_a):
         trabalhador.parar()
 
 
+def test_ouvinte_acorda_com_envio_de_outra_maquina(database_url, usuario_id, investidor_a):
+    import threading
+
+    notificado = threading.Event()
+    ouvinte = importacao.Ouvinte(notificado.set, database_url)
+    ouvinte.iniciar()
+    try:
+        time.sleep(0.5)  # LISTEN registered before the upload commits
+        _registrar(usuario_id, _xlsx(_DIVIDENDO), investidor_a)
+        assert notificado.wait(5)
+    finally:
+        ouvinte.parar()
+
+
+def test_escutar_uploads_so_quando_pedido(monkeypatch):
+    monkeypatch.delenv("CARTEIRA_ESCUTAR_UPLOADS", raising=False)
+    assert not importacao.escutar_uploads()
+    monkeypatch.setenv("CARTEIRA_ESCUTAR_UPLOADS", "true")
+    assert importacao.escutar_uploads()
+    monkeypatch.setenv("CARTEIRA_WORKER", "false")
+    assert not importacao.escutar_uploads()
+
+
 # ---------------------------------------------------------------------------
 # Tenancy
 # ---------------------------------------------------------------------------

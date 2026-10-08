@@ -16,7 +16,11 @@ The one exception is a job left 'processando' by a crash, which is retried
 once it is considered stuck (`TRAVADO_APOS`).
 
 Several worker threads or processes may run at once: jobs are claimed with
-FOR UPDATE SKIP LOCKED, and both loaders are idempotent anyway.
+FOR UPDATE SKIP LOCKED, and both loaders are idempotent anyway. Each queued
+upload also sends a Postgres NOTIFY on CANAL; with several machines, set
+CARTEIRA_ESCUTAR_UPLOADS=true so each one LISTENs and wakes its own worker
+(`Ouvinte`). Off by default: the listening connection never closes, so a
+serverless Postgres would not scale to zero, and one machine needs no help.
 """
 
 from __future__ import annotations
@@ -37,6 +41,8 @@ from database import connect_sistema, execute, fetch_one, scalar
 from isolamento import FalhaIsolada, executar_isolado, proteger_processo_pai
 
 logger = logging.getLogger(__name__)
+
+CANAL = "uploads"
 
 TAMANHO_MAXIMO = 5 * 1024 * 1024
 MAX_PENDENTES_POR_USUARIO = 50
@@ -164,6 +170,9 @@ def registrar(
         status=status,
         mensagem=mensagem,
     )
+    if status == "pendente":
+        # Delivered at commit, to every process that LISTENs (Ouvinte).
+        execute(conn, "SELECT pg_notify(:canal, '')", canal=CANAL)
     return status
 
 
@@ -432,9 +441,64 @@ class Trabalhador:
             self._acordar.wait(espera)
 
 
+class Ouvinte:
+    """LISTENs on CANAL in a thread of its own and wakes the worker on each
+    notification, so uploads received by another machine are processed here
+    too. Reconnects after a failure, waiting a little longer each time."""
+
+    def __init__(self, ao_notificar: Callable[[], None], url: str | None = None):
+        self._ao_notificar = ao_notificar
+        self._url = url
+        self._parar = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def iniciar(self) -> None:
+        if self._thread is None:
+            self._parar.clear()
+            self._thread = threading.Thread(target=self._laco, name="importacao-ouvinte", daemon=True)
+            self._thread.start()
+
+    def parar(self, timeout: float = 5) -> None:
+        self._parar.set()
+        if self._thread is not None:
+            self._thread.join(timeout)
+            self._thread = None
+
+    def _dsn(self) -> str:
+        from sqlalchemy.engine import make_url
+
+        from settings import database_url
+
+        return make_url(self._url or database_url()).set(drivername="postgresql").render_as_string(hide_password=False)
+
+    def _laco(self) -> None:
+        import psycopg
+
+        espera = 1.0
+        while not self._parar.is_set():
+            try:
+                with psycopg.connect(self._dsn(), autocommit=True) as conn:
+                    conn.execute(f"LISTEN {CANAL}")
+                    espera = 1.0
+                    # Wakes at least once a second to notice parar().
+                    while not self._parar.is_set():
+                        for _ in conn.notifies(timeout=1.0):
+                            self._ao_notificar()
+            except Exception as exc:
+                logger.error("ouvinte de importação: %s", type(exc).__name__)
+                self._parar.wait(espera)
+                espera = min(espera * 2, 60.0)
+
+
 trabalhador = Trabalhador()
+ouvinte = Ouvinte(trabalhador.acordar)
 
 
 def worker_habilitado() -> bool:
     """CARTEIRA_WORKER=false runs the web app without the import worker."""
     return os.environ.get("CARTEIRA_WORKER", "true").lower() not in ("0", "false", "no")
+
+
+def escutar_uploads() -> bool:
+    """CARTEIRA_ESCUTAR_UPLOADS=true: wake on uploads received by other machines."""
+    return worker_habilitado() and os.environ.get("CARTEIRA_ESCUTAR_UPLOADS", "false").lower() in ("1", "true", "yes")

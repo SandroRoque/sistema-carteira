@@ -182,3 +182,35 @@ def test_mescla_renda_fixa_carregada_em_duplicidade(usuario_id):
         assert scalar(conn, "SELECT DISTINCT ativo_id FROM negociacoes") == primeiro
         assert scalar(conn, "SELECT ativo_id FROM ticker_aliases WHERE raw_text = 'CDB 14.30% PREFIXADO AA'") == primeiro
         assert mesclar_renda_fixa_duplicada(conn) == []
+
+
+def _nota_nu(nota_id, *negocios, liquido=Decimal("-2000.35")):
+    import dataclasses
+
+    from fabricas import nota
+    from transformer import DocumentoTransformado
+
+    negs = [dataclasses.replace(n, nota_id=nota_id) for n in negocios]
+    return DocumentoTransformado(
+        nota=nota(CPF_A, nota_id=nota_id, data=date(2025, 3, 10), liquido_para=liquido), negociacoes=negs)
+
+
+def test_mesma_nota_nos_dois_modelos_da_nu_carrega_uma_vez(usuario_id):
+    compra = negociacao("EMPX4", "entrada", 100, 20.0, date(2025, 3, 10))
+    with connect_sistema() as conn:
+        assert carregar(conn, usuario_id, _nota_nu("88123", compra), "nu.pdf")
+        # The market-standard download of the same nota: same day, amount and trades.
+        assert not carregar(conn, usuario_id, _nota_nu("88123-20250310-0a1b2c3d", compra), "padrao.pdf")
+        assert scalar(conn, "SELECT COUNT(*) FROM negociacoes") == 1
+
+        # Another nota of the same day in the other layout, with other trades, loads.
+        outra = negociacao("EMPX4", "entrada", 50, 20.0, date(2025, 3, 10))
+        assert carregar(conn, usuario_id, _nota_nu("88124-20250310-4e5f6a7b", outra), "outra.pdf")
+
+
+def test_notas_iguais_no_mesmo_modelo_continuam_duas(usuario_id):
+    compra = negociacao("EMPX4", "entrada", 100, 20.0, date(2025, 3, 10))
+    with connect_sistema() as conn:
+        assert carregar(conn, usuario_id, _nota_nu("88123", compra), "a.pdf")
+        assert carregar(conn, usuario_id, _nota_nu("88125", compra), "b.pdf")
+        assert scalar(conn, "SELECT COUNT(*) FROM negociacoes") == 2

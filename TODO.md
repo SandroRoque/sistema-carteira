@@ -127,18 +127,19 @@ Open points on `/impostos/irpf`:
 Nu offers its notas in its own layout ("Número da nota", `extractors/nu_invest.py`)
 and in the market-standard Sinacor one ("Nr. Nota / Folha / Data pregão"), which
 now goes to `extractors/sinacor.py`. It is tested only on a synthetic PDF: check
-it on a real one. Also, the two layouts give the same nota different ids (Sinacor
-ids carry the date and a trade fingerprint), so sending the same nota in both
-layouts loads its trades twice. The B3 statement check on /importar then shows
-them as quantities that differ from the B3.
+it on a real one. The two layouts give the same nota ids of different forms
+(Sinacor ids carry the date and a trade fingerprint); the loader recognizes the
+same nota sent in the other layout by broker, day, final amount and trades
+(`loader._mesma_nota_em_outro_modelo`), also only tested on synthetic data.
 There is no real-PDF regression fixture for any layout yet: a sanitized
 sample would still carry real trades, so it needs the owner's consent.
 
-### Import worker wakes only in its own process
+### Import worker across machines
 
-Uploads wake the worker thread of the process that received them. That covers one
-machine (any number of uvicorn workers drain the shared queue, claimed with SKIP
-LOCKED). With several machines, wake the others with Postgres LISTEN/NOTIFY.
+Each queued upload sends a Postgres NOTIFY. With several machines, set
+`CARTEIRA_ESCUTAR_UPLOADS=true` so each one LISTENs and wakes its worker;
+it is off by default because the listening connection keeps Neon from
+scaling to zero. Jobs are claimed with SKIP LOCKED either way.
 
 ### Password reset needs an e-mail provider
 
