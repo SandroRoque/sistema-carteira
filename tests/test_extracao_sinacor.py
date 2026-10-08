@@ -17,6 +17,7 @@ CPF = "12345678909"  # fake, valid check digits
 CPF_COM_ZERO = "04719352804"  # fake, valid check digits
 XP = ["XP INVESTIMENTOS CORRETORA DE CÂMBIO, TÍTULOS E VALORES MOBILIÁRIOS S.A.", "C.N.P.J: 02.332.886/0001-04"]
 BRASIL_PLURAL = ["120-BRASIL PLURAL CCTVM S/A-", "C.N.P.J: 05.816.451/0001-15"]
+NU = ["NU INVESTIMENTOS S.A - CTVM", "C.N.P.J.: 62.169.875/0001-79"]
 
 CABECALHO_XP = [
     (36, "Q"), (44, "Negociação"), (100, "C/V"), (116, "Tipo mercado"), (176, "Prazo"),
@@ -281,3 +282,19 @@ def test_identidade_nao_muda_com_decimal():
     esperado = hashlib.sha256(b"C:100.0:1250.0|-1250.4").hexdigest()[:8]
 
     assert _identidade("7", date(2025, 3, 10), [mov], Decimal("-1250.40")) == f"7-20250310-{esperado}"
+
+
+def test_le_o_modelo_padrao_de_mercado_da_nu():
+    """Nu offers its notas in its own layout and in this one ("padrão de mercado")."""
+    doc = fitz.open()
+    _pagina(doc, corretora=NU, linhas=[(0, _linha("C", "EMPRESA X ON NM", "1000", "1,00", "1.000,00", "D"))],
+            resumo={"Compras à vista": "1.000,00", "Valor das operações": "1.000,00"},
+            financeiro=_financeiro_compra())
+
+    nota = _uma(doc)
+
+    assert nota.corretora_id == "nu_invest"
+    assert nota.numero_da_nota.startswith("4321-20250310-")
+    [m] = nota.movimentacoes
+    assert (m.compra_venda, m.quantidade, m.valor_ajuste) == ("C", 1000, Decimal("1000.00"))
+    assert nota.liquido_para == Decimal("-1000.35")

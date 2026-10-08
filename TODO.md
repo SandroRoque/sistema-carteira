@@ -93,13 +93,15 @@ Open points on `/impostos/irpf`:
 - **One-to-many conversions** (one class into two new ones): the whole cost goes to
   the ativo the user picks; the other credit stays at zero cost.
 
-### Nu Invest "padrão de mercado" nota layout is not read
+### Nu Invest "padrão de mercado" layout: not checked on a real nota
 
-Since 2026 Nu offers two downloads of the same notas: its own layout ("Número
-da nota", read by `extractors/nu_invest.py`) and the market-standard Sinacor
-layout ("Nr. Nota / Folha / Data pregão"). The second raises
-`LayoutNaoSuportado` with a message asking for the other model. Other brokers
-use the Sinacor layout too, so an extractor for it would be reusable.
+Nu offers its notas in its own layout ("Número da nota", `extractors/nu_invest.py`)
+and in the market-standard Sinacor one ("Nr. Nota / Folha / Data pregão"), which
+now goes to `extractors/sinacor.py`. It is tested only on a synthetic PDF: check
+it on a real one. Also, the two layouts give the same nota different ids (Sinacor
+ids carry the date and a trade fingerprint), so sending the same nota in both
+layouts loads its trades twice. The B3 statement check on /importar then shows
+them as quantities that differ from the B3.
 There is no real-PDF regression fixture for any layout yet: a sanitized
 sample would still carry real trades, so it needs the owner's consent.
 

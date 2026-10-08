@@ -10,10 +10,6 @@ class PdfImagemError(Exception):
     pass
 
 
-class LayoutNaoSuportado(Exception):
-    """A known broker, in a layout no extractor reads yet."""
-
-
 # The nota number on a page, in the layouts seen so far: "Número da nota"
 # above or beside it, or the Sinacor header "Nr. Nota / Folha / Data pregão".
 _NUMERO_DA_NOTA = re.compile(

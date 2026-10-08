@@ -51,8 +51,6 @@ _ASSINATURAS = {
 
 _MENSAGENS_ERRO = {
     ("nota", "PdfImagemError"): "PDF sem texto (digitalizado como imagem): não é possível ler.",
-    ("nota", "LayoutNaoSuportado"): "Este modelo de nota ainda não é lido (o padrão de mercado, com "
-                                    "“Nr. Nota” no topo). Se a corretora oferece outro modelo, envie esse.",
     ("b3", "RelatorioB3Invalido"): "Não parece um relatório de movimentação da B3.",
     ("nota", None): "Não foi possível ler esta nota: corretora ou layout não suportado, "
                     "ou dados inconsistentes (ex.: CPF inválido).",

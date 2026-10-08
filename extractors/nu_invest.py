@@ -41,9 +41,10 @@ _TRANSFERENCIA = "Taxa de Transferência de Ativos"
 
 def _extract_nota_corretagem(page: fitz.Page) -> NotaCorretagem:
     if page.search_for("Nr. Nota") and not page.search_for("Número da nota"):
-        from extrai_nota_de_negociacao import LayoutNaoSuportado
+        # Nu's "padrão de mercado" download: the Sinacor layout other brokers use.
+        from extractors import sinacor
 
-        raise LayoutNaoSuportado("Nu Invest, modelo padrão de mercado (Nr. Nota)")
+        return sinacor.extrair(page, "nu_invest")
     tem_transferencia = bool(page.search_for(_TRANSFERENCIA))
     kv_dados = find_vertical_key_value_pairs(
         page,

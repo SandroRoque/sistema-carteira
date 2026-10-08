@@ -78,7 +78,7 @@ são descartados na extração. Inventário, retenção e direitos do titular em
 | `extrai_nota_de_negociacao.py` / `extractors/` | Extração de PDFs por corretora |
 | `transformer.py` | Conversão pura: dataclasses → registros normalizados + rateio de taxas |
 | `parsers.py` | Parsers de datas, números BR, percentuais, CPF (com dígitos verificadores) |
-| `extractors/sinacor.py` | Layout padrão de mercado (XP, Brasil Plural, Safra): cabeçalho, tabela de negócios e resumo |
+| `extractors/sinacor.py` | Layout padrão de mercado (XP, Brasil Plural, Safra, Nu Invest): cabeçalho, tabela de negócios e resumo |
 | `especificacoes_b3.py` / `dados/especificacoes_b3.csv` | Nome de pregão + especificação ("PETROBRAS PN N2") → ticker na data, a partir das séries históricas da B3 (COTAHIST) |
 | `migra_sqlite.py` | Importação única do banco SQLite da versão single-user |
 
