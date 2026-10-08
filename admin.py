@@ -45,7 +45,18 @@ def main() -> None:
     sub.add_parser("definir-senha").add_argument("email")
     sub.add_parser("promover-admin").add_argument("email")
     sub.add_parser("recriar-demo")
+    sub.add_parser("mesclar-renda-fixa", help="junta títulos de renda fixa repetidos com textos diferentes")
     args = parser.parse_args()
+
+    if args.comando == "mesclar-renda-fixa":
+        from loader import mesclar_renda_fixa_duplicada
+
+        with connect_sistema() as conn:
+            mesclados = mesclar_renda_fixa_duplicada(conn)
+        for duplicado, mantido in mesclados:
+            print(f"ativo {duplicado} → {mantido}")
+        print(f"{len(mesclados)} títulos mesclados")
+        return
 
     if args.comando == "recriar-demo":
         import demo  # loads the ingestion stack; only this command needs it

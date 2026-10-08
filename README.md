@@ -139,6 +139,10 @@ Revise sempre o arquivo gerado antes de commitar.
 `uv run python admin.py recriar-demo` cria uma conta de demonstração, somente leitura, com
 uma carteira inventada (`demo.py`); a tela de login passa a oferecer "Ver demonstração".
 
+Títulos de renda fixa privada são reconhecidos pelos termos (emissor, indexador, taxa,
+emissão e vencimento), não pelo texto do título. `uv run python admin.py mesclar-renda-fixa`
+junta os que foram carregados em duplicidade antes disso.
+
 ## Deploy
 
 Fly.io (um container) + Neon (Postgres). Passo a passo, variáveis e operação em

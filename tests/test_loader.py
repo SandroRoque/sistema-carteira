@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from conftest import CPF_A, CPF_B
 from contas import get_or_create_usuario
-from database import connect_sistema, fetch_all, scalar
+from database import connect_sistema, execute, fetch_all, scalar
 from fabricas import documento, negociacao
 from loader import carregar
 
@@ -133,3 +133,52 @@ def test_nota_sem_cpf_numa_conta_sem_carteira(usuario_id):
     with connect_sistema() as conn:
         with pytest.raises(NotaSemCpf, match="nota com CPF"):
             carregar(conn, usuario_id, _sem_cpf(), "sem-cpf.pdf")
+
+
+def _cdb(titulo: str, nota_id: str, taxa: str = "14.30", cnpj: str = "11.222.333/0001-81"):
+    """A private bond purchase (TituloPrivado) with invented terms."""
+    import dataclasses
+
+    doc = documento(CPF_A, negociacao(
+        titulo, quantidade=1, preco=1000.0, doc_type="TituloPrivado", tipo="aquisicao",
+        indexador="PRE", taxa_cupom_percentual=Decimal(taxa),
+        emissao=date(2025, 3, 10), vencimento=date(2028, 3, 10),
+    ), nota_id=nota_id)
+    nota = dataclasses.replace(doc.nota, doc_type="TituloPrivado", cnpj_emissor=cnpj, emissor="BANCO FICTICIO")
+    return dataclasses.replace(doc, nota=nota)
+
+
+def test_mesmo_titulo_com_texto_diferente_e_um_ativo_so(usuario_id):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, _cdb("CDB PREFIXADO 14,30% AA", "1"), "1.pdf")
+        carregar(conn, usuario_id, _cdb("CDB 14.30% PREFIXADO AA", "2"), "2.pdf")
+        # Different terms are a different bond.
+        carregar(conn, usuario_id, _cdb("CDB PREFIXADO 13,90% AA", "3", taxa="13.90"), "3.pdf")
+
+        ativos = scalar(conn, "SELECT COUNT(*) FROM ativos WHERE tipo = 'renda_fixa'")
+        por_ativo = fetch_all(conn, "SELECT ativo_id, COUNT(*) AS n FROM negociacoes GROUP BY 1 ORDER BY 1")
+
+    assert ativos == 2
+    assert [r["n"] for r in por_ativo] == [2, 1]
+
+
+def test_mescla_renda_fixa_carregada_em_duplicidade(usuario_id):
+    from loader import mesclar_renda_fixa_duplicada
+
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, _cdb("CDB PREFIXADO 14,30% AA", "1"), "1.pdf")
+        # As loaded before titles were matched by terms: a second ativo, same terms.
+        primeiro = scalar(conn, "SELECT id FROM ativos WHERE tipo = 'renda_fixa'")
+        segundo = scalar(conn, """
+            INSERT INTO ativos (tipo, nome, cnpj_emissor, indexador, taxa_prefixada, emissao, vencimento, revisado)
+            SELECT tipo, 'CDB 14.30% PREFIXADO AA', '11222333000181', indexador, 14.3, emissao, vencimento, false
+            FROM ativos WHERE id = :id RETURNING id""", id=primeiro)
+        execute(conn, "INSERT INTO ticker_aliases (raw_text, ativo_id) VALUES ('CDB 14.30% PREFIXADO AA', :id)",
+                id=segundo)
+        execute(conn, "UPDATE negociacoes SET ativo_id = :id", id=segundo)
+
+        assert mesclar_renda_fixa_duplicada(conn) == [(segundo, primeiro)]
+        assert scalar(conn, "SELECT COUNT(*) FROM ativos WHERE tipo = 'renda_fixa'") == 1
+        assert scalar(conn, "SELECT DISTINCT ativo_id FROM negociacoes") == primeiro
+        assert scalar(conn, "SELECT ativo_id FROM ticker_aliases WHERE raw_text = 'CDB 14.30% PREFIXADO AA'") == primeiro
+        assert mesclar_renda_fixa_duplicada(conn) == []

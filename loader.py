@@ -1,6 +1,7 @@
 import dataclasses
 import re
 from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import Connection
 
@@ -103,8 +104,8 @@ def resolve_ou_criar_ativo(
     cnpj_emissor: str | None = None,
     emissor: str | None = None,
     indexador: str | None = None,
-    taxa_prefixada: float | None = None,
-    percentual_do_indexador: float | None = None,
+    taxa_prefixada: Decimal | None = None,
+    percentual_do_indexador: Decimal | None = None,
     emissao: date | None = None,
     vencimento: date | None = None,
     data: date | None = None,
@@ -145,6 +146,14 @@ def resolve_ou_criar_ativo(
             nome=raw_ticker,
         )
         return _registrar_alias(conn, raw_ticker, ativo_id)
+    if doc_type == "TituloPrivado" and (
+        existente := _renda_fixa_equivalente(
+            conn, cnpj_emissor, indexador, taxa_prefixada, percentual_do_indexador, emissao, vencimento
+        )
+    ):
+        # Same bond under a differently written title ("CDB PREFIXADO 14,30% AA"
+        # vs "CDB 14.30% PREFIXADO AA"): its terms identify it.
+        return _registrar_alias(conn, raw_ticker, existente)
     if exercicio:
         ticker = especificacoes_b3.subjacente(raw_ticker, data)
     else:
@@ -187,6 +196,73 @@ def resolve_ou_criar_ativo(
     if ativo_id is None:
         ativo_id = scalar(conn, "SELECT id FROM ativos WHERE ticker = :ticker", ticker=ticker)
     return _registrar_alias(conn, raw_ticker, ativo_id)
+
+
+# Terms that identify a private fixed-income bond, whatever its title text.
+_MESMOS_TERMOS = """
+    tipo = 'renda_fixa'
+    AND regexp_replace(cnpj_emissor, '[^0-9]', '', 'g') = regexp_replace(:cnpj, '[^0-9]', '', 'g')
+    AND vencimento = :vencimento
+    AND upper(trim(indexador)) IS NOT DISTINCT FROM upper(trim(:indexador))
+    AND taxa_prefixada IS NOT DISTINCT FROM CAST(:taxa AS numeric)
+    AND percentual_do_indexador IS NOT DISTINCT FROM CAST(:percentual AS numeric)
+    AND emissao IS NOT DISTINCT FROM CAST(:emissao AS date)
+"""
+
+
+def _renda_fixa_equivalente(
+    conn: Connection, cnpj_emissor, indexador, taxa_prefixada, percentual_do_indexador, emissao, vencimento
+) -> int | None:
+    """The ativo of a bond with the same issuer and terms, if one exists."""
+    if not cnpj_emissor or vencimento is None:
+        return None
+    return scalar(
+        conn,
+        f"SELECT id FROM ativos WHERE {_MESMOS_TERMOS} ORDER BY revisado DESC, id LIMIT 1",
+        cnpj=cnpj_emissor, vencimento=vencimento, indexador=indexador,
+        taxa=taxa_prefixada, percentual=percentual_do_indexador, emissao=emissao,
+    )
+
+
+def mesclar_renda_fixa_duplicada(conn: Connection) -> list[tuple[int, int]]:
+    """Merge unreviewed fixed-income ativos that repeat another one's terms.
+
+    For bonds loaded before titles were matched by their terms. Each
+    duplicate's aliases and trades move to the ativo kept (a reviewed one if
+    any, else the oldest); a duplicate an investor already attached a cost or
+    a conversion to is left alone. ativos is shared, so this runs over every
+    account: for admin.py. Returns (duplicate, kept) pairs.
+    """
+    mesclados = []
+    for a in fetch_all(
+        conn,
+        """
+        SELECT id, cnpj_emissor, indexador, taxa_prefixada, percentual_do_indexador, emissao, vencimento
+        FROM ativos
+        WHERE tipo = 'renda_fixa' AND NOT revisado AND cnpj_emissor IS NOT NULL AND vencimento IS NOT NULL
+        ORDER BY id DESC
+        """,
+    ):
+        manter = _renda_fixa_equivalente(
+            conn, a["cnpj_emissor"], a["indexador"], a["taxa_prefixada"],
+            a["percentual_do_indexador"], a["emissao"], a["vencimento"],
+        )
+        if manter is None or manter == a["id"]:
+            continue
+        if scalar(
+            conn,
+            """
+            SELECT EXISTS (SELECT 1 FROM custos_informados WHERE ativo_id = :id)
+                OR EXISTS (SELECT 1 FROM conversoes WHERE ativo_origem_id = :id)
+            """,
+            id=a["id"],
+        ):
+            continue
+        for tabela in ("ticker_aliases", "negociacoes", "b3_movimentacoes"):
+            execute(conn, f"UPDATE {tabela} SET ativo_id = :manter WHERE ativo_id = :id", manter=manter, id=a["id"])
+        execute(conn, "DELETE FROM ativos WHERE id = :id", id=a["id"])
+        mesclados.append((a["id"], manter))
+    return mesclados
 
 
 def _colunas(tabela, registro, **extra) -> dict:
