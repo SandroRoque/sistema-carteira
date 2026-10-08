@@ -11,7 +11,8 @@ dated relative to today, so rebuilding it on each deploy keeps it current.
 What it shows, besides positions and income:
 - a sale month under R$ 20 mil (exempt), a taxable one with its DARF paid,
   a loss carried forward and, last month, a FII sale with the DARF still open;
-- a bonus-share event without a cost, listed in Pendências.
+- a bonus-share event without a cost, listed in Pendências;
+- a CDB, an LCI and a Tesouro Selic, for the IRPF page's fixed-income lines.
 
 The account is read-only (app.seguranca) and has no password: visitors enter
 through the "Ver demonstração" button.
@@ -84,6 +85,16 @@ VENDA_TRIBUTADA = 14  # over R$ 20 mil, with gain; DARF marked paid
 VENDA_COM_PREJUIZO = 18
 MES_BONIFICACAO = 12
 
+# Fixed income (invented issuer; the CNPJ is the usual documentation example):
+# month index → (kind, title as printed, amount, % of CDI, years to maturity).
+EMISSOR = "BANCO DEMONSTRACAO S.A."
+CNPJ_EMISSOR = "11.222.333/0001-81"
+TITULOS_PRIVADOS = {
+    2: ("CDB", "CDB POS 110% CDI", 10_000.0, 110, 4),
+    10: ("LCI", "LCI POS 95% CDI", 8_000.0, 95, 3),
+}
+TESOURO = (6, "Tesouro Selic 2031", 0.5, 16_400.0)  # month index, title, units, unit price
+
 
 @dataclass
 class Posicao:
@@ -137,8 +148,7 @@ class Gerador:
         """One nota with these orders: (ticker, 'compra' | 'venda', quantity, price)."""
         if pregao >= self.hoje or not ordens:
             return
-        nota_id = str(self._proxima_nota)
-        self._proxima_nota += 1
+        nota_id = self._novo_id()
         negociacoes = []
         total_taxas = 0.0
         compras = vendas = 0.0
@@ -205,6 +215,47 @@ class Gerador:
             Decimal(quantidade), None, None,
         ))
 
+    def aplicar_renda_fixa(self, pregao: date, especie: str, titulo: str, valor: float,
+                           percentual: int, anos: int) -> None:
+        """A private bond bought at par (one unit of `valor`)."""
+        if pregao >= self.hoje:
+            return
+        nota_id = self._novo_id()
+        vencimento = pregao.replace(year=pregao.year + anos)
+        nota = NotaRecord(**vars(_nota(nota_id, pregao, pregao, valor, 0.0, 0.0)) | {
+            "doc_type": "TituloPrivado", "emissor": EMISSOR, "cnpj_emissor": CNPJ_EMISSOR,
+            "nota_de": "APLICAÇÃO", "compras_a_vista": None, "valor_liquido_das_operacoes": None,
+            "taxa_de_liquidacao": None, "liquido_para": -valor,
+        })
+        neg = NegociacaoRecord(**vars(_negociacao_vazia(nota_id, pregao, titulo)) | {
+            "doc_type": "TituloPrivado", "tipo": "aquisicao", "sentido": "entrada",
+            "quantidade": 1.0, "preco_unitario": valor, "valor_bruto": valor, "valor_liquido": valor,
+            "indexador": "CDI", "percentual_do_indexador": float(percentual),
+            "emissao": pregao, "vencimento": vencimento, "tipo_emitente": "INSTITUIÇÃO FINANCEIRA",
+        })
+        self.notas.append(DocumentoTransformado(nota=nota, negociacoes=[neg]))
+
+    def comprar_tesouro(self, pregao: date, titulo: str, unidades: float, preco: float) -> None:
+        if pregao >= self.hoje:
+            return
+        nota_id = self._novo_id()
+        valor = round(unidades * preco, 2)
+        nota = NotaRecord(**vars(_nota(nota_id, pregao, pregao, valor, 0.0, 0.0)) | {
+            "doc_type": "TituloPublico", "compras_a_vista": None, "valor_liquido_das_operacoes": None,
+            "taxa_de_liquidacao": None, "liquido_para": -valor,
+        })
+        neg = NegociacaoRecord(**vars(_negociacao_vazia(nota_id, pregao, titulo)) | {
+            "doc_type": "TituloPublico", "tipo": "compra", "sentido": "entrada",
+            "quantidade": unidades, "preco_unitario": preco, "valor_bruto": valor, "valor_liquido": valor,
+            "mercado": "TESOURO DIRETO",
+        })
+        self.notas.append(DocumentoTransformado(nota=nota, negociacoes=[neg]))
+
+    def _novo_id(self) -> str:
+        nota_id = str(self._proxima_nota)
+        self._proxima_nota += 1
+        return nota_id
+
     # --- the two years ---------------------------------------------------
 
     def gerar(self) -> None:
@@ -241,6 +292,10 @@ class Gerador:
 
             if indice == MES_BONIFICACAO:
                 self.bonificar(dia(18), "BBDC4", 0.10)
+            if indice in TITULOS_PRIVADOS:
+                self.aplicar_renda_fixa(dia(8), *TITULOS_PRIVADOS[indice])
+            if indice == TESOURO[0]:
+                self.comprar_tesouro(dia(8), *TESOURO[1:])
 
             for ticker, eventos in PROVENTOS.items():
                 for movimentacao, meses, por_cota in eventos:
@@ -265,6 +320,14 @@ def _nota(nota_id: str, pregao: date, liquidacao: date, compras: float, vendas: 
         "vendas_a_vista": round(vendas, 2),
         "taxa_de_liquidacao": taxas,
         "valor_liquido_das_operacoes": round(vendas - compras, 2),
+    })
+
+
+def _negociacao_vazia(nota_id: str, pregao: date, raw_ticker: str) -> NegociacaoRecord:
+    campos = {f: None for f in NegociacaoRecord.__dataclass_fields__}
+    return NegociacaoRecord(**campos | {
+        "nota_id": nota_id, "corretora_id": "nu_invest", "doc_type": "", "linha_na_nota": 0,
+        "raw_ticker": raw_ticker, "data": pregao, "sentido": "", "tipo": "", "taxas_proporcionais": 0.0,
     })
 
 

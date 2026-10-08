@@ -138,3 +138,22 @@ def test_nova_sessao_apaga_as_expiradas(usuario_id):
         conn.exec_driver_sql("UPDATE sessoes SET expira_em = now() - interval '1 minute'")
         auth.criar_sessao(conn, usuario_id)
         assert scalar(conn, "SELECT count(*) FROM sessoes") == 1
+
+
+def test_demo_tem_renda_fixa_na_declaracao(demo_id):
+    import irpf
+    import regras_fiscais as R
+
+    investidor_id = _investidor(demo_id)
+    with connect(demo_id) as conn:
+        d = irpf.declaracao(conn, investidor_id, 2025)
+    codigos = {b.rotulo.split()[0]: b.codigo for b in d.bens if b.renda_fixa}
+    assert codigos == {"CDB": R.BEM_TITULOS_TRIBUTAVEIS, "LCI": R.BEM_TITULOS_ISENTOS,
+                       "Tesouro": R.BEM_TITULOS_TRIBUTAVEIS}
+    cdb = next(b for b in d.bens if b.rotulo.startswith("CDB"))
+    assert cdb.cnpj == demo.CNPJ_EMISSOR and cdb.custo == 10_000
+
+    c = _cliente()
+    c.post("/demo")
+    pagina = c.get("/impostos/irpf?ano=2025").text
+    assert "04 · 02" in pagina and "04 · 03" in pagina
