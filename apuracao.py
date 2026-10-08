@@ -11,8 +11,9 @@ Per month, in date order:
    one loss pool, taxed at 15%; FIIs have their own, taxed at 20%.
 4. The 0,005% withheld at source on sales is deducted from the tax.
 5. Below R$ 10,00 no DARF is issued; the amount carries to later months.
-
-Not computed: day trade (flagged when a same-day buy and sale is seen).
+6. Day trade (same ativo, day and broker) has its own result and loss pool,
+   taxed at 20%. The 1% the broker withholds on it is read from the notas
+   that print it ("IRRF Day-Trade ... Projeção") and estimated otherwise.
 """
 
 from __future__ import annotations
@@ -79,7 +80,8 @@ class Mes:
     irrf: Decimal = ZERO
     day_trade: list[str] = field(default_factory=list)  # ativos day-traded this month
     resultado_day_trade: Decimal = ZERO
-    irrf_day_trade: Decimal = ZERO  # estimated 1% withheld by the broker
+    irrf_day_trade: Decimal = ZERO  # 1% withheld by the broker: read from the notas, or estimated
+    irrf_day_trade_estimado: bool = False  # some of it was estimated (no nota printed it)
 
     vendas_acoes: Decimal = ZERO
     resultado_acoes: Decimal = ZERO
@@ -354,22 +356,46 @@ def apuracao(conn: Connection, investidor_id: int) -> list[Mes]:
         r["mes"]: r["irrf"] for r in fetch_all(
             conn,
             """
-            SELECT date_trunc('month', data_pregao)::date AS mes, SUM(irrf_sobre_operacoes) AS irrf
+            SELECT date_trunc('month', data_pregao)::date AS mes, SUM(ABS(irrf_sobre_operacoes)) AS irrf
             FROM notas
-            WHERE investidor_id = :i AND irrf_sobre_operacoes > :dispensa
+            WHERE investidor_id = :i AND ABS(irrf_sobre_operacoes) > :dispensa
             GROUP BY 1
             """,
             i=investidor_id,
             dispensa=R.IRRF_DISPENSA_ATE.valor,
         )
     }
+    # The day-trade IRRF the notas print, per (day, broker). Where no nota
+    # of a day-trade day prints it (older layouts, Nu's own), it is estimated.
+    impresso = {
+        (r["data_pregao"], r["corretora_id"]): r["retido"] for r in fetch_all(
+            conn,
+            """
+            SELECT data_pregao, corretora_id, SUM(irrf_day_trade) AS retido
+            FROM notas
+            WHERE investidor_id = :i AND irrf_day_trade IS NOT NULL
+            GROUP BY 1, 2
+            """,
+            i=investidor_id,
+        )
+    }
     resultados_day_trade: dict[date, tuple[Decimal, Decimal]] = {}
-    for (dia, _corretora), resultado in por_dia.items():
+    estimado: set[date] = set()
+    for chave in por_dia.keys() | impresso.keys():
+        dia = chave[0]
         m = date(dia.year, dia.month, 1)
         total, retido = resultados_day_trade.get(m, (ZERO, ZERO))
-        retido += _arredondar(max(resultado, ZERO) * R.IRRF_DAY_TRADE.valor)
+        resultado = por_dia.get(chave, ZERO)
+        if chave in impresso:
+            retido += impresso[chave]
+        else:
+            retido += _arredondar(max(resultado, ZERO) * R.IRRF_DAY_TRADE.valor)
+            if resultado > 0:
+                estimado.add(m)
         resultados_day_trade[m] = (total + _arredondar(resultado), retido)
     meses = apurar(vendas, irrf, dict(day_trade), resultados_day_trade)
+    for m in meses:
+        m.irrf_day_trade_estimado = m.mes in estimado
     pagos = {
         r["mes"]: r for r in fetch_all(
             conn, "SELECT mes, valor_pago, pago_em FROM darfs_pagos WHERE investidor_id = :i", i=investidor_id

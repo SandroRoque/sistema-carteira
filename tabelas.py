@@ -235,7 +235,7 @@ _NOTA_MONEY_COLUMNS = [
     # resumo financeiro (NotaCorretagem only)
     "taxa_de_liquidacao", "taxa_de_registro", "total_clearing_cblc",
     "taxa_de_termo_opcoes", "taxa_a_n_a", "emolumentos", "total_bolsa",
-    "corretagem", "iss", "irrf_sobre_operacoes", "outras",
+    "corretagem", "iss", "irrf_sobre_operacoes", "irrf_day_trade", "outras",
     "total_corretagem_despesas",
     "taxa_operacional", "execucao", "taxa_de_custodia", "impostos",
     "pis_cofins", "taxa_de_transferencia_de_ativos", "execucao_casa",

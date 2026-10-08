@@ -150,6 +150,7 @@ class NotaCorretagem:
     corretagem: Decimal | None = None
     iss: Decimal | None = None
     irrf_sobre_operacoes_base_0_00: Decimal | None = None
+    irrf_day_trade: Decimal | None = None  # "Projeção" of the day-trade IRRF line
     outras: Decimal | None = None
     total_corretagem_despesas: Decimal | None = None
     liquido_para: Decimal | None = None

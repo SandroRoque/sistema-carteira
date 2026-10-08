@@ -320,6 +320,22 @@ def _nome_da_opcao(neg: NegociacaoRecord) -> str:
     return f"{neg.raw_ticker} · opção de {especie} · venc. {neg.prazo or '?'}"
 
 
+def _completar_irrf_day_trade(conn: Connection, investidor_id: int, nota: NotaRecord) -> None:
+    """A nota loaded before the day-trade IRRF was read gets it when sent
+    again; nothing else of a loaded nota changes."""
+    if nota.irrf_day_trade is None:
+        return
+    execute(
+        conn,
+        """
+        UPDATE notas SET irrf_day_trade = :v
+        WHERE investidor_id = :i AND nota_id = :n AND corretora_id = :c AND doc_type = :d
+          AND irrf_day_trade IS NULL
+        """,
+        v=nota.irrf_day_trade, i=investidor_id, n=nota.nota_id, c=nota.corretora_id, d=nota.doc_type,
+    )
+
+
 def carregar(
     conn: Connection, usuario_id: int, doc: DocumentoTransformado, filename: str, carteira: int | None = None
 ) -> bool:
@@ -336,6 +352,7 @@ def carregar(
     nota = doc.nota
     investidor_id = investidor_da_nota(conn, usuario_id, nota, carteira)
     if ja_processado(conn, investidor_id, nota.nota_id, nota.corretora_id, nota.doc_type):
+        _completar_irrf_day_trade(conn, investidor_id, nota)
         return False
 
     _inserir_nota(conn, investidor_id, nota, filename)

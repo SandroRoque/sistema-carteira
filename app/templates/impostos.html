@@ -47,7 +47,7 @@
       {%- if d.base_day_trade and (d.base_comum or d.base_fii) %} + {% endif %}
       {%- if d.base_day_trade %}20% de {{ d.base_day_trade | brl }} em day trade{% endif %}
       {%- if d.prejuizo_comum_usado or d.prejuizo_fii_usado or d.prejuizo_day_trade_usado %}, já descontado {{ (d.prejuizo_comum_usado + d.prejuizo_fii_usado + d.prejuizo_day_trade_usado) | brl }} de prejuízo anterior{% endif %}
-      {%- if d.irrf_usado %}, menos {{ d.irrf_usado | brl }} retidos na fonte{% if d.irrf_day_trade %} (o de day trade, 1% do lucro do dia, é estimado: confira na nota){% endif %}{% endif %}
+      {%- if d.irrf_usado %}, menos {{ d.irrf_usado | brl }} retidos na fonte{% if d.irrf_day_trade_estimado %} (o de day trade, 1% do lucro do dia, é estimado: confira na nota){% endif %}{% endif %}
       {%- if d.acumulado_anterior %}, mais {{ d.acumulado_anterior | brl }} de meses abaixo de R$ 10{% endif %}.
       {% if vencido %}O Sicalc calcula multa e juros do atraso.{% endif %}
     </p>
@@ -154,7 +154,7 @@
             {% else %}
             <span class="tag">Sem imposto</span>
             {% endif %}
-            {% if mes.day_trade %}<small>Day trade ({{ mes.day_trade | join(", ") }}): <span class="{{ m.classe_resultado(mes.resultado_day_trade) }}">{{ mes.resultado_day_trade | brl_sinal }}</span>, 20% sem isenção{% if mes.irrf_day_trade %}; IRRF estimado {{ mes.irrf_day_trade | brl }}{% endif %}</small>{% endif %}
+            {% if mes.day_trade %}<small>Day trade ({{ mes.day_trade | join(", ") }}): <span class="{{ m.classe_resultado(mes.resultado_day_trade) }}">{{ mes.resultado_day_trade | brl_sinal }}</span>, 20% sem isenção{% if mes.irrf_day_trade %}; IRRF {% if mes.irrf_day_trade_estimado %}estimado{% else %}retido{% endif %} {{ mes.irrf_day_trade | brl }}{% endif %}</small>{% endif %}
             {% if mes.sem_custo %}<small><a href="/pendencias">Venda sem custo conhecido</a>: {{ mes.sem_custo | map(attribute="rotulo") | unique | join(", ") }} fora do cálculo</small>{% endif %}
             {% if mes.custo_incompleto %}<small><a href="/pendencias">Custo incompleto</a>: {{ mes.custo_incompleto | map(attribute="rotulo") | unique | join(", ") }}</small>{% endif %}
             {% for nome, rotulos in mes.regras_pendentes.items() %}<small>{{ m.icone_aviso() }} Regra não confirmada ({{ textos_regras.get(nome, nome) }}): {{ rotulos | join(", ") }}</small>{% endfor %}

@@ -167,6 +167,24 @@ def valores_do_resumo(linhas: list[list[Palavra]], campos: dict[str, list[str]])
     return resultado
 
 
+def irrf_day_trade(linhas: list[list[Palavra]]) -> Decimal | None:
+    """The day-trade IRRF the nota withholds, from "IRRF Day-Trade: Base R$
+    x Projeção R$ y": y, as a positive amount. None when the line is absent
+    (older layouts). It is printed apart from "I.R.R.F. s/ operações" (the
+    0,005%), which never includes it. The last occurrence wins, as in the
+    summary."""
+    achado = None
+    for li, depois, _ in _ocorrencias(linhas, "IRRF Day Trade"):
+        linha = linhas[li]
+        for j in range(depois, len(linha)):
+            if linha[j].norm == "projecao":
+                valor = _valor_apos(linha, j + 1)
+                if valor is not None:
+                    achado = abs(money_parser(valor))
+                break
+    return achado
+
+
 def _rotulo(linhas, variantes: list[str]) -> list[Palavra] | None:
     """Words of the first occurrence of any of the label variants."""
     for rotulo in variantes:
@@ -450,5 +468,6 @@ def extrair(page: fitz.Page, corretora_id: str) -> NotaCorretagem:
         codigo_cliente=cab["codigo"],
         assessor=cab["assessor"] or None,
         movimentacoes=movimentacoes,
+        irrf_day_trade=irrf_day_trade(linhas),
         **resumo,
     )

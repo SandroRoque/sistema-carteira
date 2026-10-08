@@ -77,11 +77,13 @@ Open points on `/impostos/irpf`:
 - **31/12** is treated as a non-business day for DARF due dates (banks closed);
   confirm against Receita's calendar.
 - **Day trade** is taxed (20%, no exemption, own loss pool; PR-IRPF-2026
-  q.705-715). The 1% the broker withholds is not read from the notas: it is
-  estimated as 1% of each day's net day-trade result per broker, and the page
-  says so. Read it from the nota where the layout prints it ("IRRF Day Trade").
-  Check also that no layout folds it into `irrf_sobre_operacoes` (the 0,005%),
-  or it would be deducted twice.
+  q.705-715). The 1% the broker withholds is read from market-standard notas
+  ("IRRF Day-Trade: Base ... Projeção ..."; `notas.irrf_day_trade`), printed
+  apart from the 0,005%. Where no nota of the day prints it (Nu's own layout,
+  notas loaded before migration 0014), it is estimated as 1% of the day's net
+  day-trade result per broker, and the page says so. Re-import old notas to
+  replace the estimate. The printed value is a "projeção": confirm it matches
+  what the broker actually withheld (the informe de rendimentos).
 - Whether day-trade sales count toward the R$ 20 mil limit: currently they do not.
   PR-IRPF-2026 q.707 only says the exemption does not apply to day trade.
 - **Incorporação / conversão** (`CONVERSAO_CUSTO_TRANSFERIDO`): the new shares

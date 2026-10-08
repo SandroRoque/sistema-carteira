@@ -184,7 +184,8 @@ deliberately not stored — see [lgpd.md](lgpd.md).
 | `total_bolsa` | NUMERIC | YES | NotaCorretagem | Total exchange charges subtotal |
 | `corretagem` | NUMERIC | YES | NotaCorretagem | Brokerage commission |
 | `iss` | NUMERIC | YES | NotaCorretagem | ISS municipal services tax |
-| `irrf_sobre_operacoes` | NUMERIC | YES | NotaCorretagem | IRRF withheld on day-trades |
+| `irrf_sobre_operacoes` | NUMERIC | YES | NotaCorretagem | IRRF of 0,005% withheld on sales ("I.R.R.F. s/ operações"); negative in the market-standard layout, positive in Nu's |
+| `irrf_day_trade` | NUMERIC | YES | NotaCorretagem | 1% IRRF on the day's day-trade result ("IRRF Day-Trade ... Projeção"), positive; NULL when the layout does not print it |
 | `outras` | NUMERIC | YES | NotaCorretagem | Other charges |
 | `total_corretagem_despesas` | NUMERIC | YES | NotaCorretagem | Total brokerage + fees subtotal |
 | `taxa_operacional` | NUMERIC | YES | NotaCorretagem (XP) | XP operational fee |

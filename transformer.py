@@ -52,6 +52,7 @@ class NotaRecord:
     corretagem: Decimal | None
     iss: Decimal | None
     irrf_sobre_operacoes: Decimal | None
+    irrf_day_trade: Decimal | None
     outras: Decimal | None
     total_corretagem_despesas: Decimal | None
     taxa_operacional: Decimal | None
@@ -306,6 +307,7 @@ def _transformar_nota_corretagem(nota: NotaCorretagem) -> DocumentoTransformado:
         corretagem=nota.corretagem,
         iss=nota.iss,
         irrf_sobre_operacoes=nota.irrf_sobre_operacoes_base_0_00,
+        irrf_day_trade=nota.irrf_day_trade,
         outras=nota.outras,
         total_corretagem_despesas=nota.total_corretagem_despesas,
         taxa_operacional=nota.taxa_operacional,
@@ -401,6 +403,7 @@ def _transformar_titulo_publico(doc: TituloPublico) -> DocumentoTransformado:
         corretagem=None,
         iss=None,
         irrf_sobre_operacoes=None,
+        irrf_day_trade=None,
         outras=None,
         total_corretagem_despesas=None,
         taxa_operacional=None,
@@ -498,6 +501,7 @@ def _transformar_titulo_privado(doc: TituloPrivado) -> DocumentoTransformado:
         corretagem=None,
         iss=None,
         irrf_sobre_operacoes=None,
+        irrf_day_trade=None,
         outras=doc.outras,
         total_corretagem_despesas=None,
         taxa_operacional=None,

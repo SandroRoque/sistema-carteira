@@ -9,8 +9,9 @@ import apuracao
 from apuracao import Venda, apurar, categoria, vencimento
 from conftest import CPF_A
 from database import connect_sistema
-from fabricas import documento, negociacao
+from fabricas import documento, negociacao, nota
 from loader import carregar
+from transformer import DocumentoTransformado
 
 D = Decimal
 
@@ -331,3 +332,64 @@ def test_day_trade_a_partir_das_notas(usuario_id, investidor_a):
 
     pagina = _cliente_logado().get("/impostos?ano=2026").text
     assert "20% de R$ 400,00 em day trade" in pagina
+
+
+def _nota_com_day_trade(irrf_day_trade, **kw):
+    # Same day, same broker: day trade with a 500 gain.
+    return DocumentoTransformado(
+        nota=nota(CPF_A, nota_id="2001", data=date(2026, 3, 10), irrf_day_trade=irrf_day_trade, **kw),
+        negociacoes=[
+            negociacao("EMPX4", "entrada", 100, 20.0, date(2026, 3, 10), nota_id="2001", linha=1),
+            negociacao("EMPX4", "saida", 100, 25.0, date(2026, 3, 10), nota_id="2001", linha=2),
+        ],
+    )
+
+
+def test_irrf_de_day_trade_impresso_na_nota_substitui_a_estimativa(usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, _nota_com_day_trade(D("4.80")), "1.pdf")
+        [mar] = apuracao.apuracao(conn, investidor_a)
+
+    assert (mar.resultado_day_trade, mar.irrf_day_trade) == (D("500.00"), D("4.80"))
+    assert not mar.irrf_day_trade_estimado
+    assert mar.darf == D("95.20")  # 20% of 500, less 4,80 printed on the nota
+
+    pagina = _cliente_logado().get("/impostos?ano=2026").text
+    assert "IRRF retido R$ 4,80" in pagina and "é estimado" not in pagina
+
+
+def test_irrf_de_day_trade_zero_impresso_nao_e_estimado(usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, _nota_com_day_trade(D("0")), "1.pdf")
+        [mar] = apuracao.apuracao(conn, investidor_a)
+    assert (mar.irrf_day_trade, mar.irrf_day_trade_estimado) == (0, False)
+    assert mar.darf == D("100.00")
+
+
+def test_reenviar_a_nota_completa_o_irrf_de_day_trade(usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        assert carregar(conn, usuario_id, _nota_com_day_trade(None), "1.pdf")
+        assert not carregar(conn, usuario_id, _nota_com_day_trade(D("4.80")), "1.pdf")
+        [mar] = apuracao.apuracao(conn, investidor_a)
+    assert (mar.irrf_day_trade, mar.irrf_day_trade_estimado) == (D("4.80"), False)
+
+
+def test_irrf_de_day_trade_sem_impressao_e_estimado(usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, _nota_com_day_trade(None), "1.pdf")
+        [mar] = apuracao.apuracao(conn, investidor_a)
+    assert (mar.irrf_day_trade, mar.irrf_day_trade_estimado) == (D("5.00"), True)
+
+
+def test_irrf_de_vendas_gravado_como_debito_e_deduzido(usuario_id, investidor_a):
+    # The market-standard layout stores the 0,005% as a debit (negative).
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(CPF_A, negociacao("EMPX4", "entrada", 1000, 30.0, date(2026, 2, 2)),
+                                             nota_id="3001", data=date(2026, 2, 2)), "a.pdf")
+        doc = DocumentoTransformado(
+            nota=nota(CPF_A, nota_id="3002", data=date(2026, 3, 2), irrf_sobre_operacoes=D("-1.50")),
+            negociacoes=[negociacao("EMPX4", "saida", 1000, 30.0, date(2026, 3, 2), nota_id="3002")],
+        )
+        carregar(conn, usuario_id, doc, "b.pdf")
+        meses = apuracao.apuracao(conn, investidor_a)
+    assert _mes(meses, 2026, 3).irrf == D("1.50")

@@ -125,7 +125,8 @@ COMPENSACAO_DAY_TRADE = Regra("day trade só com day trade", "PR-IRPF-2026 q.709
 # The broker withholds 1% of the day's positive day-trade result (same-day
 # losses offset first, q.705). Deductible from the month's tax and, if left
 # over, from later months of the same calendar year only (q.714, q.715).
-# The documents do not carry it: the app estimates it from the trades.
+# Market-standard notas print it ("IRRF Day-Trade: Base ... Projeção ...");
+# where no nota of the day does, the app estimates it from the trades.
 IRRF_DAY_TRADE = Regra(Decimal("0.01"), "PR-IRPF-2026 q.712-715; Lei 9.959/2000 art. 8º; IN-1585 art. 65", True)
 
 

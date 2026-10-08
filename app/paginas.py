@@ -229,7 +229,7 @@ _TEXTOS_REGRAS = {
     "CONVERSAO_CUSTO_TRANSFERIDO": "Incorporações e conversões: as novas cotas ou ações herdam o custo das antigas, sem venda",
     "ALIQUOTA_DAY_TRADE": "Day trade (compra e venda do mesmo ativo no mesmo dia e corretora): 20% sobre o lucro, sem isenção",
     "COMPENSACAO_DAY_TRADE": "Prejuízos com day trade só abatem lucros com day trade",
-    "IRRF_DAY_TRADE": "No day trade a corretora retém 1% do lucro do dia; estimamos esse valor e o descontamos do imposto do mês ou de meses seguintes do mesmo ano",
+    "IRRF_DAY_TRADE": "No day trade a corretora retém 1% do lucro do dia; lemos esse valor da nota (ou o estimamos, quando a nota não o traz) e o descontamos do imposto do mês ou de meses seguintes do mesmo ano",
 }
 
 

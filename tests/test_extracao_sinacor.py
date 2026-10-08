@@ -298,3 +298,36 @@ def test_le_o_modelo_padrao_de_mercado_da_nu():
     [m] = nota.movimentacoes
     assert (m.compra_venda, m.quantidade, m.valor_ajuste) == ("C", 1000, Decimal("1000.00"))
     assert nota.liquido_para == Decimal("-1000.35")
+
+
+def test_le_o_irrf_de_day_trade_projetado():
+    # "IRRF Day-Trade: Base R$ x Projeção R$ y" shares a line with ISS; y is
+    # what the broker withholds, apart from the 0,005% on sales.
+    doc = fitz.open()
+    financeiro = {
+        "Valor líquido das operações": ("2.000,00", "C"),
+        "Taxa de liquidação": ("0,50", "D"),
+        "Emolumentos": ("0,10", "D"),
+        "Corretagem": ("0,00", "D"),
+        "I.R.R.F. s/ operações, base R$ 2.000,00": ("0,10", "D"),
+        "Outras": ("0,00", "D"),
+        "Total corretagem / Despesas": ("0,10", "D"),
+        "ISS ( São Paulo )": ("0,00", "D"),
+        "Líquido para 12/03/2025": ("1.999,30", "C"),
+    }
+    page = _pagina(doc, linhas=[(0, _linha("V", "EMPRESA X ON NM", "100", "20,00", "2.000,00", "C"))],
+                   resumo={"Vendas à vista": "2.000,00", "Valor das operações": "2.000,00"},
+                   financeiro=financeiro)
+    _t(page, 35, 452 + 8 * 7, "IRRF Day-Trade: Base R$ 350,00 Projeção R$ 3,50")
+    nota = _uma(doc)
+    assert nota.irrf_day_trade == Decimal("3.50")
+    assert nota.irrf_sobre_operacoes_base_0_00 == Decimal("-0.10")
+    assert nota.liquido_para == Decimal("1999.30")
+
+
+def test_nota_sem_a_linha_de_day_trade_nao_tem_irrf_de_day_trade():
+    doc = fitz.open()
+    _pagina(doc, linhas=[(0, _linha("C", "EMPRESA X ON NM", "1000", "1,00", "1.000,00", "D"))],
+            resumo={"Compras à vista": "1.000,00", "Valor das operações": "1.000,00"},
+            financeiro=_financeiro_compra())
+    assert _uma(doc).irrf_day_trade is None
