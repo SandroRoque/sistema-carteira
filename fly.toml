@@ -1,0 +1,38 @@
+# Fly.io app. First deploy and secrets: see docs/deploy.md.
+app = "sistema-carteira"
+primary_region = "gru"
+
+[deploy]
+  # Migrations, then the demo account is rebuilt so its dates stay current (demo.py).
+  release_command = "sh -c 'alembic upgrade head && python admin.py recriar-demo'"
+
+[env]
+  # Closed until password reset and per-IP throttling exist (TODO.md);
+  # accounts are created with `fly ssh console -C "python admin.py criar-usuario ..."`.
+  CADASTRO_ABERTO = "false"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  # Pending imports resume when the machine starts again (importacao.py).
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 20
+    hard_limit = 25
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/saude"
+    timeout = "5s"
+
+[[vm]]
+  # Measured: web ~125 MB + parsing child peaks ~100 MB.
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

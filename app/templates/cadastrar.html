@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Criar conta — Carteira{% endblock %}
+{% block largura %} minimo{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div>
+    <h1>Criar conta</h1>
+    <p class="muted">Acompanhe carteira, proventos e impostos a partir das suas notas e do extrato da B3.</p>
+  </div>
+  {% if not cadastro_aberto() %}
+  <p class="mensagem-erro" role="alert">O cadastro de novas contas está fechado no momento.</p>
+  {% else %}
+  {% if erro %}<p class="mensagem-erro" role="alert">{{ erro }}</p>{% endif %}
+  <form method="post" action="/cadastrar" class="formulario">
+    <label>
+      E-mail
+      <input type="email" name="email" value="{{ email or '' }}" autocomplete="username" required autofocus>
+    </label>
+    <label>
+      Senha <small>Mínimo de 10 caracteres.</small>
+      <input type="password" name="senha" autocomplete="new-password" minlength="10" maxlength="256" required>
+    </label>
+    <label>
+      Repita a senha
+      <input type="password" name="senha_confirmacao" autocomplete="new-password" minlength="10" maxlength="256" required>
+    </label>
+    <label class="opcao">
+      <input type="checkbox" name="aceite" value="true" required>
+      <span>Declaro ter direito de usar os documentos que eu enviar, li a
+      <a href="/privacidade" target="_blank">política de privacidade</a> e aceito os
+      <a href="/termos" target="_blank">termos de uso</a>: os resultados dependem dos documentos
+      que envio e cabe a mim conferi-los.</span>
+    </label>
+    <button type="submit" class="primario">Criar conta</button>
+  </form>
+  {% endif %}
+  <p class="muted">Já tem conta? <a href="/entrar">Entrar</a></p>
+</div>
+{% endblock %}

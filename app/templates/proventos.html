@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}Proventos — Carteira{% endblock %}
+
+{% block content %}
+<div class="cabecalho">
+  <div>
+    <h1>Proventos</h1>
+    <p class="sub">Do extrato da B3{% if prov.atualizado_ate %}, atualizado até {{ prov.atualizado_ate | data }}{% endif %} · JCP em valores líquidos (15% já retido)</p>
+  </div>
+  <nav class="chips" aria-label="Período">
+    {% for chave, rotulo in periodos %}
+    <a href="/proventos?periodo={{ chave }}" class="chip"{% if chave == periodo %} aria-current="true"{% endif %}>{{ rotulo }}</a>
+    {% endfor %}
+  </nav>
+</div>
+
+{% if not prov.total %}
+<section class="card">
+  <h2>Nenhum provento neste período</h2>
+  <p class="muted">Dividendos, JCP e rendimentos vêm do <a href="/importar">extrato de movimentação da B3</a>.</p>
+</section>
+{% else %}
+
+<section class="grade-cards compacta" aria-label="Totais do período">
+  <div class="stat">
+    <span class="rotulo">Total recebido</span>
+    <strong class="valor">{{ prov.total | brl }}</strong>
+    <span class="detalhe">média de {{ prov.media_mensal | brl }} por mês</span>
+  </div>
+  {% for t in prov.tipos %}
+  <div class="stat">
+    <span class="rotulo"><span class="marcador {{ tipos_provento[t][1] }}" aria-hidden="true"></span> {{ tipos_provento[t][0] }}</span>
+    <strong class="valor">{{ prov.por_tipo[t] | brl }}</strong>
+    <span class="detalhe">{{ (prov.por_tipo[t] / prov.total) | pct(casas=0) }} do total</span>
+  </div>
+  {% endfor %}
+  {% if retorno is not none %}
+  <div class="stat">
+    <span class="rotulo">Retorno sobre o custo</span>
+    <strong class="valor">{{ retorno | pct }} ao ano</strong>
+    <span class="detalhe">proventos de ações e FIIs sobre {{ custo_rv | brl }} de custo</span>
+  </div>
+  {% endif %}
+</section>
+
+<section class="card" aria-labelledby="mensal">
+  <div class="card-titulo">
+    <h2 id="mensal">Recebido por mês</h2>
+    <ul class="legenda">
+      {% for t in prov.tipos %}<li><span class="marcador {{ tipos_provento[t][1] }}" aria-hidden="true"></span>{{ tipos_provento[t][0] }}</li>{% endfor %}
+    </ul>
+  </div>
+  <div class="rolagem">
+    <div class="largura-grafico">
+      {{ m.colunas(colunas, "Proventos por mês, empilhados por tipo; maior mês " ~ (prov.maior_mes.inicio | mes_ano) ~ ", " ~ (prov.maior_mes.total | brl)) }}
+    </div>
+  </div>
+</section>
+
+<section class="card tabela-card" aria-labelledby="por-ativo">
+  <h2 id="por-ativo">Por ativo</h2>
+  <div class="rolagem">
+    <table class="larga">
+      <thead>
+        <tr>
+          <th>Ativo</th>
+          {% for t in prov.tipos %}<th class="num">{{ tipos_provento[t][0] }}</th>{% endfor %}
+          <th class="num">Total</th>
+          <th class="num">Retorno s/ custo</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in prov.por_ativo %}
+        <tr class="clicavel">
+          <td><a href="/posicoes/{{ a.ativo_id }}" class="ativo-link">{{ a.rotulo }}</a></td>
+          {% for t in prov.tipos %}<td class="num">{{ a.valores[t] | brl if a.valores.get(t) else "—" }}</td>{% endfor %}
+          <td class="num"><strong>{{ a.total | brl }}</strong></td>
+          <td class="num">{{ a.retorno | pct if a.retorno is not none else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td>Total</td>
+          {% for t in prov.tipos %}<td class="num">{{ prov.por_tipo[t] | brl }}</td>{% endfor %}
+          <td class="num">{{ prov.total | brl }}</td>
+          <td class="num">{{ retorno | pct if retorno is not none else "" }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  <p class="nota">Retorno sobre o custo: proventos do período divididos pelo custo da posição aberta hoje.</p>
+</section>
+{% endif %}
+{% endblock %}

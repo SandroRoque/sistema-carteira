@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}Impostos — Carteira{% endblock %}
+
+{% macro origens(meses, categorias=[]) -%}
+{%- for o in meses %}{% set rotulos = o.rotulos(*categorias) %}<a href="/impostos?ano={{ o.mes.year }}#mes-{{ o.mes.strftime('%Y-%m') }}">{{ o.mes | mes_ano }}</a>{% if rotulos %} ({{ rotulos | join(", ") }}){% endif %}{{ ", " if not loop.last }}{% endfor -%}
+{%- endmacro %}
+
+{% block content %}
+<div class="cabecalho">
+  <h1>Impostos</h1>
+  {% if anos|length > 1 %}
+  <nav class="chips" aria-label="Ano">
+    {% for a in anos %}<a href="/impostos?ano={{ a }}" class="chip"{% if a == ano %} aria-current="true"{% endif %}>{{ a }}</a>{% endfor %}
+  </nav>
+  {% endif %}
+</div>
+
+<nav class="abas" aria-label="Impostos">
+  <a href="/impostos" aria-current="page">Mês a mês (DARF)</a>
+  <a href="/impostos/irpf">Declaração anual (IRPF)</a>
+</nav>
+{{ m.aviso_opcoes(negocios_com_opcoes, "não entra" ~ ("m" if negocios_com_opcoes > 1 else "") ~ " nesta apuração: confira o imposto delas à parte.") }}
+{% if fora_do_darf %}
+<p class="aviso">{{ m.icone_aviso() }}<span class="texto">Vendas de {{ fora_do_darf | join(", ") }} não entram nesta apuração: ETFs de renda fixa e fundos de infraestrutura, FIP ou FIDC são tributados de outra forma.</span></p>
+{% endif %}
+
+{% macro motivos(d) -%}
+<ul class="motivos">
+  {% if d.sem_custo %}<li>Venda sem custo conhecido: {{ d.sem_custo | map(attribute="rotulo") | unique | join(", ") }}. <a href="/pendencias">Informar custo</a></li>{% endif %}
+  {% if d.custo_incompleto %}<li>Custo incompleto: {{ d.custo_incompleto | map(attribute="rotulo") | unique | join(", ") }}. <a href="/pendencias">Ver pendências</a></li>{% endif %}
+  {% if d.sem_nota %}<li>Venda sem nota, com o valor do extrato B3 sem taxas: {{ d.sem_nota | map(attribute="rotulo") | unique | join(", ") }}. <a href="/importar">Enviar a nota</a></li>{% endif %}
+  {% for nome, rotulos in d.regras_pendentes.items() %}<li>Regra ainda não confirmada na fonte oficial ({{ textos_regras.get(nome, nome) }}): {{ rotulos | join(", ") }}.</li>{% endfor %}
+</ul>
+{%- endmacro %}
+
+{% for d in abertos %}
+{% set vencido = d.vencimento < hoje %}
+<section class="card {{ 'card-erro' if vencido else 'card-aviso' }}" aria-labelledby="darf-{{ loop.index }}">
+  {% if d.confiavel %}
+  <div>
+    <h2 id="darf-{{ loop.index }}">Imposto estimado de {{ d.mes | mes_ano }}: {{ d.darf | brl }}, {{ "venceu em" if vencido else "vence em" }} {{ d.vencimento | data }}</h2>
+    <p class="sub">
+      {%- if d.base_comum %}15% de {{ d.base_comum | brl }} em ações, BDRs, units e ETFs{% endif %}
+      {%- if d.base_comum and d.base_fii %} + {% endif %}
+      {%- if d.base_fii %}20% de {{ d.base_fii | brl }} em FIIs{% endif %}
+      {%- if d.base_day_trade and (d.base_comum or d.base_fii) %} + {% endif %}
+      {%- if d.base_day_trade %}20% de {{ d.base_day_trade | brl }} em day trade{% endif %}
+      {%- if d.prejuizo_comum_usado or d.prejuizo_fii_usado or d.prejuizo_day_trade_usado %}, já descontado {{ (d.prejuizo_comum_usado + d.prejuizo_fii_usado + d.prejuizo_day_trade_usado) | brl }} de prejuízo anterior{% endif %}
+      {%- if d.irrf_usado %}, menos {{ d.irrf_usado | brl }} retidos na fonte{% if d.irrf_day_trade_estimado %} (o de day trade, 1% do lucro do dia, é estimado: confira na nota){% endif %}{% endif %}
+      {%- if d.acumulado_anterior %}, mais {{ d.acumulado_anterior | brl }} de meses abaixo de R$ 10{% endif %}.
+      {% if vencido %}O Sicalc calcula multa e juros do atraso.{% endif %}
+    </p>
+  </div>
+  <p class="nota">{{ m.icone_aviso() }} Estimativa feita a partir dos documentos que você enviou. Confira com suas notas e o extrato da B3 antes de pagar: o DARF é você quem emite, no Sicalc da Receita.</p>
+  <dl class="dados">
+    <div><dt>Código da receita</dt><dd>{{ codigo_darf }}</dd></div>
+    <div><dt>Período de apuração</dt><dd>{{ d.periodo_apuracao | data }}</dd></div>
+    <div><dt>Vencimento</dt><dd>{{ d.vencimento | data }}</dd></div>
+    <div><dt>Valor principal estimado</dt><dd>{{ d.darf | brl }}</dd></div>
+  </dl>
+  <div class="botoes">
+    <button type="button" class="primario" data-copiar="Código {{ codigo_darf }} · Período de apuração {{ d.periodo_apuracao | data }} · Vencimento {{ d.vencimento | data }} · Valor {{ d.darf | brl }}">Copiar dados</button>
+    <a href="{{ sicalc }}" class="botao" target="_blank" rel="noopener">Abrir o Sicalc ↗</a>
+    <form method="post" action="/impostos/darfs/{{ d.mes.strftime('%Y-%m') }}/pago" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+      <button type="submit">Já paguei</button>
+    </form>
+  </div>
+  {% else %}
+  <div>
+    <h2 id="darf-{{ loop.index }}">{{ d.mes | mes_ano }}: imposto não estimado, dados incompletos</h2>
+    <p class="sub">Há vendas neste mês, mas o cálculo não é confiável. Uma conta parcial daria {{ d.darf | brl }}, que não deve ser usada para pagar. O imposto, se houver, vence em {{ d.vencimento | data }}.</p>
+  </div>
+  {{ motivos(d) }}
+  <p class="nota">Resolva os itens acima ou calcule este mês com as suas notas. O DARF é emitido no Sicalc da Receita.</p>
+  <div class="botoes">
+    <a href="{{ sicalc }}" class="botao" target="_blank" rel="noopener">Abrir o Sicalc ↗</a>
+    <form method="post" action="/impostos/darfs/{{ d.mes.strftime('%Y-%m') }}/pago" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+      <button type="submit">Já paguei</button>
+    </form>
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
+
+<section class="grade-cards compacta" aria-label="Saldos">
+  <div class="stat">
+    <span class="rotulo">Prejuízo a compensar · ações, BDRs, units, ETFs</span>
+    <strong class="valor">{{ prejuizo_comum | brl }}</strong>
+    {% if origem_prejuizo_comum %}<span class="detalhe">de {{ origens(origem_prejuizo_comum, ["acao", "comum"]) }}</span>{% endif %}
+  </div>
+  <div class="stat">
+    <span class="rotulo">Prejuízo a compensar · FIIs</span>
+    <strong class="valor">{{ prejuizo_fii | brl }}</strong>
+    {% if origem_prejuizo_fii %}<span class="detalhe">de {{ origens(origem_prejuizo_fii, ["fii"]) }}</span>{% endif %}
+  </div>
+  {% if prejuizo_day_trade %}
+  <div class="stat">
+    <span class="rotulo">Prejuízo a compensar · day trade</span>
+    <strong class="valor">{{ prejuizo_day_trade | brl }}</strong>
+    <span class="detalhe">só abate lucros com day trade</span>
+  </div>
+  {% endif %}
+  {% if acumulado %}
+  <div class="stat">
+    <span class="rotulo">Imposto abaixo de R$ 10 acumulado</span>
+    <strong class="valor">{{ acumulado | brl }}</strong>
+    <span class="detalhe">de {{ origens(origem_acumulado) }}; entra no próximo DARF</span>
+  </div>
+  {% endif %}
+  <div class="stat">
+    <span class="rotulo">Marcado como pago em {{ ano }}</span>
+    <strong class="valor">{{ pago_no_ano | brl }}</strong>
+  </div>
+</section>
+
+<section class="card tabela-card" aria-labelledby="meses">
+  <h2 id="meses">Mês a mês em {{ ano }}</h2>
+  {% if meses %}
+  <div class="rolagem">
+    <table class="larga">
+      <thead>
+        <tr><th>Mês</th><th class="num">Vendas de ações</th><th class="num">Resultado ações</th><th class="num">BDRs, units e ETFs<small>sem isenção</small></th><th class="num">FIIs e Fiagros</th><th class="num">Imposto</th><th>Situação</th></tr>
+      </thead>
+      <tbody>
+        {% for mes in meses %}
+        <tr id="mes-{{ mes.mes.strftime('%Y-%m') }}">
+          <td><strong>{{ mes.mes | mes_ano }}</strong>{% if mes.mes == mes_atual %}<small>em andamento</small>{% endif %}</td>
+          <td class="num">{{ mes.vendas_acoes | brl if mes.vendas_acoes else "—" }}</td>
+          <td class="num">{% if mes.sem_custo_em("acao") %}<span class="muted">custo desconhecido</span>{% elif mes.vendas_acoes %}<span class="{{ m.classe_resultado(mes.resultado_acoes) }}">{{ mes.resultado_acoes | brl_sinal }}</span>{% if mes.isento and mes.resultado_acoes > 0 %}<small>isento</small>{% endif %}{% else %}—{% endif %}</td>
+          <td class="num">{% if mes.sem_custo_em("comum") %}<span class="muted">custo desconhecido</span><small>vendas {{ mes.vendas_comuns | brl }}</small>{% elif mes.vendas_comuns %}<span class="{{ m.classe_resultado(mes.resultado_comuns) }}">{{ mes.resultado_comuns | brl_sinal }}</span><small>vendas {{ mes.vendas_comuns | brl }}</small>{% if mes.resultado_comuns > 0 %}<small>sem isenção de R$ 20 mil</small>{% endif %}{% else %}—{% endif %}</td>
+          <td class="num">{% if mes.sem_custo_em("fii") %}<span class="muted">custo desconhecido</span><small>vendas {{ mes.vendas_fii | brl }}</small>{% elif mes.vendas_fii %}<span class="{{ m.classe_resultado(mes.resultado_fii) }}">{{ mes.resultado_fii | brl_sinal }}</span><small>vendas {{ mes.vendas_fii | brl }}</small>{% else %}—{% endif %}</td>
+          <td class="num"><strong>{{ mes.darf | brl if mes.darf else (mes.ir_bruto | brl if mes.ir_bruto else "—") }}</strong></td>
+          <td>
+            {% if mes.darf and mes.pago_em %}
+            <span class="tag ok">Pago em {{ mes.pago_em | data }}</span>
+            {% if mes.valor_pago != mes.darf %}<small>Recalculado: {{ mes.darf | brl }} (pago {{ mes.valor_pago | brl }}). Confira se faltou complementar.</small>{% endif %}
+            <form method="post" action="/impostos/darfs/{{ mes.mes.strftime('%Y-%m') }}/desfazer" class="inline">
+              <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+              <button type="submit" class="link pequeno">Desfazer</button>
+            </form>
+            {% elif mes.darf and not mes.confiavel %}
+            <span class="tag aviso">Confira</span><small>Dados incompletos: imposto não estimado</small>
+            {% elif mes.darf %}
+            <span class="tag {{ 'erro' if mes.vencimento < hoje else 'aviso' }}">Estimado · {{ "venceu em" if mes.vencimento < hoje else "vence em" }} {{ mes.vencimento | data }}</span>
+            {% elif mes.acumulado and mes.ir_bruto %}
+            <span class="tag">Abaixo de R$ 10</span><small>{{ mes.acumulado | brl }} somam ao próximo DARF</small>
+            {% elif mes.prejuizo_comum_saldo > mes.prejuizo_comum_usado and mes.resultado_tributavel == 0 and (mes.resultado_acoes < 0 or mes.resultado_comuns < 0 or mes.resultado_fii < 0) %}
+            <span class="tag">Prejuízo guardado</span>
+            {% elif mes.isento and mes.resultado_acoes > 0 and not mes.ir_bruto %}
+            <span class="tag">Isento</span><small>Vendas de ações até R$ 20 mil no mês</small>
+            {% else %}
+            <span class="tag">Sem imposto</span>
+            {% endif %}
+            {% if mes.day_trade %}<small>Day trade ({{ mes.day_trade | join(", ") }}): <span class="{{ m.classe_resultado(mes.resultado_day_trade) }}">{{ mes.resultado_day_trade | brl_sinal }}</span>, 20% sem isenção{% if mes.irrf_day_trade %}; IRRF {% if mes.irrf_day_trade_estimado %}estimado{% else %}retido{% endif %} {{ mes.irrf_day_trade | brl }}{% endif %}</small>{% endif %}
+            {% if mes.sem_custo %}<small><a href="/pendencias">Venda sem custo conhecido</a>: {{ mes.sem_custo | map(attribute="rotulo") | unique | join(", ") }} fora do cálculo</small>{% endif %}
+            {% if mes.custo_incompleto %}<small><a href="/pendencias">Custo incompleto</a>: {{ mes.custo_incompleto | map(attribute="rotulo") | unique | join(", ") }}</small>{% endif %}
+            {% for nome, rotulos in mes.regras_pendentes.items() %}<small>{{ m.icone_aviso() }} Regra não confirmada ({{ textos_regras.get(nome, nome) }}): {{ rotulos | join(", ") }}</small>{% endfor %}
+            {% if mes.sem_nota %}<small>{{ m.icone_aviso() }} <a href="/importar">Venda sem nota</a>: {{ mes.sem_nota | map(attribute="rotulo") | unique | join(", ") }}, valor do extrato B3 sem taxas</small>{% endif %}
+          </td>
+        </tr>
+        {% if mes.vendas %}
+        <tr class="operacoes">
+          <td colspan="7">
+            <details>
+              <summary>{{ mes.vendas | length }} {{ "venda" if mes.vendas | length == 1 else "vendas" }}:
+                {% for v in mes.vendas %}{{ v.rotulo }}{% if v.tipo == "fracao" %} (leilão de fração){% endif %}{{ ", " if not loop.last }}{% endfor %}</summary>
+              <table class="interna">
+                <thead><tr><th>Data</th><th>Ativo</th><th>Operação</th><th class="num">Qtd.</th><th class="num">Recebido</th><th class="num">Custo médio</th><th class="num">Resultado</th></tr></thead>
+                <tbody>
+                  {% for v in mes.vendas %}
+                  <tr>
+                    <td>{{ v.data | data }}</td>
+                    <td><a href="/posicoes/{{ v.ativo_id }}" class="ativo-link">{{ v.rotulo }}</a></td>
+                    <td>{% if v.tipo == "fracao" %}Leilão de fração<small>Sobra de bonificação ou desdobramento vendida pela B3; conta como venda</small>{% else %}Venda{% if v.sem_nota %}<small>Do extrato B3, sem nota</small>{% endif %}{% endif %}</td>
+                    <td class="num">{{ v.quantidade | qtd if v.quantidade is not none else "—" }}</td>
+                    <td class="num">{{ v.valor | brl }}</td>
+                    <td class="num">{{ v.custo | brl if v.custo is not none else "desconhecido" }}</td>
+                    <td class="num">{% if v.resultado is not none %}<span class="{{ m.classe_resultado(v.resultado) }}">{{ v.resultado | brl_sinal }}</span>{% else %}—{% endif %}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </details>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="vazio">Nenhuma venda em {{ ano }}. Imposto sobre ações e FIIs só aparece quando há venda.</p>
+  {% endif %}
+</section>
+
+<details class="card">
+  <summary>Como calculamos</summary>
+  <ul>
+    {% for texto, regra in regras %}
+    <li>{{ texto }}. <small>{{ regra.fonte }}{% if not regra.verificado %} · <strong>regra ainda não confirmada na fonte oficial</strong>{% endif %}</small></li>
+    {% endfor %}
+    <li>O custo de cada venda é o preço médio do momento, já com bonificações, desdobramentos e taxas.</li>
+    <li>Leilão de fração também é venda: quando uma bonificação ou desdobramento gera frações de ação, a B3 vende as frações e deposita o valor.</li>
+  </ul>
+</details>
+<p class="nota">Tudo nesta página é estimativa feita a partir dos documentos enviados, não orientação fiscal. Veja os <a href="/termos">termos de uso</a>.</p>
+{% endblock %}

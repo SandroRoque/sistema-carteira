@@ -1,121 +1,173 @@
+import re
+
 import fitz
-from layout_config import CORRETORAS, FIELD_CONFIG, LAYOUT_CONFIG
+
+from extractors import EXTRACTORS
+from models import CORRETORAS, NotaCorretagem, TituloPrivado, TituloPublico
 
 
 class PdfImagemError(Exception):
     pass
 
 
-class NotaNegociacaoExtractor:
-    def __init__(self, layout_config=None, field_config=None, corretoras=None, parser_registry=None):
-        self.layout_config = layout_config or LAYOUT_CONFIG
-        self.field_config = field_config or FIELD_CONFIG
-        self.corretoras = corretoras or CORRETORAS
-        self.parser_registry = parser_registry or {}
+# The nota number on a page, in the layouts seen so far: "Número da nota"
+# above or beside it, or the Sinacor header "Nr. Nota / Folha / Data pregão".
+_NUMERO_DA_NOTA = re.compile(
+    r"(?:Número da nota|Nr\. ?[Nn]ota)\s*(?:Folha\s*Data preg[ãa]o\s*)?(\d+)"
+)
 
-    def prepara_pagina_unica(self, pdf_path):
-        """Lê um PDF e retorna um objeto Document em memória contendo uma única página fundida."""
-        doc = fitz.open(pdf_path)
 
-        if doc.page_count == 0:
-            doc.close()
-            raise ValueError("O PDF não contém páginas.")
+def _normalize_text(text: str) -> str:
+    return "".join(char.lower() for char in text if char.isalnum())
 
-        doc_mesclado = fitz.open()
 
-        if doc.page_count == 1:
-            doc_mesclado.insert_pdf(doc)
-        else:
-            altura_total = sum(page.rect.height for page in doc)
-            largura_maxima = max(page.rect.width for page in doc)
-
-            pagina = doc_mesclado.new_page(width=largura_maxima, height=altura_total)
-
-            y_offset = 0
-            for i, page in enumerate(doc):
-                rect_destino = fitz.Rect(0, y_offset, page.rect.width, y_offset + page.rect.height)
-                pagina.show_pdf_page(rect_destino, doc, i)
-                y_offset += page.rect.height
-
+def _abrir(pdf) -> fitz.Document:
+    if isinstance(pdf, (bytes, bytearray)):
+        doc = fitz.open(stream=pdf, filetype="pdf")
+    else:
+        doc = fitz.open(pdf)
+    if doc.page_count == 0:
         doc.close()
+        raise ValueError("O PDF não contém páginas.")
+    return doc
+
+
+def _fundir(doc: fitz.Document, paginas: list[int]) -> fitz.Document:
+    """A Document with the given pages stacked into one tall page, upright.
+
+    Pages with a /Rotate (a nota printed from the browser in landscape) are
+    drawn turned back, so their text reads left to right like any other."""
+    doc_mesclado = fitz.open()
+    rotacoes = {i: doc[i].rotation for i in paginas}
+    if len(paginas) == 1 and not rotacoes[paginas[0]]:
+        doc_mesclado.insert_pdf(doc, from_page=paginas[0], to_page=paginas[0])
         return doc_mesclado
+    exibidas = {i: doc[i].rect for i in paginas}  # size as displayed, rotation applied
+    altura_total = sum(r.height for r in exibidas.values())
+    largura_maxima = max(r.width for r in exibidas.values())
+    pagina = doc_mesclado.new_page(width=largura_maxima, height=altura_total)
+    y_offset = 0
+    try:
+        for i in paginas:
+            if rotacoes[i]:
+                doc[i].set_rotation(0)
+            r = exibidas[i]
+            pagina.show_pdf_page(fitz.Rect(0, y_offset, r.width, y_offset + r.height), doc, i, rotate=-rotacoes[i])
+            y_offset += r.height
+    finally:
+        for i, rotacao in rotacoes.items():
+            if rotacao:
+                doc[i].set_rotation(rotacao)
+    return doc_mesclado
 
-    def extrair(self, pdf_path):
-        """Orquestra a extração dos dados da nota de negociação."""
-        doc_mesclado = self.prepara_pagina_unica(pdf_path)
-        pagina = doc_mesclado[0]
 
-        if self.eh_pdf_de_imagem(pagina):
-            doc_mesclado.close()
-            raise PdfImagemError("PDF sem texto extraível; provavelmente é um arquivo de imagem.")
+def _fecha_a_nota(page: fitz.Page) -> bool:
+    """The page prints the nota's final amount ('Líquido para'): a following
+    page, even with the same number, is another nota (XP issues stock and
+    options trades of a day as separate notas under one number)."""
+    from extractors.sinacor import FINANCEIRO, linhas_da_pagina, valores_do_resumo
 
-        corretora = self.identificar_corretora(pagina)
-        layout = self.identificar_layout(pagina, corretora)
-        nota_crua = self.extrair_com_layout(pagina, layout)
+    resumo = valores_do_resumo(linhas_da_pagina(page), {"liquido_para": FINANCEIRO["liquido_para"]})
+    return resumo["liquido_para"] is not None
 
-        doc_mesclado.close()
-        return nota_crua
 
-    def normalize_text_for_matching(self, text):
-        return "".join(char.lower() for char in text if char.isalnum())
+def agrupar_paginas(doc: fitz.Document) -> list[list[int]]:
+    """Pages grouped by nota: brokers bundle several notas (one per trading
+    day) in one PDF. A page without a recognizable number continues the
+    previous nota, and so does a page with the same number while that nota
+    has not printed its final amount yet."""
+    numeros = []
+    for page in doc:
+        m = _NUMERO_DA_NOTA.search(page.get_text())
+        numeros.append(m.group(1) if m else None)
+    grupos: list[list[int]] = []
+    atual = None
+    fechada = False
+    for i, numero in enumerate(numeros):
+        continua = numero is None or (numero == atual and not fechada)
+        if grupos and continua:
+            grupos[-1].append(i)
+        else:
+            grupos.append([i])
+            atual = numero if numero is not None else atual
+        fechada = _fecha_a_nota(doc[i])
+    return grupos
 
-    def eh_pdf_de_imagem(self, pagina, min_text_chars=20):
-        text = pagina.get_text("text").strip()
-        return len(text) < min_text_chars
 
-    def identificar_corretora(self, pagina):
-        page_text = pagina.get_text("text")
-        normalized_page_text = self.normalize_text_for_matching(page_text)
+def prepara_pagina_unica(pdf) -> fitz.Document:
+    """Lê um PDF (caminho ou bytes) e retorna um Document em memória contendo
+    uma única página fundida."""
+    doc = _abrir(pdf)
+    try:
+        return _fundir(doc, list(range(doc.page_count)))
+    finally:
+        doc.close()
 
-        best_match = None
-        best_score = 0
 
-        for corretora in self.corretoras:
-            score = 0
-            for header_line in corretora.header_lines:
-                if self.normalize_text_for_matching(header_line) in normalized_page_text:
-                    score += 3
-            for alias in corretora.aliases:
-                if self.normalize_text_for_matching(alias) in normalized_page_text:
-                    score += 1
-            if self.normalize_text_for_matching(corretora.cnpj) in normalized_page_text:
-                score += 4
+def eh_pdf_de_imagem(pagina: fitz.Page, min_text_chars: int = 20) -> bool:
+    return len(pagina.get_text("text").strip()) < min_text_chars
 
-            if score > best_score:
-                best_match = corretora
-                best_score = score
 
-        if not best_match:
-            raise ValueError("Nenhuma corretora reconhecida no documento.")
+def identificar_corretora(pagina: fitz.Page, corretoras=None):
+    corretoras = corretoras or CORRETORAS
+    normalized_page_text = _normalize_text(pagina.get_text("text"))
 
-        return best_match
+    best_match = None
+    best_score = 0
 
-    def identificar_layout(self, pagina, corretora):
-        pass
+    for corretora in corretoras:
+        score = 0
+        for header_line in corretora.header_lines:
+            if _normalize_text(header_line) in normalized_page_text:
+                score += 3
+        for alias in corretora.aliases:
+            if _normalize_text(alias) in normalized_page_text:
+                score += 1
+        if _normalize_text(corretora.cnpj) in normalized_page_text:
+            score += 4
 
-    def score_layout(self, pagina, layout):
-        pass
+        if score > best_score:
+            best_match = corretora
+            best_score = score
 
-    def extrair_com_layout(self, pagina, layout):
-        pass
+    if not best_match:
+        raise ValueError("Nenhuma corretora reconhecida no documento.")
 
-    def extrair_grupo(self, pagina, group):
-        pass
+    return best_match
 
-    def extrair_key_value_group(self, pagina, group):
-        pass
 
-    def extrair_table_group(self, pagina, group):
-        pass
+def _extrair_pagina(pagina: fitz.Page) -> NotaCorretagem | TituloPublico | TituloPrivado:
+    if eh_pdf_de_imagem(pagina):
+        raise PdfImagemError("PDF sem texto extraível; provavelmente é um arquivo de imagem.")
+    corretora = identificar_corretora(pagina)
+    extractor = EXTRACTORS.get(corretora.id)
+    if extractor is None:
+        raise ValueError(f"Nenhum extrator implementado para a corretora '{corretora.id}'.")
+    resultado = extractor.extract(pagina)
+    resultado.validate()
+    return resultado
 
-    def parse_field_value(self, field_id, raw_value, binding=None):
-        pass
 
-    def get_field_config(self, field_id):
-        pass
+def extrair_notas(pdf) -> list[NotaCorretagem | TituloPublico | TituloPrivado]:
+    """Every nota in the PDF (caminho ou bytes), in page order."""
+    doc = _abrir(pdf)
+    try:
+        resultados = []
+        for paginas in agrupar_paginas(doc):
+            fundido = _fundir(doc, paginas)
+            try:
+                resultados.append(_extrair_pagina(fundido[0]))
+            finally:
+                fundido.close()
+        return resultados
+    finally:
+        doc.close()
 
-    def get_corretora_config(self, corretora_id):
-        for corretora in self.corretoras:
-            if corretora.id == corretora_id:
-                return corretora
-        raise ValueError(f"Corretora '{corretora_id}' não encontrada.")
+
+def extrair(pdf) -> NotaCorretagem | TituloPublico | TituloPrivado:
+    """The nota of a single-nota PDF (see extrair_notas for bundles)."""
+    resultados = extrair_notas(pdf)
+    if len(resultados) != 1:
+        raise ValueError(f"O PDF contém {len(resultados)} notas; use extrair_notas.")
+    return resultados[0]
+

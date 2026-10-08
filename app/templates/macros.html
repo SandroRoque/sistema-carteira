@@ -1,0 +1,76 @@
+{# Shared pieces of the portfolio pages. Import with: {% import "macros.html" as m %} #}
+
+{% macro classe_resultado(v) -%}
+{#- Compared at the cent shown: R$ 0,00 is neither gain nor loss. -#}
+{%- if v is not none and (v | float | round(2)) > 0 %}ganho{% elif v is not none and (v | float | round(2)) < 0 %}perda{% endif -%}
+{%- endmacro %}
+
+{# A gain/loss in money with its percentage below; arrows so it is not color-only. #}
+{% macro resultado(valor, fracao) -%}
+{%- if valor is none -%}<span class="muted">—</span>
+{%- else -%}
+<span class="{{ classe_resultado(valor) }}">{{ valor | brl_sinal }}{% if fracao is not none %}<span class="num-sub">{{ "▲ " if valor > 0 else ("▼ " if valor < 0 else "") }}{{ fracao | pct(sinal=true) }}</span>{% endif %}</span>
+{%- endif -%}
+{%- endmacro %}
+
+{# Horizontal stacked bar (allocation). #}
+{% macro faixa(retangulos, descricao) -%}
+<svg class="grafico faixa" width="100%" height="40" role="img" aria-label="{{ descricao }}">
+  {% for r in retangulos %}
+  <rect x="{{ r.x }}%" y="0" width="{{ r.largura }}%" height="40" class="{{ r.serie }}"><title>{{ r.titulo }}</title></rect>
+  {% endfor %}
+</svg>
+{%- endmacro %}
+
+{# Vertical (stacked) columns with totals above and an axis below. #}
+{% macro colunas(c, descricao) -%}
+<svg class="grafico" width="100%" height="{{ c.altura }}" role="img" aria-label="{{ descricao }}">
+  <line x1="0" x2="100%" y1="{{ c.base }}" y2="{{ c.base }}" class="base"/>
+  {% for r in c.retangulos %}
+  <rect x="{{ r.x }}%" y="{{ r.y }}" width="{{ r.largura }}%" height="{{ r.altura }}" rx="2" class="{{ r.serie }}"><title>{{ r.titulo }}</title></rect>
+  {% endfor %}
+  {% for v in c.valores %}
+  <text x="{{ v.x }}%" y="{{ v.y }}" text-anchor="middle" class="valor-barra">{{ v.texto }}</text>
+  {% endfor %}
+  {% for e in c.eixo %}
+  <text x="{{ e.x }}%" y="{{ e.y }}" text-anchor="middle">{{ e.texto }}</text>
+  {% endfor %}
+</svg>
+{%- endmacro %}
+
+{% macro aviso_opcoes(n, texto) -%}
+{% if n %}
+<p class="aviso">{{ icone_aviso() }}<span class="texto">{{ n }} negócio{{ "s" if n > 1 }} com opções {{ texto }} O app ainda não calcula opções.</span><a href="/negociacoes" class="acao">Ver negociações →</a></p>
+{% endif %}
+{%- endmacro %}
+
+{% macro icone_aviso() -%}
+<svg class="icone" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+{%- endmacro %}
+
+{% macro icone_ok() -%}
+<svg class="icone" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+{%- endmacro %}
+
+{% macro carimbo_cotacoes(carteira) -%}
+{%- if carteira.cotacoes_em -%}Cotações de {{ carteira.cotacoes_em | quando }}{% if carteira.atualizando_cotacoes %} · atualizando{% endif %}
+{%- elif carteira.atualizando_cotacoes -%}Buscando cotações… recarregue em instantes
+{%- else -%}Sem cotações: valores pelo custo
+{%- endif -%}
+{%- endmacro %}
+
+{% macro form_nova_carteira(sessao, voltar, titulo="Criar carteira pelo CPF") -%}
+<form method="post" action="/carteiras" class="linha-campos">
+  <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+  <input type="hidden" name="voltar" value="{{ voltar }}">
+  <label class="curto">
+    CPF do titular
+    <input type="text" name="cpf" inputmode="numeric" autocomplete="off" required maxlength="14" placeholder="000.000.000-00">
+  </label>
+  <label class="curto">
+    Apelido (opcional)
+    <input type="text" name="apelido" maxlength="60" placeholder="ex.: Eu, Esposa">
+  </label>
+  <button type="submit">{{ titulo }}</button>
+</form>
+{%- endmacro %}

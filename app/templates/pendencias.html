@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}Pendências — Carteira{% endblock %}
+{% block largura %} estreito{% endblock %}
+
+{% macro erro_do_item(tipo, chave) -%}
+{%- if erro and erro[0] == tipo and erro[1] == chave %}<p class="mensagem-erro" role="alert">{{ erro[2] }}</p>{% endif -%}
+{%- endmacro %}
+
+{% block content %}
+<div>
+  <h1>Pendências</h1>
+  <p class="cabecalho sub">Dados que faltam nos documentos e deixam preço médio, resultado ou declaração incompletos. Cada um leva cerca de um minuto.</p>
+</div>
+
+{% if resolvido %}
+<p class="ok" role="status">{{ m.icone_ok() }}<span class="texto">Salvo. Preço médio e resultados já foram recalculados.</span></p>
+{% endif %}
+
+{% for p in pendencias %}
+<section class="card" aria-labelledby="p-{{ loop.index }}">
+  {% if p.tipo == "bonificacao" %}
+  <div class="card-titulo">
+    <h2 id="p-{{ loop.index }}">Custo da bonificação de {{ p.rotulo }}</h2>
+    <span class="muted">Extrato B3 · {{ p.data | data }}</span>
+  </div>
+  <p>Você recebeu <strong>{{ p.qtd | qtd }} ações de {{ p.rotulo }}</strong> como bonificação. A empresa informa o custo atribuído a cada ação no aviso aos acionistas; enquanto ele falta, essas ações entram no preço médio a custo zero.</p>
+  <p class="muted">Afeta: preço médio de {{ p.rotulo }} · lucro das próximas vendas · Bens e Direitos</p>
+  <form method="post" action="/pendencias/bonificacoes/{{ p.chave }}" class="linha-campos">
+    <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+    <label class="curto">
+      Custo por ação (R$)
+      <input type="text" name="custo_por_cota" inputmode="decimal" placeholder="ex.: 18,04" required autocomplete="off">
+      <small>Procure “custo atribuído” no aviso de bonificação da empresa.</small>
+    </label>
+    <button type="submit" class="primario">Salvar</button>
+  </form>
+  {{ erro_do_item("bonificacao", p.chave) }}
+
+  {% elif p.tipo == "sem_custo" %}
+  <div class="card-titulo">
+    <h2 id="p-{{ loop.index }}">{{ p.qtd | qtd }} de {{ p.rotulo }} sem custo de compra</h2>
+    {% if p.data %}<span class="muted">Extrato B3 · {{ p.data | data }}</span>{% endif %}
+  </div>
+  {% if p.parcial %}
+  <p>Chegaram por crédito da B3 ou transferência, antes das compras com nota. Enquanto o custo falta, entram no preço médio a custo zero. Se foram gratuitas (um programa da própria empresa, por exemplo), marque como custo zero abaixo.</p>
+  {% else %}
+  <p>Chegaram por transferência de custódia ou crédito da B3, e nenhum documento traz o preço pago. Sem ele não há preço médio, resultado nem valor para a declaração.</p>
+  {% endif %}
+  {% if p.origens %}
+  <form method="post" action="/pendencias/conversoes/{{ p.credito_id }}" class="linha-campos">
+    <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+    <label>
+      Veio de outro ativo que você tinha?
+      <select name="ativo_origem_id" required>
+        {% if not p.origens[0][2] %}<option value="">Escolha o ativo de origem</option>{% endif %}
+        {% for ativo_id, rotulo, motivo in p.origens %}
+        <option value="{{ ativo_id }}">{{ rotulo }}{% if motivo %} (provável){% endif %}</option>
+        {% endfor %}
+      </select>
+      {% if p.origens[0][2] %}<small><strong>Por que {{ p.origens[0][1] }}:</strong> {{ p.origens[0][2] }}. Confirme no comunicado do fundo ou da empresa.</small>{% endif %}
+      <small>Incorporação, fusão, conversão de ações ou troca de código: as novas cotas herdam o custo das antigas, sem venda nem imposto no evento. Entre ações, se foi uma incorporação de ações, a Receita vê uma venda com ganho de capital (a declaração anual avisa).{% if not regra_conversao.verificado %} Regra ainda não confirmada na fonte oficial ({{ regra_conversao.fonte }}).{% endif %}</small>
+    </label>
+    <button type="submit" class="primario">Usar o custo dele</button>
+  </form>
+  {{ erro_do_item("conversao", p.credito_id) }}
+  {% endif %}
+  <div class="botoes"><a href="/importar" class="botao">Enviar a nota de compra</a></div>
+  <form method="post" action="/pendencias/custos/{{ p.chave }}" class="linha-campos">
+    <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+    <label class="curto">
+      Ou informe o custo por cota (R$)
+      <input type="text" name="custo_por_cota" inputmode="decimal" placeholder="ex.: 18,04" required autocomplete="off">
+      <small>O preço médio que você pagou, como na corretora de origem.</small>
+    </label>
+    <button type="submit" class="primario">Salvar</button>
+  </form>
+  <form method="post" action="/pendencias/custos/{{ p.chave }}" class="botoes">
+    <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+    <input type="hidden" name="custo_por_cota" value="0">
+    <button type="submit">Recebi de graça (custo zero)</button>
+  </form>
+  {{ erro_do_item("sem_custo", p.chave) }}
+
+  {% elif p.tipo == "sem_nota" %}
+  {% set l = p.liquidacao %}
+  <div class="card-titulo">
+    <h2 id="p-{{ loop.index }}">{{ "Compra" if l.sentido == "entrada" else "Venda" }} de {{ p.qtd | qtd }} {{ p.rotulo }} sem nota</h2>
+    <span class="muted">Extrato B3 · liquidada em {{ p.data | data }}</span>
+  </div>
+  <p>O extrato da B3 mostra essa {{ "compra" if l.sentido == "entrada" else "venda" }}{% if l.valor is not none %} de <strong>{{ l.valor | brl }}</strong>{% endif %}, mas nenhuma nota de corretagem a acompanha. Ela já conta na carteira pelo valor da B3, <strong>sem as taxas</strong>: o preço médio{{ " e o resultado da venda ficam" if l.sentido == "saida" else " fica" }} aproximado{{ "s" if l.sentido == "saida" }} até a nota chegar.</p>
+  <p class="muted">Procure a nota do pregão de {{ l.data_pregao | data }} (dois dias úteis antes da liquidação) na corretora.</p>
+  <div class="botoes">
+    <a href="/importar" class="botao primario">Enviar a nota</a>
+    <a href="/negociacoes?ativo={{ p.ativo_id }}" class="botao">Lançar à mão</a>
+  </div>
+
+  {% elif p.tipo == "divergente" %}
+  <div class="card-titulo">
+    <h2 id="p-{{ loop.index }}">{{ p.rotulo }}: B3 e notas não batem</h2>
+    <span class="muted">Extrato B3 · liquidada em {{ p.data | data }}</span>
+  </div>
+  <p>A B3 liquidou {{ "uma compra" if p.liquidacao.sentido == "entrada" else "uma venda" }} de <strong>{{ p.qtd | qtd }}</strong>, mas as notas dos dias anteriores trazem outra quantidade. Ela ficou fora da carteira para não contar as mesmas ações duas vezes. Falta uma nota, ou uma nota foi lida errado.</p>
+  <div class="botoes">
+    <a href="/importar" class="botao primario">Enviar a nota</a>
+    <a href="/posicoes/{{ p.ativo_id }}" class="botao">Ver o histórico</a>
+  </div>
+
+  {% elif p.tipo == "vendido_mais" %}
+  <div class="card-titulo">
+    <h2 id="p-{{ loop.index }}">Vendas de {{ p.rotulo }} maiores que as compras</h2>
+  </div>
+  <p>Há {{ p.qtd | qtd }} a mais vendidas do que compradas. Provavelmente falta a nota de uma compra antiga; sem ela, o custo dessas vendas fica desconhecido.</p>
+  <div class="botoes">
+    <a href="/importar" class="botao primario">Enviar a nota de compra</a>
+    <a href="/negociacoes?ativo={{ p.ativo_id }}" class="botao">Lançar a compra à mão</a>
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
+
+{% if not pendencias %}
+<p class="ok">{{ m.icone_ok() }}<span class="texto"><strong>Tudo em dia.</strong> Preços médios, resultados e declaração estão completos com os documentos enviados.</span></p>
+{% endif %}
+
+{% if avisos %}
+<section aria-labelledby="avisos" class="formulario">
+  <h2 id="avisos">Para manter atualizado</h2>
+  {% for a in avisos %}
+  <div class="card">
+    {% if a.tipo == "extrato_antigo" %}
+    <div class="linha-campos">
+      <p class="texto">O último extrato da B3 vai até <strong>{{ a.data | data }}</strong>. Proventos e eventos depois disso aparecem quando você enviar o próximo.</p>
+      <a href="/importar" class="botao">Importar extrato</a>
+    </div>
+    {% else %}
+    <div class="linha-campos">
+      <p class="texto">Um arquivo enviado em {{ a.data | data }} não pôde ser lido: {{ a.texto }}</p>
+      <a href="/importar" class="botao">Ver importação</a>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}
