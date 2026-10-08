@@ -128,6 +128,18 @@ sessoes = Table(
     Column("expira_em", DateTime(timezone=True), nullable=False),
 )
 
+# Failed logins per client IP (auth.py), for throttling password spraying
+# across many e-mails. The IP is kept only as an HMAC, and rows older than the
+# window are dropped as new ones arrive. System table: no tenant access.
+falhas_login_ip = Table(
+    "falhas_login_ip",
+    metadata,
+    Column("id", BigInteger, primary_key=True),
+    Column("ip_hash", Text, nullable=False),
+    Column("em", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index("ix_falhas_login_ip_ip_hash_em", "ip_hash", "em"),
+)
+
 # Uploaded documents, which double as the import job queue (importacao.py).
 # conteudo holds the file only until it is processed — then it is set to NULL
 # (LGPD minimization); sha256 stays to recognize the same file sent again.

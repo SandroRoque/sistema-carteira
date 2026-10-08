@@ -9,6 +9,7 @@ restricted role used for request data cannot read usuarios or sessoes.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import re
 import secrets
 from dataclasses import dataclass
@@ -24,6 +25,10 @@ from database import execute, fetch_one, scalar
 DURACAO_SESSAO = timedelta(days=30)
 MAX_FALHAS_LOGIN = 5
 BLOQUEIO_LOGIN = timedelta(minutes=15)
+# Per client IP, whatever the e-mail: stops one password sprayed across many
+# accounts. Generous enough for a household or office behind one NAT.
+MAX_FALHAS_IP = 20
+JANELA_FALHAS_IP = timedelta(minutes=15)
 SENHA_MIN = 10
 SENHA_MAX = 256  # bounds Argon2 work per request
 
@@ -167,6 +172,28 @@ def autenticar(conn: Connection, email: str, senha: str) -> int | None:
         id=row["id"],
     )
     return row["id"]
+
+
+def _hash_ip(ip: str) -> str:
+    from settings import cpf_hmac_key
+
+    return hmac.new(cpf_hmac_key(), b"ip:" + ip.encode(), hashlib.sha256).hexdigest()
+
+
+def ip_bloqueado(conn: Connection, ip: str) -> bool:
+    """Whether this client IP failed too many logins in the current window."""
+    falhas = scalar(
+        conn,
+        "SELECT COUNT(*) FROM falhas_login_ip WHERE ip_hash = :h AND em > now() - :janela",
+        h=_hash_ip(ip),
+        janela=JANELA_FALHAS_IP,
+    )
+    return falhas >= MAX_FALHAS_IP
+
+
+def registrar_falha_ip(conn: Connection, ip: str) -> None:
+    execute(conn, "DELETE FROM falhas_login_ip WHERE em <= now() - :janela", janela=JANELA_FALHAS_IP)
+    execute(conn, "INSERT INTO falhas_login_ip (ip_hash) VALUES (:h)", h=_hash_ip(ip))
 
 
 def criar_sessao(conn: Connection, usuario_id: int) -> str:

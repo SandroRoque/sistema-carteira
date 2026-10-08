@@ -13,7 +13,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 import auth
 from database import connect, connect_sistema, fetch_one, scalar
-from settings import cookie_secure
+from settings import atras_do_fly, cookie_secure
 
 COOKIE_SESSAO = "sessao"
 METODOS_SEGUROS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -200,6 +200,19 @@ class SegurancaMiddleware(BaseHTTPMiddleware):
         if cookie_secure():
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
+
+
+def ip_do_cliente(request: Request) -> str:
+    """The client's address, for throttling.
+
+    On Fly, the edge's Fly-Client-IP. Not request.client: uvicorn runs with
+    --forwarded-allow-ips "*" there, so that comes from X-Forwarded-For, whose
+    leftmost entry the client controls. Elsewhere (local runs, tests) the
+    socket peer; Fly-Client-IP is then ignored, since nothing vouches for it.
+    """
+    if atras_do_fly() and (ip := request.headers.get("fly-client-ip")):
+        return ip.strip()
+    return request.client.host if request.client else "desconhecido"
 
 
 def redirecionar(request: Request, destino: str) -> Response:

@@ -17,6 +17,7 @@ from app.seguranca import (
     Sessao,
     apagar_cookie_sessao,
     definir_cookie_sessao,
+    ip_do_cliente,
     redirecionar,
 )
 from app.templating import render
@@ -25,6 +26,7 @@ from database import connect, connect_sistema, execute, fetch_all, fetch_one
 router = APIRouter()
 
 _ERRO_LOGIN = "E-mail ou senha inválidos, ou conta temporariamente bloqueada após várias tentativas."
+_ERRO_IP = "Muitas tentativas de login a partir desta rede. Tente de novo em alguns minutos."
 
 
 def _entrar(request: Request, usuario_id: int) -> Response:
@@ -43,8 +45,13 @@ def entrar_form(request: Request):
 
 @router.post("/entrar")
 def entrar(request: Request, email: str = Form(...), senha: str = Form(...)):
+    ip = ip_do_cliente(request)
     with connect_sistema() as conn:
+        if auth.ip_bloqueado(conn, ip):
+            return render(request, "entrar.html", {"erro": _ERRO_IP, "email": email}, 429)
         usuario_id = auth.autenticar(conn, email, senha)
+        if usuario_id is None:
+            auth.registrar_falha_ip(conn, ip)
     if usuario_id is None:
         return render(request, "entrar.html", {"erro": _ERRO_LOGIN, "email": email}, 400)
     return _entrar(request, usuario_id)

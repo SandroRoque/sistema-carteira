@@ -50,7 +50,7 @@ def db(database_url):
     with engine.begin() as conn:
         conn.exec_driver_sql(
             "TRUNCATE usuarios, sessoes, investidores, ativos, ticker_aliases, notas, negociacoes, "
-            "b3_arquivos_processados, b3_movimentacoes, bonificacoes, cotacoes, uploads, custos_informados, darfs_pagos "
+            "b3_arquivos_processados, b3_movimentacoes, bonificacoes, cotacoes, uploads, custos_informados, darfs_pagos, falhas_login_ip "
             "RESTART IDENTITY CASCADE"
         )
 

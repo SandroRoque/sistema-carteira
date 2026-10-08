@@ -69,6 +69,8 @@ retenção deles; a política de privacidade informa esse prazo.
   credenciais do banco nem à chave do HMAC de CPF; mensagens de erro mostradas ou
   registradas nunca incluem o conteúdo do documento.
 - Dados da carteira: enquanto a conta existir.
+- Tentativas de login que falharam: só um HMAC do IP de origem e o horário, apagados
+  depois de 15 minutos (limite de tentativas por rede).
 - Logs da aplicação: sem dados pessoais (ver Segurança); retenção do provedor.
 
 ## Segurança (art. 46)

@@ -17,7 +17,7 @@ importação é uma thread do próprio processo web; não há fila, storage ou s
 |---|---|---|
 | `DATABASE_URL` | secret | Endpoint **direto** do Neon (ver abaixo) |
 | `CPF_HMAC_KEY` | secret | Mínimo 32 caracteres. Guarde uma cópia fora do Fly: perder ou trocar a chave faz novos envios não reconhecerem as carteiras existentes |
-| `CADASTRO_ABERTO` | `fly.toml` | `false` até existirem recuperação de senha e limite por IP (TODO.md) |
+| `CADASTRO_ABERTO` | `fly.toml` | `false` até existir recuperação de senha (TODO.md) |
 | `COOKIE_SECURE` | — | Padrão `true`, correto em produção (o Fly força HTTPS) |
 
 ## Banco no Neon

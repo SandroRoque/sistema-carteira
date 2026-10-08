@@ -90,3 +90,9 @@ def load_settings() -> Settings:
         notas_dir=Path(notas_dir_value),
         prototype_pdf_names=prototype_pdf_names,
     )
+
+
+def atras_do_fly() -> bool:
+    """Running on a Fly.io machine (Fly sets FLY_APP_NAME). Its edge then sets
+    Fly-Client-IP to the real client address, overwriting what the client sent."""
+    return bool(os.environ.get("FLY_APP_NAME"))

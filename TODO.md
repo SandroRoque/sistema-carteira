@@ -132,16 +132,13 @@ There is no "forgot password" flow yet; `admin.py definir-senha` is the only way
 reset a password. Needs a transactional e-mail provider before launch (also for e-mail
 verification at sign-up).
 
-### Login throttling is per account only
+### Account lockout can be triggered by anyone
 
-Lockout counts failures per e-mail. An attacker spraying one password across many
-e-mails is not throttled; add per-IP rate limiting at the edge (proxy/CDN) or in the app.
-The flip side: anyone who knows an e-mail can keep that account locked out with five
-wrong passwords every 15 minutes.
-
-Before keying anything on the client IP: the Dockerfile runs uvicorn with
-`--forwarded-allow-ips "*"`, which takes the leftmost X-Forwarded-For entry, and
-the client controls that one. Use Fly's `Fly-Client-IP` header instead.
+Failed logins are limited per e-mail (5, then a 15-minute lock) and per client
+IP (20 per 15 minutes, any e-mail; `Fly-Client-IP` on Fly). The per-account
+lock still lets anyone who knows an e-mail keep that account locked out, from
+many addresses. Options: a growing delay instead of a hard lock, or letting a
+device that logged in before skip the lock (needs a device cookie).
 
 ### The parsing child still has network access
 

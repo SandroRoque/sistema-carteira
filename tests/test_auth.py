@@ -82,3 +82,56 @@ def test_troca_de_senha_encerra_sessoes(usuario_id):
         auth.definir_senha(conn, usuario_id, "outra-senha-456")
         assert auth.obter_sessao(conn, token) is None
         assert auth.autenticar(conn, "ana@example.com", "outra-senha-456") == usuario_id
+
+
+# ---------------------------------------------------------------------------
+# Per-IP throttling
+# ---------------------------------------------------------------------------
+
+
+def _tentar(client, email, ip="203.0.113.7"):
+    return client.post("/entrar", data={"email": email, "senha": "senha-errada-123"},
+                       headers={"Fly-Client-IP": ip})
+
+
+def test_bloqueia_ip_que_tenta_muitos_emails(usuario_id, monkeypatch):
+    from test_app import _cliente
+
+    monkeypatch.setenv("FLY_APP_NAME", "teste")
+    monkeypatch.setattr(auth, "MAX_FALHAS_IP", 3)
+    client = _cliente()
+    # Different e-mails, so no account lock is involved: only the IP counter.
+    for i in range(3):
+        assert _tentar(client, f"pessoa{i}@example.com").status_code == 400
+    resp = client.post("/entrar", data={"email": "ana@example.com", "senha": SENHA},
+                       headers={"Fly-Client-IP": "203.0.113.7"})
+    assert resp.status_code == 429 and "Muitas tentativas" in resp.text
+
+    # Another address is not affected.
+    resp = client.post("/entrar", data={"email": "ana@example.com", "senha": SENHA},
+                       headers={"Fly-Client-IP": "198.51.100.9"})
+    assert resp.status_code == 200
+
+
+def test_falhas_antigas_saem_da_janela(usuario_id, monkeypatch):
+    monkeypatch.setattr(auth, "MAX_FALHAS_IP", 2)
+    with connect_sistema() as conn:
+        auth.registrar_falha_ip(conn, "203.0.113.7")
+        auth.registrar_falha_ip(conn, "203.0.113.7")
+        assert auth.ip_bloqueado(conn, "203.0.113.7")
+        execute(conn, "UPDATE falhas_login_ip SET em = now() - :j", j=auth.JANELA_FALHAS_IP)
+        assert not auth.ip_bloqueado(conn, "203.0.113.7")
+        # The IP itself is not stored.
+        assert scalar(conn, "SELECT COUNT(*) FROM falhas_login_ip WHERE ip_hash LIKE '%203%'") == 0
+
+
+def test_fly_client_ip_so_vale_no_fly(usuario_id, monkeypatch):
+    from test_app import _cliente
+
+    monkeypatch.delenv("FLY_APP_NAME", raising=False)
+    monkeypatch.setattr(auth, "MAX_FALHAS_IP", 2)
+    client = _cliente()
+    # Off Fly the header is client-controlled: rotating it does not escape the limit.
+    for i in range(2):
+        _tentar(client, f"pessoa{i}@example.com", ip=f"203.0.113.{i}")
+    assert _tentar(client, "outra@example.com", ip="203.0.113.99").status_code == 429
