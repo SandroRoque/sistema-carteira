@@ -85,8 +85,7 @@ Open points on `/impostos/irpf`:
   confirm.
 - **Fixed-income ETFs and infrastructure funds / FIP-IE / FIDC** (tipo `fundo`,
   or `etf` with subtipo `renda_fixa`) are kept in positions but not taxed:
-  their tax is withheld at source or zero for individuals. The legacy CLI
-  report (`imposto.py`) still applies 15% to every ETF.
+  their tax is withheld at source or zero for individuals.
 - **Subscription rights** sold in bolsa are treated as regular operations without
   exemption until confirmed (`DIREITOS_SEM_ISENCAO`).
 - **IRRF 0,005% left over** is carried only within the calendar year; confirm.

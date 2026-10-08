@@ -44,18 +44,14 @@ from datetime import date
 
 from sqlalchemy import Connection
 
+import regras_fiscais as R
 from contas import investidor_do_cli
 from apuracao import categoria
 from custo_medio import saldos
 from database import connect_sistema, fetch_all
 
-# Tax thresholds
-_LIMITE_ISENCAO_ACOES = Decimal(20_000)   # R$ / month
-
-# Tax rates (%)
-_ALIQUOTA_ACOES = Decimal(15)
-_ALIQUOTA_FII   = Decimal(20)
-_ALIQUOTA_BDR   = Decimal(15)
+# Rules come from regras_fiscais, like the web page's (apuracao.py).
+_LIMITE_ISENCAO_ACOES = R.LIMITE_ISENCAO_ACOES.valor   # R$ / month
 
 
 def _buscar_vendas(conn: Connection, investidor_id: int, ano: int | None = None) -> list[dict]:
@@ -70,6 +66,7 @@ def _buscar_vendas(conn: Connection, investidor_id: int, ano: int | None = None)
             a.ticker,
             a.nome,
             a.tipo,
+            a.subtipo,
             n.quantidade,
             n.valor_bruto,
             n.valor_liquido
@@ -101,6 +98,7 @@ def _buscar_vendas(conn: Connection, investidor_id: int, ano: int | None = None)
         ganho = (r["valor_liquido"] - custo_venda) if custo_venda is not None else None
         result.append({
             **dict(r),
+            "categoria": categoria(r["tipo"], r["ticker"], r["subtipo"]),
             "pm_custo": baixa.preco_medio,
             "custo_venda": custo_venda,
             "ganho": ganho,
@@ -268,8 +266,13 @@ def _pct(v: Decimal | None) -> str:
     return f"{sign}{v:>6.1f}%"
 
 
-def _aliquota(tipo: str) -> Decimal | None:
-    return {"acao": _ALIQUOTA_ACOES, "fii": _ALIQUOTA_FII, "bdr": _ALIQUOTA_BDR, "etf": _ALIQUOTA_BDR}.get(tipo)
+def _aliquota(categoria_: str | None) -> Decimal | None:
+    """Rate in % for an apuracao.categoria; None for what the monthly DARF
+    leaves out (fixed-income ETFs and other funds: R.FORA_DO_DARF_MENSAL)."""
+    if categoria_ is None:
+        return None
+    regra = R.ALIQUOTA_FII if categoria_ == "fii" else R.ALIQUOTA_OPERACOES_COMUNS
+    return regra.valor * 100
 
 
 def _exibir_rendimentos_secao(
@@ -402,24 +405,24 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
 
         # Group by month for exemption check
         from collections import defaultdict
-        vendas_por_mes_tipo: dict[tuple, Decimal] = defaultdict(Decimal)
+        vendas_por_mes_categoria: dict[tuple, Decimal] = defaultdict(Decimal)
         for v in vendas:
             mes = v["data"].strftime("%Y-%m")
-            vendas_por_mes_tipo[(mes, v["tipo"])] += v["valor_liquido"] or 0
+            vendas_por_mes_categoria[(mes, v["categoria"])] += v["valor_liquido"] or 0
 
         for v in vendas:
             tipo = v["tipo"]
             mes  = v["data"].strftime("%Y-%m")
             receita = v["valor_liquido"] or 0
             ganho   = v["ganho"]
-            aliq    = _aliquota(tipo)
+            aliq    = _aliquota(v["categoria"])
 
             # Determine exemption
-            total_mes = vendas_por_mes_tipo.get((mes, tipo), 0)
+            total_mes = vendas_por_mes_categoria.get((mes, v["categoria"]), 0)
             isento = False
-            # Only stocks (not BDRs, units or FIIs) have the R$ 20 mil exemption:
-            # see regras_fiscais.LIMITE_ISENCAO_ACOES.
-            if categoria(tipo, v["ticker"]) == "acao" and total_mes <= _LIMITE_ISENCAO_ACOES:
+            # Only stocks (not BDRs, units, ETFs or FIIs) have the R$ 20 mil
+            # exemption: see regras_fiscais.LIMITE_ISENCAO_ACOES.
+            if v["categoria"] == "acao" and total_mes <= _LIMITE_ISENCAO_ACOES:
                 isento = True
 
             if ganho is not None and aliq is not None and not isento and ganho > 0:
@@ -436,7 +439,7 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
             elif v["tem_bonif_sem_custo"]:
                 situacao = "custo da bonificação pendente"
             elif aliq is None:
-                situacao = "verificar"
+                situacao = "fora do DARF (retido na fonte)"
             else:
                 situacao = f"DARF {aliq:.0f}%"
 
@@ -463,7 +466,7 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
             if limite is not None:
                 situacao = "ISENTO" if total <= limite else "⚠ TRIBUTÁVEL"
             else:
-                situacao = "TRIBUTÁVEL (FII)"
+                situacao = "sem isenção"
             lim_str = f"R$ {limite:>10,.2f}" if limite else f"{'n/a':>13}"
             print(f"  {m['mes']:>7}  {tipo:>10}  {_brl(total)}  {lim_str}  {situacao}")
         print()
@@ -480,6 +483,7 @@ def exibir_relatorio_ir(todos: bool = False, ano_override: int | None = None) ->
         ("Ações",       "Vendas ≤ R$20k/mês → ISENTO; acima → DARF 15%",    "compensar perdas acumuladas"),
         ("FIIs",        "Sempre DARF 20% sobre ganho",                       "sem isenção"),
         ("BDRs",        "Sempre DARF 15% sobre ganho",                       "sem isenção (PR-IRPF q.707)"),
+        ("ETFs",        "Renda variável: DARF 15%; renda fixa: retido",      "sem isenção"),
         ("JCP",         "15% retido na fonte",                               "declarar IRPF"),
         ("Dividendos",  "Isentos (PF)",                                      "legislação atual"),
         ("Rend. FII",   "Isentos (PF cota ≥ 10% fundo com 50+ cotistas)",    "verificar cada fundo"),

@@ -12,7 +12,7 @@ import reconcilia
 import relatorio
 from carrega_b3 import carregar_arquivo
 from conftest import CPF_A
-from database import connect_sistema
+from database import connect_sistema, execute
 from fabricas import documento, negociacao
 from loader import carregar
 from test_carrega_b3 import _COLUNAS
@@ -54,6 +54,23 @@ def test_imposto(carteira, investidor_b):
 
         detalhe = imposto._buscar_rendimentos_detalhe(conn, carteira, 2025)
         assert {d["categoria"] for d in detalhe} == {"dividendo", "jcp"}
+
+
+def test_imposto_segue_as_categorias_da_apuracao(usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A,
+            negociacao("FIXA11", "entrada", 10, 100.0, date(2025, 1, 10), linha=1),
+            negociacao("FIXA11", "saida", 10, 110.0, date(2025, 2, 10), linha=2),
+        ), "1001.pdf")
+        execute(conn, "UPDATE ativos SET tipo = 'etf', subtipo = 'renda_fixa' WHERE ticker = 'FIXA11'")
+
+        [venda] = imposto._buscar_vendas(conn, investidor_a)
+    # A fixed-income ETF is left out of the monthly DARF, as on the web page.
+    assert venda["categoria"] is None
+    assert imposto._aliquota(venda["categoria"]) is None
+    assert imposto._aliquota("comum") == 15 and imposto._aliquota("acao") == 15
+    assert imposto._aliquota("fii") == 20
 
 
 def test_fechamento(carteira, investidor_b):
