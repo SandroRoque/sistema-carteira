@@ -106,6 +106,16 @@ CONVERSAO_CUSTO_TRANSFERIDO = Regra(
     False,
 )
 
+# Incorporação de ações (a company takes all shares of another, which goes
+# on as its subsidiary): the Receita treats the transfer as a sale, taxed as
+# ganho de capital (GCAP program, outside the monthly bolsa calculation) on
+# the excess of the value given to the shares over their declared cost.
+# A change of class or of ticker is not this event; the app cannot tell them
+# apart, so it flags every stock-to-stock conversion. Courts have disagreed.
+INCORPORACAO_DE_ACOES_GCAP = Regra(
+    "alienação: ganho de capital pelo valor acima do custo",
+    "PR-IRPF-2026 q.603; Lei 7.713/1988 art. 3º; IN-SRF 84/2001; SC Cosit 224/2014", True)
+
 # ── DARF ──────────────────────────────────────────────────────────────────
 
 CODIGO_DARF_RENDA_VARIAVEL = Regra("6015", "PR-IRPF-2026 q.730", True)

@@ -59,7 +59,7 @@
         {% endfor %}
       </select>
       {% if p.origens[0][2] %}<small><strong>Por que {{ p.origens[0][1] }}:</strong> {{ p.origens[0][2] }}. Confirme no comunicado do fundo ou da empresa.</small>{% endif %}
-      <small>Incorporação, fusão, conversão de ações ou troca de código: as novas cotas herdam o custo das antigas, sem venda nem imposto no evento.{% if not regra_conversao.verificado %} Regra ainda não confirmada na fonte oficial ({{ regra_conversao.fonte }}).{% endif %}</small>
+      <small>Incorporação, fusão, conversão de ações ou troca de código: as novas cotas herdam o custo das antigas, sem venda nem imposto no evento. Entre ações, se foi uma incorporação de ações, a Receita vê uma venda com ganho de capital (a declaração anual avisa).{% if not regra_conversao.verificado %} Regra ainda não confirmada na fonte oficial ({{ regra_conversao.fonte }}).{% endif %}</small>
     </label>
     <button type="submit" class="primario">Usar o custo dele</button>
   </form>

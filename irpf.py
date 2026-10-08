@@ -136,6 +136,43 @@ class Rendimento:
 
 
 @dataclass
+class ConversaoDeAcoes:
+    """Shares of one company received for shares of another (conversoes): a
+    possible ganho de capital event (regras_fiscais INCORPORACAO_DE_ACOES_GCAP)."""
+    data: date
+    origem: str
+    destino: str
+    destino_id: int
+    quantidade: Decimal
+    custo: Decimal | None  # cost carried from the old shares
+
+
+def conversoes_de_acoes(conn: Connection, investidor_id: int, ano: int) -> list[ConversaoDeAcoes]:
+    entradas = [
+        (ativo_id, p.evento)
+        for ativo_id, s in saldos(conn, investidor_id, date(ano, 12, 31), ("acao",)).items()
+        for p in s.passos
+        if p.evento.tipo == "conversao_entrada" and p.evento.data.year == ano
+    ]
+    if not entradas:
+        return []
+    ids = {a for a, _ in entradas} | {e.contraparte for _, e in entradas}
+    catalogo = {r["id"]: r for r in fetch_all(
+        conn, "SELECT id, tipo, ticker, nome FROM ativos WHERE id = ANY(:ids)", ids=list(ids))}
+    saida = []
+    for ativo_id, e in entradas:
+        origem = catalogo.get(e.contraparte)
+        if origem is None or origem["tipo"] != "acao":
+            continue
+        destino = catalogo[ativo_id]
+        saida.append(ConversaoDeAcoes(
+            e.data, origem["ticker"] or origem["nome"] or "", destino["ticker"] or destino["nome"] or "",
+            ativo_id, e.quantidade, None if e.custo is None else _centavos(e.custo),
+        ))
+    return sorted(saida, key=lambda c: c.data)
+
+
+@dataclass
 class MesRendaVariavel:
     """One month of the Renda Variável sheets, field by field as the program
     asks for them (regras_fiscais RV_*). Amounts are in reais; losses negative."""
@@ -231,6 +268,7 @@ class Declaracao:
     # Bonus shares received in the year whose cost per share is not known yet.
     bonificacoes_sem_custo: list[str] = field(default_factory=list)
     renda_variavel: list[MesRendaVariavel] = field(default_factory=list)
+    conversoes_de_acoes: list[ConversaoDeAcoes] = field(default_factory=list)
 
     @property
     def total_dividendos_bdr(self) -> Decimal:
@@ -457,6 +495,7 @@ def declaracao(conn: Connection, investidor_id: int, ano: int) -> Declaracao:
         dividendos_bdr=dividendos_bdr(conn, investidor_id, ano),
         bonificacoes_sem_custo=bonificacoes_sem_custo,
         renda_variavel=renda_variavel(meses, ano),
+        conversoes_de_acoes=conversoes_de_acoes(conn, investidor_id, ano),
     )
 
 

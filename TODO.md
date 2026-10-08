@@ -112,8 +112,11 @@ Open points on `/impostos/irpf`:
   cujo valor, se superior ao indicado na declaração de bens [...] é tributado
   pela diferença a maior, como ganho de capital"). That is ganho de capital
   (GCAP), outside the monthly bolsa calculation, and courts have disagreed. The
-  app still carries the cost over with no gain: decide whether to flag stock
-  conversions as a possible GCAP event. A merger of companies (incorporação de
+  app still carries the cost over with no gain, and flags every stock-to-stock
+  conversion as a possible GCAP event (IRPF page, the ativo's history,
+  Pendências); it cannot tell an incorporação de ações from a change of class
+  or ticker. It does not compute the gain: the value given to the shares is
+  not in the documents. A merger of companies (incorporação de
   sociedade) is a different event. Cash paid in the event (a Resgate of the old
   quotas, a redemption of a temporary class) is not taxed or offset against the cost yet.
 - **One-to-many conversions** (one class into two new ones): the whole cost goes to

@@ -627,10 +627,13 @@ def ativo(conn: Connection, investidor_id: int, ativo_id: int, hoje: date | None
         elif ev.sem_nota:
             detalhe = "Extrato B3, sem nota: valor sem taxas"
         elif ev.contraparte:
-            outro = fetch_one(conn, "SELECT ticker, nome FROM ativos WHERE id = :id", id=ev.contraparte)
+            outro = fetch_one(conn, "SELECT ticker, nome, tipo FROM ativos WHERE id = :id", id=ev.contraparte)
             nome_outro = (outro["ticker"] or outro["nome"]) if outro else "?"
             detalhe = (f"De {nome_outro}, com o custo dele (incorporação ou conversão)"
                        if ev.tipo == "conversao_entrada" else f"Para {nome_outro}, levando o custo")
+            if outro and outro["tipo"] == "acao" and a["tipo"] == "acao":
+                detalhe += (". Se foi incorporação de ações, a Receita a trata como venda"
+                            " (ganho de capital): veja a declaração anual")
         elif ev.tipo != "compra":
             detalhe = "Extrato B3"
         if ev.tipo == "venda":

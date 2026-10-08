@@ -286,3 +286,31 @@ def test_ficha_de_renda_variavel_mes_a_mes(tabelas, usuario_id, investidor_a):
     assert "Mercado à vista - ações" in pagina and "Resultado negativo até o mês anterior" in pagina
     assert "Em janeiro o programa não traz o prejuízo do ano anterior" in pagina
     assert "Operações em FII ou Fiagro" in pagina
+
+
+def test_conversao_entre_acoes_avisa_de_possivel_ganho_de_capital(tabelas, usuario_id, investidor_a):
+    import pendencias
+
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A, negociacao("EMPX3", "entrada", 100, 12.0, date(2024, 6, 20)), data=date(2024, 6, 20)), "1.pdf")
+    _b3(investidor_a,
+        ("Debito", "14/04/2025", "Atualização", "EMPX3 - EMPRESA X", "NU", 100, "-", "-"),
+        ("Credito", "14/04/2025", "Atualização", "EMPY3 - EMPRESA Y", "NU", 40, "-", "-"))
+    with connect_sistema() as conn:
+        mov, destino = conn.exec_driver_sql(
+            "SELECT b.id, b.ativo_id FROM b3_movimentacoes b JOIN ativos a ON a.id = b.ativo_id WHERE a.ticker = 'EMPY3'"
+        ).one()
+        origem = conn.exec_driver_sql("SELECT id FROM ativos WHERE ticker = 'EMPX3'").scalar()
+        pendencias.informar_conversao(conn, investidor_a, mov, origem)
+        d = irpf.declaracao(conn, investidor_a, 2025)
+
+    [c] = d.conversoes_de_acoes
+    assert (c.data, c.origem, c.destino, c.quantidade, c.custo) == (date(2025, 4, 14), "EMPX3", "EMPY3", D("40"), D("1200.00"))
+
+    from test_apuracao import _cliente_logado
+
+    cliente = _cliente_logado()
+    assert "Possível ganho de capital" in cliente.get("/impostos/irpf?ano=2025").text
+    assert "Se foi incorporação de ações, a Receita a trata como venda" in cliente.get(f"/posicoes/{destino}").text
+    assert "Possível ganho de capital" not in cliente.get("/impostos/irpf?ano=2024").text

@@ -200,6 +200,23 @@
   </dl>
 </section>
 
+{% if d.conversoes_de_acoes %}
+<section class="card tabela-card" aria-labelledby="gcap">
+  <h2 id="gcap">Possível ganho de capital: ações recebidas por outras ações</h2>
+  <p class="sub">Aqui as novas ações herdam o custo das antigas, sem venda. Mas, se o evento foi uma <strong>incorporação de ações</strong> (a empresa de origem passa a ser subsidiária da outra), a Receita o trata como venda: o valor dado às ações acima do custo declarado é ganho de capital, apurado no programa GCAP e pago até o último dia útil do mês seguinte. Uma troca de classe ou de código não é esse caso. Confira o comunicado da empresa e, se for o caso, um contador: há decisões judiciais nos dois sentidos.</p>
+  <div class="rolagem">
+    <table class="larga">
+      <thead><tr><th>Data</th><th>De</th><th>Para</th><th class="num">Quantidade recebida</th><th class="num">Custo levado</th></tr></thead>
+      <tbody>
+        {% for c in d.conversoes_de_acoes %}
+        <tr><td class="num">{{ c.data | data }}</td><td>{{ c.origem }}</td><td><a href="/posicoes/{{ c.destino_id }}" class="ativo-link">{{ c.destino }}</a></td><td class="num">{{ c.quantidade | qtd }}</td><td class="num">{{ c.custo | brl if c.custo is not none else "desconhecido" }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
 <details class="card">
   <summary>De onde vêm os códigos</summary>
   <ul>

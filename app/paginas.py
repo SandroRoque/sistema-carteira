@@ -261,6 +261,7 @@ def _regras_irpf() -> list[tuple[str, regras_fiscais.Regra]]:
         "RV_MERCADO_A_VISTA_ACOES": "Renda Variável: vendas de ações na linha “Mercado à vista - ações”",
         "RV_OUTROS_A_VISTA": "Renda Variável: BDRs, ETFs, units e direitos na mesma linha, por falta de outra",
         "RV_PREJUIZO_DE_JANEIRO": "Renda Variável: o prejuízo do ano anterior é digitado em janeiro",
+        "INCORPORACAO_DE_ACOES_GCAP": "Incorporação de ações: a Receita a trata como venda, com ganho de capital sobre o valor acima do custo",
     }
     return [(texto, getattr(regras_fiscais, nome)) for nome, texto in nomes.items()]
 
