@@ -395,7 +395,28 @@ def _linhas_proventos(conn: Connection, investidor_id: int, inicio: date, fim: d
     )
 
 
-def _valor_provento(row: dict) -> Decimal:
+def linhas_proventos(
+    conn: Connection, investidor_id: int, inicio: date, fim: date, tipos: tuple[str, ...]
+) -> list[dict]:
+    """Dividend-like credits in [inicio, fim] of ativos of the given tipos,
+    with the ativo's ticker (or name)."""
+    return fetch_all(
+        conn,
+        """
+        SELECT b.ativo_id, b.data, b.movimentacao, COALESCE(b.valor, 0) AS valor,
+               COALESCE(a.ticker, a.nome, '') AS ticker
+        FROM b3_movimentacoes b JOIN ativos a ON a.id = b.ativo_id
+        WHERE b.investidor_id = :investidor_id
+          AND b.movimentacao = ANY(:movs)
+          AND b.data BETWEEN :inicio AND :fim
+          AND a.tipo = ANY(:tipos)
+        ORDER BY b.data
+        """,
+        investidor_id=investidor_id, movs=list(_PROVENTOS), inicio=inicio, fim=fim, tipos=list(tipos),
+    )
+
+
+def valor_provento(row: dict) -> Decimal:
     # A cancelled dividend comes as a positive debit: it subtracts.
     return -row["valor"] if row["movimentacao"] == "Dividendo - Cancelado" else row["valor"]
 
@@ -406,7 +427,7 @@ def proventos_por_ativo(
     """{ativo_id: {categoria: valor, 'total': valor}} received in [inicio, fim]."""
     por_ativo: dict[int, dict[str, Decimal]] = defaultdict(lambda: defaultdict(lambda: ZERO))
     for r in _linhas_proventos(conn, investidor_id, inicio, fim):
-        v = _valor_provento(r)
+        v = valor_provento(r)
         por_ativo[r["ativo_id"]][_PROVENTOS[r["movimentacao"]]] += v
         por_ativo[r["ativo_id"]]["total"] += v
     return por_ativo
@@ -477,7 +498,7 @@ def proventos(
     por_tipo: dict[str, Decimal] = defaultdict(lambda: ZERO)
     por_ativo: dict[int, dict[str, Decimal]] = defaultdict(lambda: defaultdict(lambda: ZERO))
     for r in _linhas_proventos(conn, investidor_id, inicio, fim):
-        v, tipo = _valor_provento(r), _PROVENTOS[r["movimentacao"]]
+        v, tipo = valor_provento(r), _PROVENTOS[r["movimentacao"]]
         meses[date(r["data"].year, r["data"].month, 1)][tipo] += v
         por_tipo[tipo] += v
         por_ativo[r["ativo_id"]][tipo] += v
@@ -636,7 +657,7 @@ def ativo(conn: Connection, investidor_id: int, ativo_id: int, hoje: date | None
             rotulo=_PROVENTO_ROTULO[r["movimentacao"]],
             categoria="provento",
             qtd=None,
-            valor=_valor_provento(r),
+            valor=valor_provento(r),
             qtd_apos=None,
             preco_medio_apos=None,
             detalhe="Extrato B3" + (" · valor líquido" if r["movimentacao"] == "Juros Sobre Capital Próprio" else ""),
@@ -646,7 +667,7 @@ def ativo(conn: Connection, investidor_id: int, ativo_id: int, hoje: date | None
 
     por_ano: dict[int, Decimal] = defaultdict(lambda: ZERO)
     for r in linhas_prov:
-        por_ano[r["data"].year] += _valor_provento(r)
+        por_ano[r["data"].year] += valor_provento(r)
 
     custodia = [
         CORRETORAS.get(r["corretora_id"], r["corretora_id"])

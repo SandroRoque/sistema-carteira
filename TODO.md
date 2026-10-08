@@ -38,11 +38,25 @@ Open points on `/impostos/irpf`:
   code). Their income (Exclusiva line 06, Isentos line 12) is not computed: the
   tax withheld at source is not in the documents, so the page points to the
   broker's informe. Tesouro has no issuer CNPJ on record.
-- **Not covered**: subscription rights and receipts, bonus shares (line 18), BDR
-  dividends (taxable), ETF and other funds' distributions, and the month-by-month
-  Renda Variável sheet (the page links to the monthly tax page instead).
+- **Subscription rights and receipts** are declared as 04-04 (traded in bolsa,
+  neither shares nor funds); the table does not name them (`BEM_DIREITOS`).
+- **BDR dividends** are listed month by month as taxable (carnê-leão). No
+  official text says so: the PR-IRPF-2026 and the program's help are silent on
+  BDRs; B3 and brokers say carnê-leão at the progressive table
+  (`DIVIDENDOS_BDR_CARNE_LEAO`). The amounts are what B3 credited, net of the
+  tax withheld abroad; the carnê-leão wants the gross amount.
+- **Renda Variável sheet**: BDRs, ETFs, units and rights go in "Mercado à vista
+  - ações", the only spot line the sheet has (`RV_OUTROS_A_VISTA`). The 0,005%
+  IRRF of a month is shown whole in the stocks' sheet even when part of it came
+  from FII sales.
+- **Bonus shares** (line 18) need the cost per share the company announced
+  (entered on Pendências).
+- **Not covered**: ETF and other funds' distributions.
 - **Line 20** sums the gains of exempt months; it does not net a month's losses
   against other months, matching the program's per-month sheet. Confirm.
+- **Dividends from 2026 on**: Lei 15.270/2025 withholds 10% on dividends above
+  R$ 50 mil a month from one company (PR-IRPF-2026 p.144). The 2027
+  declaration will need it; line 09 is still right for 2025.
 
 ### Monthly tax: open points
 

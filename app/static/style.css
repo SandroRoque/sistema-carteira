@@ -492,3 +492,10 @@ label.botao:focus-within { outline: 3px solid var(--acento); outline-offset: 2px
 .card .sub { margin-top: 4px; color: var(--tinta-2); }
 td small .icone { width: 14px; height: 14px; vertical-align: -2px; }
 .nota .icone { width: 16px; height: 16px; vertical-align: -3px; }
+
+/* IRPF: one month of the Renda Variável sheet */
+details.mes-rv { border-top: 1px solid var(--linha); padding: 10px 0; }
+details.mes-rv:last-of-type { border-bottom: 1px solid var(--linha); margin-bottom: 16px; }
+details.mes-rv table { min-width: 0; max-width: 560px; }
+details.mes-rv thead th { padding-top: 14px; }
+details.mes-rv td { padding-top: 6px; padding-bottom: 6px; }

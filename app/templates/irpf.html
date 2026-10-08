@@ -87,11 +87,15 @@
   <h2 id="isentos">2. Rendimentos Isentos e Não Tributáveis</h2>
   {% if d.isentos %}
   {{ tabela_rendimentos(d.isentos, "Valor") }}
-  <p class="nota">Rendimentos de FII e Fiagro vão em “99 · Outros”; o programa também deixa informá-los a partir do bem (grupo 07).</p>
+  <p class="nota">Rendimentos de FII e Fiagro vão em “99 · Outros”; o programa também deixa informá-los a partir do bem (grupo 07). Bonificações (linha 18) valem o lucro ou reserva capitalizado por ação, que é também o custo das novas ações.</p>
   {% else %}
   <p class="vazio">Nenhum rendimento isento em {{ d.ano }}.</p>
   {% endif %}
 </section>
+
+{% if d.bonificacoes_sem_custo %}
+<p class="aviso">{{ m.icone_aviso() }}<span class="texto">Bonificações de {{ d.bonificacoes_sem_custo | join(", ") }} em {{ d.ano }} sem o custo por ação: sem ele, a linha 18 fica de fora. O valor está no aviso aos acionistas da empresa.</span><a href="/pendencias" class="acao">Informar custo →</a></p>
+{% endif %}
 
 <section class="card tabela-card" aria-labelledby="exclusivos">
   <h2 id="exclusivos">3. Rendimentos Sujeitos à Tributação Exclusiva/Definitiva</h2>
@@ -106,15 +110,89 @@
 <p class="aviso">{{ m.icone_aviso() }}<span class="texto">Os rendimentos de renda fixa e Tesouro não estão nas fichas acima: o imposto retido na fonte não vem nos documentos enviados. Copie-os do informe de rendimentos da corretora: CDB, Tesouro e outros títulos tributados na linha {{ linha_aplicacoes }} da Tributação Exclusiva; LCI, LCA, CRI e CRA na linha {{ linha_lci }} dos Isentos.</span></p>
 {% endif %}
 {% if d.fora %}
-<p class="aviso">{{ m.icone_aviso() }}<span class="texto">Proventos de {{ d.fora | list | join(", ") }} ({{ d.fora.values() | sum | brl }}) não estão nas fichas acima: dividendos de BDR não são isentos, e rendimentos de ETFs e outros fundos têm regras próprias. Confira no informe da corretora.</span></p>
+<p class="aviso">{{ m.icone_aviso() }}<span class="texto">Proventos de {{ d.fora | list | join(", ") }} ({{ d.fora.values() | sum | brl }}) não estão nas fichas acima: rendimentos de ETFs e outros fundos têm regras próprias. Confira no informe da corretora.</span></p>
 {% endif %}
+
+{% if d.dividendos_bdr %}
+<section class="card tabela-card" aria-labelledby="bdr">
+  <h2 id="bdr">Dividendos de BDR</h2>
+  <p class="sub">Não são isentos. O usual é recolher pelo carnê-leão no mês seguinte ao do recebimento e declará-los em {{ carne_leao.valor }}, descontando o imposto retido no exterior. <strong>A Receita não publica regra própria para BDRs: confira com o informe da corretora ou um contador.</strong></p>
+  <div class="rolagem">
+    <table class="larga">
+      <thead><tr><th>Mês do recebimento</th><th>BDRs</th><th class="num">Valor recebido</th></tr></thead>
+      <tbody>
+        {% for mes, por in d.dividendos_bdr %}
+        <tr><td>{{ mes | mes_ano }}</td><td>{{ por | list | join(", ") }}</td><td class="num">{{ por.values() | sum | brl }}</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><td>Total de {{ d.ano }}</td><td></td><td class="num">{{ d.total_dividendos_bdr | brl }}</td></tr></tfoot>
+    </table>
+  </div>
+  <p class="nota">Valores como creditados pela B3, já líquidos do imposto retido no exterior. O carnê-leão pede o valor bruto e o imposto pago lá fora: estão no informe da corretora.</p>
+</section>
+{% endif %}
+
+{% macro campo(rotulo, valor, sinal=false) -%}
+<tr><td>{{ rotulo }}</td><td class="num">{{ (valor | brl_sinal) if sinal else (valor | brl) }}</td>
+<td><button type="button" class="link pequeno" data-copiar="{{ valor | numero }}" aria-label="Copiar {{ rotulo }}">Copiar</button></td></tr>
+{%- endmacro %}
 
 <section class="card" aria-labelledby="renda-variavel">
   <h2 id="renda-variavel">4. Renda Variável</h2>
-  {% if d.meses_com_darf %}
-  <p>Meses com imposto em {{ d.ano }}: {% for mes in d.meses_com_darf %}<a href="/impostos?ano={{ d.ano }}#mes-{{ mes.mes.strftime('%Y-%m') }}">{{ mes.mes | mes_ano }}</a> ({{ mes.darf | brl }}{% if mes.pago_em %}, pago{% endif %}){{ ", " if not loop.last }}{% endfor %}. Preencha os mesmos resultados mês a mês na ficha Renda Variável.</p>
+  {% if d.renda_variavel %}
+  <p class="sub">Mês a mês, campo a campo, como no demonstrativo do programa. Perdas com sinal negativo. Meses de vendas de ações até R$ 20 mil com lucro ficam de fora da linha de ações (o lucro vai na linha 20 dos Isentos); com prejuízo, entram.</p>
+  {% for r in d.renda_variavel %}
+  <details class="mes-rv"{% if r.total_imposto or r.fii_imposto %} open{% endif %}>
+    <summary>{{ r.mes | mes_ano }}{% if r.darf %} · DARF {{ r.darf | brl }}{% if r.pago is not none %}, pago{% endif %}{% endif %}{% if not r.confiavel %} · <strong>confira</strong>{% endif %}</summary>
+    {% if not r.confiavel %}<p class="nota">{{ m.icone_aviso() }} Este mês tem vendas sem custo, sem nota ou que dependem de regra ainda não confirmada: veja <a href="/impostos?ano={{ d.ano }}#mes-{{ r.mes.strftime('%Y-%m') }}">o mês na apuração</a>.</p>{% endif %}
+    <div class="rolagem">
+      <table>
+        <thead><tr><th colspan="3">Operações comuns</th></tr></thead>
+        <tbody>
+          {{ campo(rv_acoes.valor, r.comum_resultado, sinal=true) }}
+          {% if r.outros_a_vista %}<tr><td colspan="3"><small>Inclui {{ r.outros_a_vista | join(", ") }}: a ficha não tem outra linha de mercado à vista (confira).</small></td></tr>{% endif %}
+          {{ campo("Resultado negativo até o mês anterior", r.comum_prejuizo_anterior) }}
+          {% if r.mes.month == 1 and r.comum_prejuizo_anterior %}<tr><td colspan="3"><small>Em janeiro o programa não traz o prejuízo do ano anterior: digite-o.</small></td></tr>{% endif %}
+          {{ campo("Base de cálculo do imposto", r.comum_base) }}
+          {{ campo("Prejuízo a compensar", r.comum_prejuizo) }}
+          {{ campo("Imposto devido (15%)", r.comum_imposto) }}
+        </tbody>
+        {% if r.dt_resultado or r.dt_prejuizo_anterior %}
+        <thead><tr><th colspan="3">Operações day trade</th></tr></thead>
+        <tbody>
+          {{ campo(rv_acoes.valor, r.dt_resultado, sinal=true) }}
+          {{ campo("Resultado negativo até o mês anterior", r.dt_prejuizo_anterior) }}
+          {% if r.mes.month == 1 and r.dt_prejuizo_anterior %}<tr><td colspan="3"><small>Em janeiro o programa não traz o prejuízo do ano anterior: digite-o.</small></td></tr>{% endif %}
+          {{ campo("Base de cálculo do imposto", r.dt_base) }}
+          {{ campo("Prejuízo a compensar", r.dt_prejuizo) }}
+          {{ campo("Imposto devido (20%)", r.dt_imposto) }}
+        </tbody>
+        {% endif %}
+        <thead><tr><th colspan="3">Consolidação do mês</th></tr></thead>
+        <tbody>
+          {{ campo("Total do imposto devido", r.total_imposto) }}
+          {% if r.irrf_day_trade %}{{ campo("IR fonte de day trade no mês" ~ (" (estimado)" if r.irrf_day_trade_estimado else ""), r.irrf_day_trade) }}{% endif %}
+          {{ campo("IR fonte (Lei nº 11.033/2004) no mês", r.irrf_lei_11033) }}
+          {% if r.pago is not none %}{{ campo("Imposto pago", r.pago) }}{% endif %}
+        </tbody>
+        {% if r.fii_resultado or r.fii_prejuizo_anterior %}
+        <thead><tr><th colspan="3">Operações em FII ou Fiagro (outra ficha)</th></tr></thead>
+        <tbody>
+          {{ campo("Resultado líquido do mês", r.fii_resultado, sinal=true) }}
+          {{ campo("Resultado negativo até o mês anterior", r.fii_prejuizo_anterior) }}
+          {{ campo("Base de cálculo do imposto", r.fii_base) }}
+          {{ campo("Prejuízo a compensar", r.fii_prejuizo) }}
+          {{ campo("Imposto devido (20%)", r.fii_imposto) }}
+        </tbody>
+        {% endif %}
+      </table>
+    </div>
+    {% if r.irrf_lei_11033 and r.fii_resultado %}<p class="nota">O IR fonte de 0,005% acima soma o de todas as vendas do mês; a parte das vendas de FII vai na ficha de FII. As notas mostram o valor de cada venda.</p>{% endif %}
+    {% if r.pago is not none and r.fii_imposto and r.total_imposto %}<p class="nota">O DARF pago cobre as duas fichas: divida-o pelo imposto de cada uma.</p>{% endif %}
+  </details>
+  {% endfor %}
   {% else %}
-  <p>Nenhum mês com imposto devido em {{ d.ano }}.</p>
+  <p>Nenhuma venda em bolsa em {{ d.ano }}.</p>
   {% endif %}
   <dl class="dados">
     <div><dt>Prejuízo a compensar em 31/12/{{ d.ano }} · operações comuns</dt><dd>{{ d.prejuizo_comum | brl }}</dd></div>

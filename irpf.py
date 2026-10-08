@@ -30,7 +30,7 @@ from database import fetch_all
 from posicoes import saldos_renda_fixa
 
 ZERO = Decimal(0)
-TIPOS = ("acao", "bdr", "fii", "etf", "fundo", "tesouro_direto")
+TIPOS = ("acao", "bdr", "fii", "etf", "fundo", "tesouro_direto", "direito_subscricao", "recibo_subscricao")
 
 # First word of a private bond's name (the nota's title) → taxed or exempt.
 _TITULOS_TRIBUTAVEIS = {"CDB", "RDB", "LC", "LF"}
@@ -54,6 +54,8 @@ def codigo_do_bem(tipo: str, subtipo: str | None, nome: str | None = None) -> R.
         return R.BEM_UNITS if subtipo == "unit" else R.BEM_ACOES
     if tipo == "bdr":
         return R.BEM_BDR
+    if tipo in ("direito_subscricao", "recibo_subscricao"):
+        return R.BEM_DIREITOS
     if tipo == "fii":
         return R.BEM_FIAGRO if subtipo == "fiagro" else R.BEM_FII
     if tipo == "etf":
@@ -63,7 +65,11 @@ def codigo_do_bem(tipo: str, subtipo: str | None, nome: str | None = None) -> R.
     return None
 
 
-_UNIDADE = {"acao": ("ação", "ações"), "bdr": ("BDR", "BDRs"), "tesouro_direto": ("título", "títulos")}
+_UNIDADE = {
+    "acao": ("ação", "ações"), "bdr": ("BDR", "BDRs"), "tesouro_direto": ("título", "títulos"),
+    "direito_subscricao": ("direito de subscrição", "direitos de subscrição"),
+    "recibo_subscricao": ("recibo de subscrição", "recibos de subscrição"),
+}
 
 
 def _unidade(tipo: str, subtipo: str | None, qtd: Decimal) -> str:
@@ -130,17 +136,109 @@ class Rendimento:
 
 
 @dataclass
+class MesRendaVariavel:
+    """One month of the Renda Variável sheets, field by field as the program
+    asks for them (regras_fiscais RV_*). Amounts are in reais; losses negative."""
+    mes: date
+    # Operações comuns e day trade
+    comum_resultado: Decimal
+    comum_prejuizo_anterior: Decimal  # "Resultado negativo até o mês anterior"
+    comum_base: Decimal
+    comum_prejuizo: Decimal  # "Prejuízo a compensar" after the month
+    comum_imposto: Decimal
+    dt_resultado: Decimal
+    dt_prejuizo_anterior: Decimal
+    dt_base: Decimal
+    dt_prejuizo: Decimal
+    dt_imposto: Decimal
+    irrf_day_trade: Decimal
+    irrf_day_trade_estimado: bool
+    irrf_lei_11033: Decimal  # the 0,005% withheld on sales
+    # Operações em FII ou Fiagro
+    fii_resultado: Decimal
+    fii_prejuizo_anterior: Decimal
+    fii_base: Decimal
+    fii_prejuizo: Decimal
+    fii_imposto: Decimal
+    darf: Decimal  # what the monthly calculation says to pay, both sheets
+    pago: Decimal | None
+    outros_a_vista: list[str]  # BDRs, ETFs, units, rights in the stocks' line
+    confiavel: bool
+
+    @property
+    def total_imposto(self) -> Decimal:
+        return self.comum_imposto + self.dt_imposto
+
+
+def renda_variavel(meses: list[apuracao.Mes], ano: int) -> list[MesRendaVariavel]:
+    """The months of `ano` with anything to fill, from the whole history
+    (the loss pools come from earlier years)."""
+    saida = []
+    anterior = None
+    for m in meses:
+        if m.mes.year == ano:
+            ant_comum = anterior.prejuizo_comum_saldo if anterior else ZERO
+            ant_dt = anterior.prejuizo_day_trade_saldo if anterior else ZERO
+            ant_fii = anterior.prejuizo_fii_saldo if anterior else ZERO
+            comum = m.resultado_comuns + (m.resultado_acoes if not m.isento or m.resultado_acoes < 0 else ZERO)
+            tem_algo = (m.tem_vendas or m.resultado_day_trade or m.irrf or m.irrf_day_trade)
+            if tem_algo:
+                saida.append(MesRendaVariavel(
+                    mes=m.mes,
+                    comum_resultado=comum,
+                    comum_prejuizo_anterior=ant_comum,
+                    comum_base=m.base_comum,
+                    comum_prejuizo=m.prejuizo_comum_saldo,
+                    comum_imposto=_centavos(m.base_comum * R.ALIQUOTA_OPERACOES_COMUNS.valor),
+                    dt_resultado=m.resultado_day_trade,
+                    dt_prejuizo_anterior=ant_dt,
+                    dt_base=m.base_day_trade,
+                    dt_prejuizo=m.prejuizo_day_trade_saldo,
+                    dt_imposto=_centavos(m.base_day_trade * R.ALIQUOTA_DAY_TRADE.valor),
+                    irrf_day_trade=m.irrf_day_trade,
+                    irrf_day_trade_estimado=m.irrf_day_trade_estimado,
+                    irrf_lei_11033=m.irrf,
+                    fii_resultado=m.resultado_fii,
+                    fii_prejuizo_anterior=ant_fii,
+                    fii_base=m.base_fii,
+                    fii_prejuizo=m.prejuizo_fii_saldo,
+                    fii_imposto=_centavos(m.base_fii * R.ALIQUOTA_FII.valor),
+                    darf=m.darf,
+                    pago=m.valor_pago,
+                    outros_a_vista=m.rotulos("comum"),
+                    confiavel=m.confiavel,
+                ))
+        if m.mes.year > ano:
+            break
+        anterior = m
+    return saida
+
+
+@dataclass
 class Declaracao:
     ano: int
     bens: list[Bem]
     isentos: list[Rendimento]
     exclusivos: list[Rendimento]
-    # Income the app does not place in a sheet: BDR dividends (taxable),
-    # distributions of ETFs and other funds. {ticker: valor}
+    # Income the app does not place in a sheet: distributions of ETFs and
+    # other funds. {ticker: valor}
     fora: dict[str, Decimal]
     meses_com_darf: list[apuracao.Mes]
     prejuizo_comum: Decimal
     prejuizo_fii: Decimal
+    # BDR dividends by month (carnê-leão is monthly): [(month, {ticker: valor})]
+    dividendos_bdr: list[tuple[date, dict[str, Decimal]]] = field(default_factory=list)
+    # Bonus shares received in the year whose cost per share is not known yet.
+    bonificacoes_sem_custo: list[str] = field(default_factory=list)
+    renda_variavel: list[MesRendaVariavel] = field(default_factory=list)
+
+    @property
+    def total_dividendos_bdr(self) -> Decimal:
+        return sum((v for _, por in self.dividendos_bdr for v in por.values()), ZERO)
+
+    @property
+    def tem_fii_na_renda_variavel(self) -> bool:
+        return any(m.fii_resultado or m.fii_prejuizo_anterior for m in self.renda_variavel)
 
     @property
     def incompletos(self) -> list[Bem]:
@@ -248,16 +346,42 @@ def _centavos(v: Decimal) -> Decimal:
     return Decimal(v).quantize(Decimal("0.01"))
 
 
+def _bonificacoes(conn: Connection, investidor_id: int, ano: int) -> list[dict]:
+    """Bonus shares credited in the year, with the cost per share once known."""
+    return fetch_all(
+        conn,
+        """
+        SELECT b.ativo_id, b.quantidade, bc.custo_por_cota
+        FROM b3_movimentacoes b
+        LEFT JOIN bonificacoes bc ON bc.b3_movimentacao_id = b.id
+        WHERE b.investidor_id = :i AND b.ativo_id IS NOT NULL
+          AND b.movimentacao = 'Bonificação em Ativos'
+          AND b.data BETWEEN :inicio AND :fim
+        """,
+        i=investidor_id, inicio=date(ano, 1, 1), fim=date(ano, 12, 31),
+    )
+
+
+def dividendos_bdr(conn: Connection, investidor_id: int, ano: int) -> list[tuple[date, dict[str, Decimal]]]:
+    """BDR dividends by month of payment: [(first day of month, {ticker: valor})]."""
+    meses: dict[date, dict[str, Decimal]] = defaultdict(lambda: defaultdict(lambda: ZERO))
+    for r in painel.linhas_proventos(conn, investidor_id, date(ano, 1, 1), date(ano, 12, 31), tipos=("bdr",)):
+        meses[date(r["data"].year, r["data"].month, 1)][r["ticker"]] += painel.valor_provento(r)
+    return [(m, dict(v)) for m, v in sorted(meses.items()) if any(v.values())]
+
+
 def rendimentos(
     conn: Connection, investidor_id: int, ano: int
-) -> tuple[list[Rendimento], list[Rendimento], dict[str, Decimal]]:
-    """(isentos, exclusivos, fora) for the year, one line per paying CNPJ."""
+) -> tuple[list[Rendimento], list[Rendimento], dict[str, Decimal], list[str]]:
+    """(isentos, exclusivos, fora, bonificações sem custo) for the year, one
+    line per paying CNPJ."""
     por_ativo = painel.proventos_por_ativo(conn, investidor_id, date(ano, 1, 1), date(ano, 12, 31))
-    if not por_ativo:
-        return [], [], {}
+    bonificacoes = _bonificacoes(conn, investidor_id, ano)
+    if not por_ativo and not bonificacoes:
+        return [], [], {}, []
     catalogo = {r["id"]: dict(r) for r in fetch_all(
         conn, "SELECT id, tipo, subtipo, ticker, nome, cnpj_emissor, emissor FROM ativos WHERE id = ANY(:ids)",
-        ids=list(por_ativo),
+        ids=list(por_ativo) + [b["ativo_id"] for b in bonificacoes],
     )}
     linhas: dict[tuple, Rendimento] = {}
     fora: dict[str, Decimal] = defaultdict(lambda: ZERO)
@@ -286,18 +410,31 @@ def rendimentos(
             elif categoria == "rendimentos" and a["tipo"] == "fii":
                 somar(R.ISENTO_RENDIMENTOS_FII, "Rendimentos de FII" if a["subtipo"] != "fiagro"
                       else "Rendimentos de Fiagro", a, valor)
+            elif categoria == "dividendos" and a["tipo"] == "bdr":
+                continue  # taxable: shown month by month (dividendos_bdr)
             elif categoria != "juros":  # fixed-income interest: not covered yet
                 fora[ticker] += valor
+
+    sem_custo = []
+    for b in bonificacoes:
+        a = catalogo[b["ativo_id"]]
+        if a["tipo"] != "acao":
+            continue  # line 18 is for shares; FII quotas are not bonus-issued this way
+        if b["custo_por_cota"] is None:
+            if (a["ticker"] or "") not in sem_custo:
+                sem_custo.append(a["ticker"] or a["nome"] or "")
+            continue
+        somar(R.ISENTO_BONIFICACOES, "Bonificações em ações", a, _centavos(b["quantidade"] * b["custo_por_cota"]))
 
     isentos = [r for r in linhas.values() if r.linha is not R.EXCLUSIVO_JCP]
     exclusivos = [r for r in linhas.values() if r.linha is R.EXCLUSIVO_JCP]
     isentos.sort(key=lambda r: (r.linha.valor, -r.valor))
     exclusivos.sort(key=lambda r: -r.valor)
-    return isentos, exclusivos, dict(fora)
+    return isentos, exclusivos, dict(fora), sem_custo
 
 
 def declaracao(conn: Connection, investidor_id: int, ano: int) -> Declaracao:
-    isentos, exclusivos, fora = rendimentos(conn, investidor_id, ano)
+    isentos, exclusivos, fora, bonificacoes_sem_custo = rendimentos(conn, investidor_id, ano)
     meses = [m for m in apuracao.apuracao(conn, investidor_id) if m.mes.year <= ano]
     do_ano = [m for m in meses if m.mes.year == ano]
     ganho_isento = sum((m.ganho_isento for m in do_ano), ZERO)
@@ -317,6 +454,9 @@ def declaracao(conn: Connection, investidor_id: int, ano: int) -> Declaracao:
         meses_com_darf=[m for m in do_ano if m.darf > 0],
         prejuizo_comum=ultimo.prejuizo_comum_saldo if ultimo else ZERO,
         prejuizo_fii=ultimo.prejuizo_fii_saldo if ultimo else ZERO,
+        dividendos_bdr=dividendos_bdr(conn, investidor_id, ano),
+        bonificacoes_sem_custo=bonificacoes_sem_custo,
+        renda_variavel=renda_variavel(meses, ano),
     )
 
 

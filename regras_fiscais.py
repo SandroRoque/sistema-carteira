@@ -145,6 +145,11 @@ BEM_TITULOS_TRIBUTAVEIS = Regra(
 BEM_TITULOS_ISENTOS = Regra(
     ("04", "03"), "PGD-2026 tipoBens: 04-03 Títulos isentos de tributação (LCI, LCA, LCD, CRI, CRA, LIG, Debêntures de Infraestrutura e outros)", True)
 BEM_BDR = Regra(("04", "04"), "PGD-2026 tipoBens: 04-04 Ativos negociados em bolsa no Brasil (BDRs, opções...)", True)
+# Subscription rights and receipts are traded in bolsa and are neither
+# shares nor fund quotas, which is what 04-04 describes; the table does not
+# name them.
+BEM_DIREITOS = Regra(
+    ("04", "04"), "PGD-2026 tipoBens: 04-04 Ativos negociados em bolsa no Brasil (BDRs, opções e outros - exceto ações e fundos); a tabela não cita direitos nem recibos de subscrição", False)
 BEM_FIAGRO = Regra(("07", "02"), "PGD-2026 tipoBens: 07-02 Fiagro - Lei 8.668/1993", True)
 BEM_FII = Regra(("07", "03"), "PGD-2026 tipoBens: 07-03 Fundos de Investimento Imobiliário (FII)", True)
 BEM_ETF = Regra(("07", "06"), "PGD-2026 tipoBens: 07-06 ... ETF - Entidade de investimento - Lei 14.754/2023", True)
@@ -160,6 +165,12 @@ ISENTO_ACOES_ATE_20_MIL = Regra(
 # which can also be filled from the 07-02/07-03 asset (Ajuda p.113, Atenção 4).
 ISENTO_RENDIMENTOS_FII = Regra("99", "Ajuda p.111-113: 99 - Outros, Atenção 4; PR-IRPF-2026 q.738, VII", True)
 
+# Bonus shares from capitalized profits or reserves: the amount capitalized
+# per share (the company's notice) is both the income on line 18 and the new
+# shares' cost (PR-IRPF-2026 q.721; IN-1585 art. 58).
+ISENTO_BONIFICACOES = Regra(
+    "18", "PGD-2026 tipoRendIsento; Ajuda p.101: 18 - Incorporação de reservas ao capital / Bonificações em ações", True)
+
 # Income of exempt bonds (LCI, LCA, CRI, CRA...). Shown as a pointer only: the
 # app does not compute fixed-income income.
 ISENTO_LCI_LCA = Regra("12", "PGD-2026 tipoRendIsento: 12 - Rendimentos de poupanças, letras hipotecárias, LCI, LCA, CRI, CRA", True)
@@ -168,3 +179,30 @@ ISENTO_LCI_LCA = Regra("12", "PGD-2026 tipoRendIsento: 12 - Rendimentos de poupa
 # Income of taxed bonds and Tesouro, net of the tax withheld at source.
 EXCLUSIVO_APLICACOES = Regra("06", "PGD-2026 tipoRendTributExclusiva; Ajuda p.116: 06 - Rendimentos de aplicações financeiras", True)
 EXCLUSIVO_JCP = Regra("10", "PGD-2026 tipoRendTributExclusiva; Ajuda p.118: 10 - Juros sobre capital próprio", True)
+
+# BDR dividends are not exempt (only dividends of Brazilian companies are,
+# line 09). Neither the PR-IRPF-2026 nor the program's help names them; the
+# usual reading (B3's guidance to investors, brokers' informes) is monthly
+# carnê-leão at the progressive table, declared in Rendimentos Tributáveis
+# Recebidos de Pessoa Física e do Exterior, with tax paid abroad deductible.
+DIVIDENDOS_BDR_CARNE_LEAO = Regra(
+    "Rendimentos Tributáveis Recebidos de PF e do Exterior (carnê-leão)",
+    "sem fonte oficial: o PR-IRPF-2026 e a Ajuda do programa não tratam de BDR; leitura usual da B3 e das corretoras", False)
+
+# ── Renda Variável (demonstrativo mensal) ─────────────────────────────────
+#
+# The fields of the monthly sheet, as the program's own record layout names
+# them (PGD-2026 irpf.jar mapeamentoTxt.xml, REG_RENDAVARMENSAL and, for FII
+# and Fiagro, REG_RENDAVARINVESTMENSAL; Ajuda p.298-325).
+# The spot market has one line besides gold: "Mercado à vista - ações"
+# (VR_COMUM_MVISTA_ACOES, VR_DAYTR_MVISTA_ACOES). Gains in exempt months stay
+# out of it (Ajuda p.312, Dispensa); losses go in (Ajuda p.305).
+RV_MERCADO_A_VISTA_ACOES = Regra(
+    "Mercado à vista - ações", "PGD-2026 mapeamentoTxt REG_RENDAVARMENSAL: VR_COMUM_MVISTA_ACOES; Ajuda p.305", True)
+# BDRs, ETFs, units and rights: no spot line of their own, so they share
+# the stocks' line. The program does not say so.
+RV_OUTROS_A_VISTA = Regra(
+    "Mercado à vista - ações", "a ficha não tem linha de mercado à vista para BDRs, ETFs, units e direitos (REG_RENDAVARMENSAL)", False)
+# January's "Resultado negativo até o mês anterior" is typed by the user:
+# the program does not carry the previous year's loss (Ajuda p.306).
+RV_PREJUIZO_DE_JANEIRO = Regra("digitar em janeiro", "Ajuda p.306: Resultado negativo até o mês anterior", True)

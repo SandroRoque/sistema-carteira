@@ -200,3 +200,89 @@ def test_pagina_aponta_rendimentos_de_renda_fixa_para_o_informe(com_renda_fixa):
     pagina = _cliente_logado().get("/impostos/irpf?ano=2025").text
     assert "04 · 02" in pagina and "04 · 03" in pagina
     assert "linha 06 da Tributação Exclusiva" in pagina and "linha 12 dos Isentos" in pagina
+
+
+def test_direitos_de_subscricao_nos_bens(tabelas, usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A, negociacao("EMPX1", "entrada", 30, 0.5, date(2025, 11, 4)), data=date(2025, 11, 4)), "1.pdf")
+        [bem] = irpf.declaracao(conn, investidor_a, 2025).bens
+    assert bem.codigo is R.BEM_DIREITOS and not R.BEM_DIREITOS.verificado
+    assert bem.discriminacao.startswith("30 direitos de subscrição EMPX1")
+    assert bem.custo == D("15.00")
+
+
+def test_bonificacao_na_linha_18(tabelas, usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A, negociacao("EMPX4", "entrada", 100, 20.0, date(2024, 5, 6)), data=date(2024, 5, 6)), "1.pdf")
+    _b3(investidor_a, ("Credito", "20/06/2025", "Bonificação em Ativos", "EMPX4 - EMPRESA X", "XP", 10, "-", "-"))
+    with connect_sistema() as conn:
+        d = irpf.declaracao(conn, investidor_a, 2025)
+        assert d.bonificacoes_sem_custo == ["EMPX4"] and d.isentos == []
+        execute(conn, "UPDATE bonificacoes SET custo_por_cota = 2.35")
+        d = irpf.declaracao(conn, investidor_a, 2025)
+
+    [linha18] = d.isentos
+    assert (linha18.linha, linha18.cnpj, linha18.valor) == (R.ISENTO_BONIFICACOES, "11.222.333/0001-81", D("23.50"))
+    assert d.bonificacoes_sem_custo == []
+
+
+@pytest.fixture
+def com_bdr(tabelas, usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A, negociacao("EMPZ34", "entrada", 40, 50.0, date(2024, 5, 6)), data=date(2024, 5, 6)), "1.pdf")
+    _b3(investidor_a,
+        ("Credito", "10/03/2025", "Dividendo", "EMPZ34 - EMPRESA Z", "XP", 40, 0.1, 4.0),
+        ("Credito", "12/06/2025", "Dividendo", "EMPZ34 - EMPRESA Z", "XP", 40, 0.15, 6.0))
+    return investidor_a
+
+
+def test_dividendos_de_bdr_mes_a_mes(com_bdr):
+    with connect_sistema() as conn:
+        d = irpf.declaracao(conn, com_bdr, 2025)
+    assert d.isentos == [] and d.fora == {}
+    assert d.dividendos_bdr == [(date(2025, 3, 1), {"EMPZ34": D("4.0")}), (date(2025, 6, 1), {"EMPZ34": D("6.0")})]
+    assert d.total_dividendos_bdr == D("10.0")
+
+
+def test_pagina_mostra_dividendos_de_bdr(com_bdr):
+    from test_apuracao import _cliente_logado
+
+    pagina = _cliente_logado().get("/impostos/irpf?ano=2025").text
+    assert "Dividendos de BDR" in pagina and "carnê-leão" in pagina and "R$ 10,00" in pagina
+
+
+def test_ficha_de_renda_variavel_mes_a_mes(tabelas, usuario_id, investidor_a):
+    with connect_sistema() as conn:
+        carregar(conn, usuario_id, documento(
+            CPF_A,
+            negociacao("EMPX4", "entrada", 2000, 20.0, date(2024, 5, 6), linha=1),
+            negociacao("FIIX11", "entrada", 100, 100.0, date(2024, 5, 6), linha=2),
+            data=date(2024, 5, 6)), "1.pdf")
+        # December 2024: a stock loss of 1.000 above the 20 mil limit, carried into 2025.
+        carregar(conn, usuario_id, documento(
+            CPF_A, negociacao("EMPX4", "saida", 1000, 19.0, date(2024, 12, 2)),
+            nota_id="1002", data=date(2024, 12, 2)), "2.pdf")
+        # January 2025: stocks sold for 25.000 (taxed) with a 5.000 gain; FII sold at a 300 loss.
+        carregar(conn, usuario_id, documento(
+            CPF_A,
+            negociacao("EMPX4", "saida", 1000, 25.0, date(2025, 1, 6), linha=1),
+            negociacao("FIIX11", "saida", 100, 97.0, date(2025, 1, 6), linha=2),
+            nota_id="1003", data=date(2025, 1, 6)), "3.pdf")
+        d = irpf.declaracao(conn, investidor_a, 2025)
+
+    [jan] = d.renda_variavel
+    assert jan.mes == date(2025, 1, 1)
+    assert (jan.comum_resultado, jan.comum_prejuizo_anterior) == (D("5000.0"), D("1000.0"))
+    assert (jan.comum_base, jan.comum_prejuizo, jan.comum_imposto) == (D("4000.0"), D("0"), D("600.00"))
+    assert (jan.fii_resultado, jan.fii_prejuizo_anterior, jan.fii_prejuizo) == (D("-300.0"), D("0"), D("300.0"))
+    assert jan.dt_resultado == 0 and jan.darf == D("600.00")
+
+    from test_apuracao import _cliente_logado
+
+    pagina = _cliente_logado().get("/impostos/irpf?ano=2025").text
+    assert "Mercado à vista - ações" in pagina and "Resultado negativo até o mês anterior" in pagina
+    assert "Em janeiro o programa não traz o prejuízo do ano anterior" in pagina
+    assert "Operações em FII ou Fiagro" in pagina

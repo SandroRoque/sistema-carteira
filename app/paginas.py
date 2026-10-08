@@ -242,6 +242,7 @@ def _regras_irpf() -> list[tuple[str, regras_fiscais.Regra]]:
         "BEM_ACOES": "Ações: grupo 03, código 01",
         "BEM_UNITS": "Units: grupo 03, código 01, como ações",
         "BEM_BDR": "BDRs: grupo 04, código 04",
+        "BEM_DIREITOS": "Direitos e recibos de subscrição: grupo 04, código 04",
         "BEM_TITULOS_TRIBUTAVEIS": "Tesouro Direto, CDB, RDB e outros títulos tributados: grupo 04, código 02",
         "BEM_TITULOS_ISENTOS": "LCI, LCA, CRI, CRA e outros títulos isentos: grupo 04, código 03",
         "BEM_FII": "FIIs: grupo 07, código 03",
@@ -252,9 +253,14 @@ def _regras_irpf() -> list[tuple[str, regras_fiscais.Regra]]:
         "ISENTO_DIVIDENDOS": "Dividendos: rendimento isento, linha 09",
         "ISENTO_RENDIMENTOS_FII": "Rendimentos de FII e Fiagro: rendimento isento, linha 99 (Outros)",
         "ISENTO_ACOES_ATE_20_MIL": "Lucro com ações em meses de vendas até R$ 20 mil: rendimento isento, linha 20",
+        "ISENTO_BONIFICACOES": "Bonificações em ações: rendimento isento, linha 18, pelo valor capitalizado por ação",
         "EXCLUSIVO_JCP": "Juros sobre capital próprio: tributação exclusiva, linha 10",
         "EXCLUSIVO_APLICACOES": "Rendimentos de CDB, Tesouro e outros títulos tributados: tributação exclusiva, linha 06 (do informe da corretora)",
         "ISENTO_LCI_LCA": "Rendimentos de LCI, LCA, CRI e CRA: rendimento isento, linha 12 (do informe da corretora)",
+        "DIVIDENDOS_BDR_CARNE_LEAO": "Dividendos de BDR: tributáveis, carnê-leão mensal",
+        "RV_MERCADO_A_VISTA_ACOES": "Renda Variável: vendas de ações na linha “Mercado à vista - ações”",
+        "RV_OUTROS_A_VISTA": "Renda Variável: BDRs, ETFs, units e direitos na mesma linha, por falta de outra",
+        "RV_PREJUIZO_DE_JANEIRO": "Renda Variável: o prejuízo do ano anterior é digitado em janeiro",
     }
     return [(texto, getattr(regras_fiscais, nome)) for nome, texto in nomes.items()]
 
@@ -274,6 +280,8 @@ def declaracao_anual(request: Request, sessao: Sessao, investidor_id: Investidor
         "regras": _regras_irpf(),
         "linha_aplicacoes": regras_fiscais.EXCLUSIVO_APLICACOES.valor,
         "linha_lci": regras_fiscais.ISENTO_LCI_LCA.valor,
+        "carne_leao": regras_fiscais.DIVIDENDOS_BDR_CARNE_LEAO,
+        "rv_acoes": regras_fiscais.RV_MERCADO_A_VISTA_ACOES,
     })
 
 
