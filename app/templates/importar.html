@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}Importar — Carteira{% endblock %}
+
+{% block content %}
+{% set novo = not carteiras and not uploads %}
+<div>
+  <h1>{{ "Monte sua carteira" if novo else "Importar documentos" }}</h1>
+  <p class="cabecalho sub">Envie os documentos que você já recebe da corretora e da B3. A carteira, o preço médio, os proventos e os impostos saem deles.</p>
+</div>
+
+{% if novo %}
+<ol class="passos">
+  <li>
+    <span class="numero" aria-hidden="true">1</span>
+    <h2>Notas de corretagem</h2>
+    <p>PDFs das compras e vendas. Cada nota vai para a carteira do CPF impresso nela.</p>
+    <p class="ajuda">Nu Invest, XP, Safra e Brasil Plural</p>
+  </li>
+  <li>
+    <span class="numero" aria-hidden="true">2</span>
+    <h2>Extrato da B3</h2>
+    <p>Planilha de movimentação: traz proventos, bonificações e desdobramentos.</p>
+    <p class="ajuda">Área do Investidor B3 → Extratos → Movimentação → Excel</p>
+  </li>
+  <li>
+    <span class="numero secundario" aria-hidden="true">3</span>
+    <h2>Revise as pendências</h2>
+    <p>Alguns dados não estão em nenhum documento, como o custo de bonificações. Avisamos quando faltar algo.</p>
+  </li>
+</ol>
+{% endif %}
+
+{% if recusados %}
+<div class="aviso" role="alert">
+  <div class="texto">
+    <strong>Alguns arquivos não foram aceitos:</strong>
+    <ul>
+      {% for nome, motivo in recusados %}
+      <li>{% if nome %}<code>{{ nome }}</code>: {% endif %}{{ motivo }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+<form method="post" action="/importar" enctype="multipart/form-data" class="area-envio" data-area-envio>
+  <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+  <div class="centro">
+    <svg class="icone" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+    <h2>Arraste os arquivos para cá</h2>
+    <p class="muted">PDFs de notas e planilhas .xlsx da B3, juntos ou separados. Até {{ max_arquivos }} por vez, {{ tamanho_maximo_mb }} MB cada.</p>
+    <label class="botao primario">
+      Escolher arquivos
+      <input type="file" name="arquivos" multiple required class="so-leitor" data-enviar-ao-escolher
+             accept=".pdf,.xlsx,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+    </label>
+  </div>
+  {% if carteiras %}
+  <div class="linha-campos">
+    <label>
+      Carteira dos relatórios da B3
+      <select name="carteira_b3">
+        {% for c in carteiras %}
+        <option value="{{ c.id }}" {% if c.id == investidor_id %}selected{% endif %}>{{ c.label }}</option>
+        {% endfor %}
+      </select>
+      <small>O extrato da B3 não traz CPF, então indique a carteira. Notas usam o CPF delas; uma nota sem CPF vai para esta carteira.</small>
+    </label>
+  </div>
+  {% else %}
+  <p class="muted centro">Notas criam a carteira a partir do CPF impresso nelas. Só tem extratos da B3? Crie a carteira abaixo antes de enviá-los.</p>
+  {% endif %}
+  <p class="muted centro">Os arquivos são apagados assim que lidos. Guardamos as operações e um código derivado do CPF, nunca o CPF, o nome ou o endereço. <a href="/privacidade">Privacidade</a></p>
+  <noscript><div class="botoes"><button type="submit" class="primario">Enviar</button></div></noscript>
+</form>
+
+{% if not carteiras %}
+<section class="card" aria-labelledby="nova-carteira">
+  <h2 id="nova-carteira">Começar só com extratos da B3</h2>
+  <p class="nota">O extrato da B3 não traz CPF. Informe o do titular: guardamos só um código derivado dele e a forma mascarada, como fazemos com as notas.</p>
+  {{ m.form_nova_carteira(sessao, "/importar") }}
+</section>
+{% endif %}
+
+{% if cobertura %}
+<section class="card" id="cobertura" aria-labelledby="cobertura-titulo">
+  <h2 id="cobertura-titulo">O que os documentos cobrem</h2>
+  <dl class="dados">
+    <div><dt>Extratos da B3</dt><dd>{% for p in cobertura.periodos %}{{ p.inicio | data }} a {{ p.fim | data }}{{ "; " if not loop.last }}{% else %}nenhum{% endfor %}</dd></div>
+    <div><dt>Notas de corretagem</dt><dd>{% if cobertura.primeira_nota %}{{ cobertura.primeira_nota | data }} a {{ cobertura.ultima_nota | data }}{% else %}nenhuma{% endif %}</dd></div>
+  </dl>
+  {% if cobertura.a_baixar %}
+  <p><strong>Extratos que faltam.</strong> Na Área do Investidor da B3 (Extratos → Movimentação), filtre e baixe em Excel:</p>
+  <ul>
+    {% for p in cobertura.a_baixar %}
+    <li>de <strong>{{ p.inicio | data }}</strong> a <strong>{{ p.fim | data }}</strong>{% if p == cobertura.proximo %} (até hoje){% endif %}</li>
+    {% endfor %}
+  </ul>
+  <p class="nota">Pode sobrepor períodos já enviados: dias já importados são ignorados. Vale baixar até a data de hoje; a B3 mostra cada dia com cerca de dois dias de atraso.</p>
+  {% else %}
+  <p class="ok">{{ m.icone_ok() }}<span class="texto">Os extratos da B3 cobrem tudo, da primeira nota até hoje.</span></p>
+  {% endif %}
+  {% if cobertura.notas_depois_do_extrato %}
+  <p class="nota">Há notas depois de {{ cobertura.periodos[-1].fim | data }}, fim do último extrato. Com o próximo extrato conferimos se falta alguma nota nesse período.</p>
+  {% endif %}
+  {% if cobertura.sem_nota %}
+  <h3>Compras e vendas na B3 sem nota</h3>
+  <p>Já contam na carteira, com o valor do extrato (sem as taxas). Envie a nota para o preço médio exato.</p>
+  <ul>
+    {% for l in cobertura.sem_nota %}
+    <li><a href="/posicoes/{{ l.ativo_id }}">{{ rotulos[l.ativo_id] }}</a>: {{ "compra" if l.sentido == "entrada" else "venda" }} de {{ l.quantidade | qtd }} liquidada em {{ l.data | data }}{% if l.valor is not none %}, {{ l.valor | brl }}{% endif %} · nota do pregão por volta de {{ l.data_pregao | data }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if cobertura.divergentes %}
+  <h3>Quantidades diferentes entre a B3 e as notas</h3>
+  <p>Ficaram fora da carteira para não contar as mesmas ações duas vezes. Confira se falta uma nota ou se uma nota foi lida errado.</p>
+  <ul>
+    {% for l in cobertura.divergentes %}
+    <li><a href="/posicoes/{{ l.ativo_id }}">{{ rotulos[l.ativo_id] }}</a>: B3 liquidou {{ "compra" if l.sentido == "entrada" else "venda" }} de {{ l.quantidade | qtd }} em {{ l.data | data }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}
+
+{% include "partials/uploads.html" %}
+
+{% if carteiras and not em_andamento and uploads %}
+<div class="ok">
+  <span class="texto"><strong>Pronto.</strong> Veja o resultado na sua carteira; o que faltar aparece em pendências.</span>
+  <a href="/" class="botao primario">Ver minha carteira</a>
+</div>
+{% endif %}
+{% endblock %}

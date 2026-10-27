@@ -1,0 +1,14 @@
+<tr id="neg-{{ n.id }}">
+  <td class="num">{{ n.data | data }}</td>
+  <td><strong>{{ n.ativo_label }}</strong></td>
+  <td>
+    {% if n.sentido == "entrada" %}<span class="tag info">Compra</span>{% else %}<span class="tag erro">Venda</span>{% endif %}
+  </td>
+  <td class="num">{{ n.quantidade | qtd }}</td>
+  <td class="num">{{ n.preco_unitario | brl }}</td>
+  <td class="num">{{ n.valor_liquido | brl }}</td>
+  <td>
+    <button class="pequeno perigo" hx-delete="/negociacoes/{{ n.id }}" hx-target="#neg-{{ n.id }}"
+            hx-swap="outerHTML" hx-confirm="Remover esta negociação?" aria-label="Remover negociação">Remover</button>
+  </td>
+</tr>

@@ -1,0 +1,22 @@
+# Local development database.
+#   docker compose up -d
+#   DATABASE_URL=postgresql+psycopg://carteira:carteira@localhost:5433/carteira
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: carteira
+      POSTGRES_PASSWORD: carteira
+      POSTGRES_DB: carteira
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - carteira-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carteira"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  carteira-pg:

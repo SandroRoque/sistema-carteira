@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Termos de uso — Carteira{% endblock %}
+{% block largura %} estreito{% endblock %}
+
+{% block content %}
+<div>
+  <h1>Termos de uso</h1>
+  <p class="muted">Versão de {{ versao | data }}.</p>
+</div>
+
+<section class="card">
+  <h2>O que este app é</h2>
+  <p>
+    Uma ferramenta para organizar a sua carteira a partir dos documentos que você envia
+    (notas de corretagem e extratos da B3) e para estimar impostos. Não é consultoria
+    financeira, contabilidade nem orientação fiscal, e não tem vínculo com a Receita Federal,
+    a B3 ou a CVM.
+  </p>
+
+  <h2>Os resultados dependem do que entra</h2>
+  <ul>
+    <li>
+      Tudo o que o app mostra é calculado a partir dos documentos enviados. Documento faltando,
+      errado ou lido de forma incorreta gera posição, preço médio e imposto errados.
+    </li>
+    <li>
+      As regras fiscais foram implementadas com cuidado e cada uma cita a sua fonte, mas podem
+      estar incompletas, desatualizadas ou erradas. As que ainda não foram confirmadas na fonte
+      oficial aparecem marcadas.
+    </li>
+    <li>
+      Valores de DARF e da declaração anual são estimativas. O app não emite DARF, não faz
+      pagamentos e não envia declarações: quem faz isso é você, nos sistemas da Receita.
+    </li>
+  </ul>
+
+  <h2>A responsabilidade é sua</h2>
+  <p>
+    Antes de pagar um imposto ou entregar uma declaração, confira os valores com as suas notas,
+    os extratos da B3 e os informes de rendimentos das corretoras, ou com um contador.
+    Você é o único responsável pelo uso que fizer das informações deste app e pelas obrigações
+    fiscais que cumprir com base nelas.
+  </p>
+
+  <h2>O serviço</h2>
+  <p>
+    O app é oferecido como está, sem garantia de funcionamento contínuo ou de exatidão, e pode
+    mudar ou sair do ar. Guarde os seus documentos originais. Seus dados são tratados como
+    descrito em <a href="/privacidade">Privacidade</a>; na página <a href="/conta">Conta</a>
+    você pode exportá-los ou excluir a conta a qualquer momento.
+  </p>
+</section>
+
+{% if sessao and sessao.termos_pendentes %}
+<form method="post" action="/termos" class="card formulario">
+  <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+  {% if erro %}<p class="erro" role="alert">{{ erro }}</p>{% endif %}
+  <label class="opcao">
+    <input type="checkbox" name="aceito" value="sim" required>
+    <span>Li e concordo. Entendo que os resultados dependem dos documentos que envio e assumo a responsabilidade de conferi-los e pelo uso que faço deles.</span>
+  </label>
+  <button type="submit" class="primario">Aceitar e continuar</button>
+</form>
+<form method="post" action="/sair" class="inline">
+  <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+  <button type="submit" class="link">Não aceito: sair</button>
+</form>
+{% elif sessao and not sessao.demo %}
+<p class="nota">Você aceitou esta versão dos termos.</p>
+{% endif %}
+{% endblock %}

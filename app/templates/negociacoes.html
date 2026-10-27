@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Negociações — Carteira{% endblock %}
+
+{% block content %}
+<div class="cabecalho">
+  <div>
+    <p class="trilha"><a href="/conta">Conta</a> / Negociações</p>
+    <h1>Negociações</h1>
+    <p class="sub">Todas as compras e vendas desta carteira, das notas e lançadas à mão.</p>
+  </div>
+</div>
+
+<details class="card"{% if ativo_selecionado %} open{% endif %}>
+  <summary>Lançar operação à mão</summary>
+  <form class="formulario" hx-post="/negociacoes" hx-target="#negociacoes-body" hx-swap="afterbegin" data-limpar-apos-sucesso>
+    <div class="linha-campos">
+      <label>
+        Ativo
+        <select name="ativo_id" required>
+          <option value="">Selecione</option>
+          {% for a in ativos %}
+          <option value="{{ a.id }}"{% if a.id == ativo_selecionado %} selected{% endif %}>{{ a.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Data
+        <input type="date" name="data" value="{{ today }}" required>
+      </label>
+      <label>
+        Operação
+        <select name="sentido" required>
+          <option value="entrada">Compra</option>
+          <option value="saida">Venda</option>
+        </select>
+      </label>
+    </div>
+    <div class="linha-campos">
+      <label>
+        Quantidade
+        <input type="number" name="quantidade" step="0.0001" min="0.0001" required>
+      </label>
+      <label>
+        Preço unitário (R$)
+        <input type="number" name="preco_unitario" step="0.01" min="0" required>
+      </label>
+      <label>
+        Taxas (R$)
+        <input type="number" name="taxas" step="0.01" min="0" value="0">
+      </label>
+    </div>
+    <div class="botoes"><button type="submit" class="primario">Adicionar</button></div>
+  </form>
+</details>
+
+<section class="card tabela-card">
+  <div class="rolagem">
+    <table class="larga">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Ativo</th>
+          <th>Operação</th>
+          <th class="num">Qtd</th>
+          <th class="num">Preço unitário</th>
+          <th class="num">Valor líquido</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="negociacoes-body">
+        {% for n in negociacoes %}
+        {% include "partials/negociacao_row.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if not negociacoes %}<p class="vazio">Nenhuma negociação registrada.</p>{% endif %}
+</section>
+{% endblock %}

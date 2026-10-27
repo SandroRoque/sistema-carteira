@@ -1,154 +1,159 @@
 # Sistema Carteira
 
-Backend de extração de notas e relatórios de corretoras em PDF.
+Extrai notas de corretagem e outros documentos de corretoras em PDF, cruza com os
+relatórios de movimentações da B3 e calcula posições, custo médio, proventos e
+apuração de IR. Os dados ficam em PostgreSQL, separados por investidor.
 
-Hoje o projeto já consegue extrair documentos textuais de:
+Corretoras e tipos de documento suportados:
 
-- `nu_invest_nota_corretagem`
-- `nu_invest_titulos_publicos`
-- `nu_invest_titulos_privados`
-- `xp_nota_corretagem`
-- `safra_nota_corretagem`
+| Corretora | Documentos |
+|---|---|
+| Nu Invest | Nota de corretagem, Títulos públicos, Títulos privados |
+| XP Investimentos | Nota de corretagem |
+| Safra | Nota de corretagem |
+| Brasil Plural | Nota de corretagem |
 
-## Visão Geral
+## Arquitetura
 
-O projeto está organizado em duas camadas principais:
+```
+PDFs (NOTAS_DIR)
+    └─► extrai_nota_de_negociacao.py   identifica corretora, chama extrator
+            └─► extractors/<corretora>.py   extrai campos do PDF com PyMuPDF
+    └─► transformer.py                 normaliza tipos, distribui taxas por operação
+    └─► loader.py                      grava no Postgres, resolve ativos, idempotente
 
-- configuração declarativa de corretoras, campos e layouts
-- funções de extração/parsing que usam essa configuração
+Relatórios B3 (xlsx)
+    └─► carrega_b3.py                  proventos e eventos corporativos
 
-Arquivos principais:
-
-- [layout_config.py](/home/roque/Documents/Projects/sistema-carteira/layout_config.py): `CORRETORAS`, `FIELD_CONFIG` e `LAYOUT_CONFIG`
-- [models.py](/home/roque/Documents/Projects/sistema-carteira/models.py): modelos leves, como `Corretora`
-- [parsers.py](/home/roque/Documents/Projects/sistema-carteira/parsers.py): parsers de datas, números, percentuais, CPF e dinheiro
-- [key_value_finders.py](/home/roque/Documents/Projects/sistema-carteira/key_value_finders.py): extração de grupos `KEY_VALUE`
-- [movimentacoes_table_finder.py](/home/roque/Documents/Projects/sistema-carteira/movimentacoes_table_finder.py): extração de grupos `TABLE`
-- [extrai_nota_de_negociacao.py](/home/roque/Documents/Projects/sistema-carteira/extrai_nota_de_negociacao.py): classe `NotaNegociacaoExtractor`
-- [main.py](/home/roque/Documents/Projects/sistema-carteira/main.py): harness de prototipagem
-- [exporta_csvs.py](/home/roque/Documents/Projects/sistema-carteira/exporta_csvs.py): exportação em CSV do acervo inteiro
-- [settings.py](/home/roque/Documents/Projects/sistema-carteira/settings.py): carregamento centralizado de variáveis de ambiente
-
-## Modelo de Configuração
-
-`FIELD_CONFIG` define o catálogo canônico de campos:
-
-- `id`
-- `data_type`
-- `required_default`
-- `parser_default`
-
-`LAYOUT_CONFIG` define cada layout por corretora:
-
-- `id`
-- `corretora_id`
-- `groups`
-
-Cada `group` define:
-
-- `id`
-- `type`: `KEY_VALUE` ou `TABLE`
-- `anchors`
-- `direction`: `RIGHT`, `BELOW` ou `None`
-- `bindings`
-- `options`
-
-Cada `binding` conecta o campo canônico ao rótulo daquele layout:
-
-- `field_id`
-- `label`
-- `options` opcionais, como `occurrence_index`
-
-## Extração
-
-Os grupos `KEY_VALUE` usam dois modos:
-
-- `RIGHT`: valor à direita do rótulo
-- `BELOW`: valor abaixo do rótulo
-
-Os grupos `TABLE` usam âncoras superior e inferior para delimitar a tabela e depois
-mapeiam os cabeçalhos detectados para `field_id`.
-
-Os parsers são aplicados durante a orquestração, não dentro dos finders.
-
-Comportamentos já suportados:
-
-- valores monetários com `R$`
-- sinal via sufixo `D` / `C`
-- percentuais
-- números brasileiros com vírgula decimal
-- CPF normalizado
-- valores multiline específicos em grupos verticais configurados
-
-## Configuração de Ambiente
-
-As configurações de runtime ficam fora do repositório e são lidas por
-[settings.py](/home/roque/Documents/Projects/sistema-carteira/settings.py).
-
-Use [.env.example](/home/roque/Documents/Projects/sistema-carteira/.env.example) como referência.
-
-Variáveis atuais:
-
-- `NOTAS_DIR`: diretório onde estão os PDFs a processar
-- `PROTOTYPE_PDF_NAMES`: lista opcional usada pelo `main.py` durante prototipagem
-
-## Execução
-
-Rodar o harness de prototipagem:
-
-```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python main.py
+PostgreSQL
+    └─► posicoes.py / fechamento.py / imposto.py   cálculos
+    └─► app/ (FastAPI + HTMX)  ·  portfolio.py / relatorio.py (CLI)
 ```
 
-Exportar o acervo para CSV:
+Relatórios de movimentações da B3 fornecem dividendos, JCP, rendimentos de FII e
+eventos corporativos — ver [docs/b3-movimentacoes.md](docs/b3-movimentacoes.md).
+
+### Multi-tenancy
+
+A **conta** é dona de tudo o que envia; o sistema não verifica identidade. Dentro da
+conta, as notas são separadas em **investidores** — uma carteira por CPF encontrado nas
+notas, porque posição e IR são por pessoa. Toda consulta é filtrada por `investidor_id`.
+O cadastro de **ativos** é compartilhado: PETR4 é o mesmo instrumento para todos.
+Detalhes em [docs/schema.md](docs/schema.md).
+
+### Segurança
+
+- Senhas com Argon2id; bloqueio de 15 min após 5 tentativas erradas; sessões em cookie
+  `HttpOnly`/`SameSite=Lax`, guardadas no banco só como hash.
+- Toda escrita exige mesma origem e token CSRF (enviado pelo HTMX em header).
+- **Row-level security**: requisições web rodam no papel restrito `carteira_app`, e as
+  políticas do Postgres só expõem linhas da conta logada — um `WHERE` esquecido devolve
+  vazio, não dados de outra conta. Ferramentas de linha de comando usam a conexão de
+  sistema (`connect_sistema()`).
+- CSP `'self'` (htmx e Pico servidos localmente, sem CDN), `X-Frame-Options: DENY`.
+
+### Dados pessoais
+
+O CPF nunca é gravado: só um HMAC com segredo do servidor (para reconhecer o mesmo CPF
+em envios futuros) e uma forma mascarada. Nome, endereço e código de cliente das notas
+são descartados na extração. Inventário, retenção e direitos do titular em
+[docs/lgpd.md](docs/lgpd.md).
+
+## Arquivos principais
+
+| Arquivo | Responsabilidade |
+|---|---|
+| `tabelas.py` | Schema (SQLAlchemy Core) — fonte da verdade das migrações |
+| `migrations/` | Migrações Alembic |
+| `database.py` | Engine, `connect()` transacional e helpers de consulta |
+| `contas.py` | Investidores e pseudonimização do CPF (fronteira de tenancy) |
+| `auth.py` / `admin.py` | Senhas, sessões, bloqueio; administração de contas pela linha de comando |
+| `app/seguranca.py` | Sessão, CSRF, mesma origem e headers de segurança |
+| `carrega_notas.py` | Entry point: itera PDFs, extrai, transforma e carrega |
+| `carrega_b3.py` | Carrega relatórios de movimentações da B3 |
+| `loader.py` | Escrita: resolução de ativos, idempotência por nota |
+| `posicoes.py` | Posição atual por ativo |
+| `fechamento.py` / `imposto.py` / `relatorio.py` | Fechamento anual, IR e relatório Markdown |
+| `app/` | Interface web (FastAPI, Jinja, HTMX) |
+| `extrai_nota_de_negociacao.py` / `extractors/` | Extração de PDFs por corretora |
+| `transformer.py` | Conversão pura: dataclasses → registros normalizados + rateio de taxas |
+| `parsers.py` | Parsers de datas, números BR, percentuais, CPF (com dígitos verificadores) |
+| `extractors/sinacor.py` | Layout padrão de mercado (XP, Brasil Plural, Safra, Nu Invest): cabeçalho, tabela de negócios e resumo |
+| `especificacoes_b3.py` / `dados/especificacoes_b3.csv` | Nome de pregão + especificação ("PETROBRAS PN N2") → ticker na data, a partir das séries históricas da B3 (COTAHIST) |
+| `migra_sqlite.py` | Importação única do banco SQLite da versão single-user |
+
+## Desenvolvimento local
+
+Requisitos: [uv](https://docs.astral.sh/uv/) e Docker.
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python exporta_csvs.py
+uv sync --dev
+cp .env.example .env              # ajuste NOTAS_DIR e gere CPF_HMAC_KEY
+docker compose up -d              # Postgres em localhost:5433
+uv run alembic upgrade head       # cria/atualiza o schema
+uv run uvicorn app.main:app --reload
 ```
 
-Arquivos gerados:
+Crie uma conta em `/cadastrar`, ou pela linha de comando (a senha é pedida interativamente):
 
-- `exports/receipts.csv`
-- `exports/movimentacoes.csv`
+```bash
+uv run python admin.py criar-usuario voce@exemplo.com --admin
+uv run python admin.py definir-senha voce@exemplo.com   # ex.: conta importada do SQLite
+```
 
-`receipts.csv` contém uma linha por arquivo, inclusive quando houver falha.
+Administradores podem editar o catálogo compartilhado de ativos.
 
-Colunas importantes:
+Carregar dados:
 
-- `receipt_id`
-- `filename`
-- `corretora_id`
-- `layout_id`
-- `status`
-- `error`
+```bash
+CARTEIRA_USUARIO_EMAIL=voce@exemplo.com uv run python carrega_notas.py
+uv run python carrega_b3.py       # usa o único investidor, ou CARTEIRA_INVESTIDOR_ID
+```
 
-`movimentacoes.csv` contém uma linha por movimentação e referencia o recibo por:
+Relatórios de linha de comando (`portfolio.py`, `imposto.py`, `fechamento.py`,
+`relatorio.py`, `reconcilia.py`) usam o investidor de `CARTEIRA_INVESTIDOR_ID`, ou o
+único cadastrado.
 
-- `receipt_id`
+### Vindo da versão SQLite
+
+```bash
+uv run python migra_sqlite.py --email voce@exemplo.com --sqlite carteira.db
+```
+
+O script confere as contagens de cada tabela e avisa sobre referências órfãs.
+
+## Migrações
+
+Altere `tabelas.py` e gere a migração:
+
+```bash
+uv run alembic revision --autogenerate -m "descrição"
+uv run alembic upgrade head
+uv run alembic check              # falha se o schema e tabelas.py divergirem
+```
+
+Revise sempre o arquivo gerado antes de commitar.
+
+## Demonstração
+
+`uv run python admin.py recriar-demo` cria uma conta de demonstração, somente leitura, com
+uma carteira inventada (`demo.py`); a tela de login passa a oferecer "Ver demonstração".
+
+Títulos de renda fixa privada são reconhecidos pelos termos (emissor, indexador, taxa,
+emissão e vencimento), não pelo texto do título. `uv run python admin.py mesclar-renda-fixa`
+junta os que foram carregados em duplicidade antes disso.
+
+## Deploy
+
+Fly.io (um container) + Neon (Postgres). Passo a passo, variáveis e operação em
+[docs/deploy.md](docs/deploy.md).
 
 ## Testes
 
-Rodar testes:
-
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run --group dev pytest -q
+uv run pytest -q
 ```
 
-Cobertura atual:
-
-- parsers
-- sanidade da configuração
-
-Arquivos de teste:
-
-- [tests/test_parsers.py](/home/roque/Documents/Projects/sistema-carteira/tests/test_parsers.py)
-- [tests/test_layout_config.py](/home/roque/Documents/Projects/sistema-carteira/tests/test_layout_config.py)
-
-## Estado Atual
-
-O código já está em um estado utilizável para extração em lote, mas ainda há pontos de evolução:
-
-- `main.py` continua sendo um arquivo de prototipagem
-- `NotaNegociacaoExtractor` ainda não concentra toda a orquestração final
-- a identificação automática de layout ainda pode ser refinada mais dentro da classe
-- PDFs sem texto extraível ainda dependem de uma estratégia futura de OCR
+Os testes sobem um PostgreSQL descartável via [testcontainers](https://testcontainers.com/)
+(é preciso Docker), aplicam as migrações reais e cobrem parsers, carga, isolamento entre
+investidores, cálculos de posição, relatórios, rotas web e a migração do SQLite.

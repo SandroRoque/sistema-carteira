@@ -1,8 +1,91 @@
+import os
 import sys
 from pathlib import Path
 
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+os.environ["CPF_HMAC_KEY"] = "chave-de-teste-" + "x" * 32
+# Production default, so a local .env with COOKIE_SECURE=false cannot hide
+# a test that only passes over plain http.
+os.environ["COOKIE_SECURE"] = "true"
+# Pages never trigger real price downloads during tests.
+os.environ["CARTEIRA_COTACOES"] = "false"
+
+# Fake CPFs with valid check digits. Never use real ones in tests.
+CPF_A = "12345678909"
+CPF_B = "98765432100"
+
+
+@pytest.fixture(scope="session")
+def database_url():
+    """A throwaway PostgreSQL with the schema built by the real Alembic migrations."""
+    from alembic import command
+    from alembic.config import Config
+    from testcontainers.community.postgres import PostgresContainer
+
+    with PostgresContainer("postgres:17", driver="psycopg") as pg:
+        url = pg.get_connection_url()
+
+        cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
+        cfg.set_main_option("script_location", str(PROJECT_ROOT / "migrations"))
+        cfg.set_main_option("sqlalchemy.url", url)
+        cfg.attributes["configure_logger"] = False
+        command.upgrade(cfg, "head")
+
+        yield url
+
+
+@pytest.fixture
+def db(database_url):
+    """Point the app at the test database and wipe all data after each test."""
+    import database
+
+    engine = database.configure(database_url)
+    yield engine
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "TRUNCATE usuarios, sessoes, investidores, ativos, ticker_aliases, notas, negociacoes, "
+            "b3_arquivos_processados, b3_movimentacoes, bonificacoes, cotacoes, uploads, custos_informados, darfs_pagos, falhas_login_ip "
+            "RESTART IDENTITY CASCADE"
+        )
+
+
+SENHA = "senha-de-teste-123"
+
+
+@pytest.fixture
+def usuario_id(db):
+    import auth
+    from database import connect_sistema
+
+    with connect_sistema() as conn:
+        usuario_id = auth.criar_usuario(conn, "ana@example.com", SENHA)
+        auth.aceitar_termos(conn, usuario_id)
+        return usuario_id
+
+
+@pytest.fixture
+def investidor_a(db, usuario_id):
+    from contas import get_or_create_investidor
+    from database import connect_sistema
+
+    with connect_sistema() as conn:
+        return get_or_create_investidor(conn, usuario_id, CPF_A, "Ana")
+
+
+@pytest.fixture
+def investidor_b(db):
+    """An investidor owned by a different usuario (bruno@example.com)."""
+    import auth
+    from contas import get_or_create_investidor
+    from database import connect_sistema
+
+    with connect_sistema() as conn:
+        outro = auth.criar_usuario(conn, "bruno@example.com", SENHA)
+        auth.aceitar_termos(conn, outro)
+        return get_or_create_investidor(conn, outro, CPF_B, "Bruno")

@@ -1,0 +1,12 @@
+<tr id="ativo-{{ a.id }}">
+  <td><strong>{{ a.ticker or "—" }}</strong></td>
+  <td>{{ a.nome or "—" }}</td>
+  <td>{{ a.tipo | tipo_label }}</td>
+  <td class="num">{{ a.num_negociacoes }}</td>
+  <td>{% if a.revisado %}<span class="tag ok">revisado</span>{% else %}<span class="tag">pendente</span>{% endif %}</td>
+  <td>
+    {% if pode_editar %}
+    <button class="pequeno" hx-get="/ativos/{{ a.id }}/edit" hx-target="#ativo-{{ a.id }}" hx-swap="outerHTML">Editar</button>
+    {% endif %}
+  </td>
+</tr>

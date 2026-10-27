@@ -1,0 +1,33 @@
+{# Polls itself only while something is queued or processing. #}
+<section id="uploads" class="card tabela-card" aria-labelledby="envios"
+         {% if em_andamento %}hx-get="/importar/lista" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <div class="card-titulo">
+    <h2 id="envios">Envios recentes</h2>
+    {% if em_andamento %}<span class="muted" aria-live="polite">Lendo os arquivos… a lista se atualiza sozinha.</span>{% endif %}
+  </div>
+  {% if uploads %}
+  <div class="rolagem">
+    <table>
+      <thead>
+        <tr><th>Arquivo</th><th>Tipo</th><th>Carteira</th><th>Enviado em</th><th>Situação</th></tr>
+      </thead>
+      <tbody>
+        {% for u in uploads %}
+        <tr>
+          <td><strong>{{ u.nome_arquivo }}</strong></td>
+          <td>{{ "Nota" if u.tipo == "nota" else "Extrato B3" }}</td>
+          <td>{{ u.carteira or "—" }}</td>
+          <td class="num">{{ u.criado_em | data_hora }}</td>
+          <td>
+            <span class="tag {{ u.status_classe }}">{{ u.status_label }}</span>
+            {% if u.mensagem %}<small>{{ u.mensagem }}</small>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="vazio">Nenhum envio ainda.</p>
+  {% endif %}
+</section>

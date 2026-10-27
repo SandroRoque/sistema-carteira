@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Conta — Carteira{% endblock %}
+{% block largura %} estreito{% endblock %}
+
+{% import "macros.html" as m %}
+{% block content %}
+<div>
+  <h1>Conta</h1>
+  <p class="cabecalho sub">{{ sessao.email }}{% if sessao.e_admin %} <span class="tag info">administrador</span>{% endif %}</p>
+</div>
+
+<section class="card tabela-card" aria-labelledby="carteiras">
+  <h2 id="carteiras">Carteiras</h2>
+  <p class="nota">Uma carteira por CPF encontrado nas notas enviadas. O CPF não é guardado, só a forma mascarada.</p>
+  {% if carteiras %}
+  <div class="rolagem">
+    <table>
+      <thead><tr><th>CPF</th><th>Apelido</th><th></th></tr></thead>
+      <tbody>
+        {% for c in carteiras %}
+        <tr>
+          <td class="num">{{ c.cpf_mascarado }}</td>
+          <td>
+            <form method="post" action="/carteiras/{{ c.id }}/apelido" id="apelido-{{ c.id }}">
+              <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+              <input type="text" name="apelido" value="{{ c.apelido or '' }}" maxlength="60"
+                     placeholder="ex.: Eu, Esposa" aria-label="Apelido da carteira {{ c.cpf_mascarado }}">
+            </form>
+          </td>
+          <td><button type="submit" form="apelido-{{ c.id }}">Salvar</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="vazio">Nenhuma carteira ainda. <a href="/importar">Importe uma nota</a> para criar a primeira, ou crie pelo CPF.</p>
+  {% endif %}
+  <details{% if erro_carteira %} open{% endif %}>
+    <summary>Nova carteira pelo CPF</summary>
+    <p class="nota">Para quem envia só extratos da B3, que não trazem CPF. Notas com esse CPF caem na mesma carteira.</p>
+    {% if erro_carteira %}<p class="erro" role="alert">{{ erro_carteira }}</p>{% endif %}
+    {{ m.form_nova_carteira(sessao, "/conta", "Criar") }}
+  </details>
+</section>
+
+<section class="card" aria-labelledby="registros">
+  <h2 id="registros">Registros</h2>
+  <p class="muted">Operações lançadas à mão e o catálogo de ativos usado para identificar o que aparece nos documentos.</p>
+  <div class="botoes">
+    <a href="/negociacoes" class="botao">Negociações</a>
+    <a href="/ativos" class="botao">Catálogo de ativos</a>
+  </div>
+</section>
+
+<section class="card" aria-labelledby="dados">
+  <h2 id="dados">Seus dados</h2>
+  <p>Baixe tudo o que está guardado sobre a sua conta, em JSON.</p>
+  <div class="botoes"><a href="/conta/exportar" class="botao">Exportar meus dados</a></div>
+</section>
+
+<section class="card" aria-labelledby="excluir">
+  <h2 id="excluir">Excluir conta</h2>
+  <div class="zona-perigo">
+    <p>Apaga imediatamente a conta e todos os dados dela: carteiras, notas, negociações e movimentações. Não há como desfazer.</p>
+    {% if erro_exclusao %}<p class="mensagem-erro" role="alert">{{ erro_exclusao }}</p>{% endif %}
+    <form method="post" action="/conta/excluir" class="formulario">
+      <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+      <label>
+        Confirme com sua senha
+        <input type="password" name="senha" autocomplete="current-password" required>
+      </label>
+      <div class="botoes"><button type="submit" class="perigo">Excluir minha conta</button></div>
+    </form>
+  </div>
+</section>
+{% endblock %}
