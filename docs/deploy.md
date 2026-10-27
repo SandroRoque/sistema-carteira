@@ -92,7 +92,6 @@ python admin.py criar-usuario voce@exemplo.com --admin
 ## Antes de abrir o cadastro
 
 - Recuperação de senha e verificação de e-mail (provedor de e-mail transacional).
-- Limite de tentativas de login por IP.
 - Pontos em aberto da apuração mensal (TODO.md), principalmente units e ETFs
   classificados como FII.
 - Revisar `/privacidade` contra o que a aplicação faz de fato.
