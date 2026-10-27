@@ -17,7 +17,11 @@ importação é uma thread do próprio processo web; não há fila, storage ou s
 |---|---|---|
 | `DATABASE_URL` | secret | Endpoint **direto** do Neon (ver abaixo) |
 | `CPF_HMAC_KEY` | secret | Mínimo 32 caracteres. Guarde uma cópia fora do Fly: perder ou trocar a chave faz novos envios não reconhecerem as carteiras existentes |
-| `CADASTRO_ABERTO` | `fly.toml` | `false` até existir recuperação de senha (TODO.md) |
+| `CADASTRO_ABERTO` | `fly.toml` | `false` até o envio de e-mails estar configurado e testado (abaixo) |
+| `URL_PUBLICA` | `fly.toml` | Endereço usado nos links enviados por e-mail; nunca é tirado do header `Host` |
+| `SMTP_HOST`, `SMTP_PORTA`, `SMTP_USUARIO` | secret | Servidor de envio do provedor de e-mail transacional. Porta 465 usa TLS direto; as outras exigem STARTTLS (padrão 587) |
+| `SMTP_SENHA` | secret | Senha ou chave de API do provedor |
+| `EMAIL_REMETENTE` | secret | Ex.: `Carteira <nao-responda@seu-dominio>`; o domínio precisa de SPF e DKIM no provedor |
 | `COOKIE_SECURE` | — | Padrão `true`, correto em produção (o Fly força HTTPS) |
 
 ## Banco no Neon
@@ -50,6 +54,25 @@ fly deploy --ha=false                   # uma máquina só (o worker roda nela)
 
 O `release_command` roda `alembic upgrade head` e `python admin.py recriar-demo` antes de
 cada versão entrar no ar; se algum dos dois falhar, a versão anterior continua servindo.
+
+## E-mail
+
+Confirmação de cadastro e "esqueci a senha" enviam e-mail por SMTP (`correio.py`). Sem
+`SMTP_HOST` ou sem `URL_PUBLICA`, essas páginas avisam que o envio está indisponível, a
+senha só muda por `admin.py definir-senha` e o cadastro público fica fechado mesmo com
+`CADASTRO_ABERTO=true` (uma conta nova não teria como confirmar o e-mail).
+
+Qualquer provedor com SMTP serve. Configure o domínio do remetente (SPF e DKIM) no
+provedor e então:
+
+```bash
+fly secrets set SMTP_HOST=smtp.provedor.com SMTP_USUARIO=... SMTP_SENHA=... \
+  EMAIL_REMETENTE='Carteira <nao-responda@seu-dominio>'
+```
+
+Teste pedindo uma nova senha em `/senha/esqueci` para a sua própria conta. Uma falha de
+envio aparece em `fly logs` só pelo tipo do erro (`falha ao enviar e-mail: ...`), porque a
+mensagem carrega o link.
 
 ## Conta de demonstração
 
@@ -91,7 +114,8 @@ python admin.py criar-usuario voce@exemplo.com --admin
 
 ## Antes de abrir o cadastro
 
-- Recuperação de senha e verificação de e-mail (provedor de e-mail transacional).
+- Escolher o provedor de e-mail, configurar o envio (seção E-mail) e citá-lo na política
+  de privacidade como operador.
 - Pontos em aberto da apuração mensal e do IRPF (TODO.md), principalmente units
   tributadas sem a isenção de R$ 20 mil.
 - Revisar `/privacidade` contra o que a aplicação faz de fato.

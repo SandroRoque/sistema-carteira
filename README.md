@@ -43,8 +43,11 @@ Detalhes em [docs/schema.md](docs/schema.md).
 
 ### Segurança
 
-- Senhas com Argon2id; bloqueio de 15 min após 5 tentativas erradas; sessões em cookie
-  `HttpOnly`/`SameSite=Lax`, guardadas no banco só como hash.
+- Senhas com Argon2id; espera crescente após 5 tentativas erradas e limite por IP; sessões
+  em cookie `HttpOnly`/`SameSite=Lax`, guardadas no banco só como hash.
+- Contas do cadastro público confirmam o e-mail antes de usar a aplicação; nova senha por
+  link de uso único (1 hora). Links enviados por e-mail ficam no banco só como hash e não
+  aparecem no log de acesso.
 - Toda escrita exige mesma origem e token CSRF (enviado pelo HTMX em header).
 - **Row-level security**: requisições web rodam no papel restrito `carteira_app`, e as
   políticas do Postgres só expõem linhas da conta logada — um `WHERE` esquecido devolve
@@ -67,7 +70,8 @@ são descartados na extração. Inventário, retenção e direitos do titular em
 | `migrations/` | Migrações Alembic |
 | `database.py` | Engine, `connect()` transacional e helpers de consulta |
 | `contas.py` | Investidores e pseudonimização do CPF (fronteira de tenancy) |
-| `auth.py` / `admin.py` | Senhas, sessões, bloqueio; administração de contas pela linha de comando |
+| `auth.py` / `admin.py` | Senhas, sessões, bloqueio, links por e-mail; administração de contas pela linha de comando |
+| `correio.py` | Envio de e-mail por SMTP (confirmação de cadastro, nova senha) |
 | `app/seguranca.py` | Sessão, CSRF, mesma origem e headers de segurança |
 | `carrega_notas.py` | Entry point: itera PDFs, extrai, transforma e carrega |
 | `carrega_b3.py` | Carrega relatórios de movimentações da B3 |
@@ -94,7 +98,9 @@ uv run alembic upgrade head       # cria/atualiza o schema
 uv run uvicorn app.main:app --reload
 ```
 
-Crie uma conta em `/cadastrar`, ou pela linha de comando (a senha é pedida interativamente):
+Crie uma conta em `/cadastrar` (com `URL_PUBLICA` e `EMAIL_NO_TERMINAL=true` no `.env`, o
+link de confirmação aparece no terminal), ou pela linha de comando (a senha é pedida
+interativamente; a conta já nasce confirmada):
 
 ```bash
 uv run python admin.py criar-usuario voce@exemplo.com --admin

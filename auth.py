@@ -39,6 +39,11 @@ MAX_FALHAS_IP = 20
 JANELA_FALHAS_IP = timedelta(minutes=15)
 SENHA_MIN = 10
 SENHA_MAX = 256  # bounds Argon2 work per request
+# Links sent by e-mail (tokens_email). A new-password link is short-lived;
+# a confirmation link may sit in the inbox for a while. One e-mail of each
+# kind per account per minute, so the forms cannot flood an inbox.
+VALIDADE_TOKEN = {"confirmar_email": timedelta(days=2), "nova_senha": timedelta(hours=1)}
+INTERVALO_EMAILS = timedelta(minutes=1)
 
 _hasher = PasswordHasher()
 
@@ -66,10 +71,15 @@ class Sessao:
     demo: bool = False
     # Version of the terms of use this account accepted, if any.
     termos_versao: str | None = None
+    email_verificado: bool = True
 
     @property
     def termos_pendentes(self) -> bool:
         return not self.demo and self.termos_versao != TERMOS_VERSAO
+
+    @property
+    def email_pendente(self) -> bool:
+        return not self.demo and not self.email_verificado
 
 
 def _agora() -> datetime:
@@ -87,7 +97,9 @@ def validar_senha(senha: str) -> None:
         raise ErroCadastro(f"A senha pode ter no máximo {SENHA_MAX} caracteres.")
 
 
-def criar_usuario(conn: Connection, email: str, senha: str) -> int:
+def criar_usuario(conn: Connection, email: str, senha: str, *, email_verificado: bool = False) -> int:
+    """New account. The public sign-up leaves the e-mail unconfirmed (the
+    owner clicks a link first); an administrator's account starts confirmed."""
     email = email.strip()
     if not _EMAIL_RE.match(email):
         raise ErroCadastro("E-mail inválido.")
@@ -96,9 +108,13 @@ def criar_usuario(conn: Connection, email: str, senha: str) -> int:
         with conn.begin_nested():
             return scalar(
                 conn,
-                "INSERT INTO usuarios (email, senha_hash) VALUES (:email, :hash) RETURNING id",
+                """
+                INSERT INTO usuarios (email, senha_hash, email_verificado_em)
+                VALUES (:email, :hash, CASE WHEN :verificado THEN now() END) RETURNING id
+                """,
                 email=email,
                 hash=_hasher.hash(senha),
+                verificado=email_verificado,
             )
     except IntegrityError:
         raise ErroCadastro("Já existe uma conta com este e-mail.") from None
@@ -259,13 +275,100 @@ def obter_sessao(conn: Connection, token: str | None) -> Sessao | None:
     row = fetch_one(
         conn,
         """
-        SELECT s.usuario_id, s.investidor_id, s.csrf_token, u.e_admin, u.email, u.demo, u.termos_versao
+        SELECT s.usuario_id, s.investidor_id, s.csrf_token, u.e_admin, u.email, u.demo, u.termos_versao,
+               u.email_verificado_em IS NOT NULL AS email_verificado
         FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
         WHERE s.token_hash = :h AND s.expira_em > now()
         """,
         h=_hash_token(token),
     )
     return Sessao(**row) if row else None
+
+
+def criar_token_email(conn: Connection, usuario_id: int, finalidade: str) -> str | None:
+    """Token for a link e-mailed to the account, or None when one of this kind
+    went out less than INTERVALO_EMAILS ago. Replaces the account's earlier
+    links of the same kind: only the latest e-mail works."""
+    execute(conn, "DELETE FROM tokens_email WHERE expira_em <= now()")
+    recente = scalar(
+        conn,
+        """
+        SELECT 1 FROM tokens_email
+        WHERE usuario_id = :id AND finalidade = :f AND criado_em > now() - :intervalo
+        """,
+        id=usuario_id, f=finalidade, intervalo=INTERVALO_EMAILS,
+    )
+    if recente:
+        return None
+    execute(conn, "DELETE FROM tokens_email WHERE usuario_id = :id AND finalidade = :f", id=usuario_id, f=finalidade)
+    token = secrets.token_urlsafe(32)
+    execute(
+        conn,
+        """
+        INSERT INTO tokens_email (token_hash, usuario_id, finalidade, expira_em)
+        VALUES (:h, :id, :f, now() + :validade)
+        """,
+        h=_hash_token(token), id=usuario_id, f=finalidade, validade=VALIDADE_TOKEN[finalidade],
+    )
+    return token
+
+
+def usuario_do_token(conn: Connection, token: str, finalidade: str) -> int | None:
+    """Account a valid, unexpired link belongs to (without using it up)."""
+    return scalar(
+        conn,
+        "SELECT usuario_id FROM tokens_email WHERE token_hash = :h AND finalidade = :f AND expira_em > now()",
+        h=_hash_token(token), f=finalidade,
+    )
+
+
+def usar_token(conn: Connection, token: str, finalidade: str) -> int | None:
+    """Spend a link: its account, or None if it is unknown, expired or used."""
+    return scalar(
+        conn,
+        """
+        DELETE FROM tokens_email WHERE token_hash = :h AND finalidade = :f AND expira_em > now()
+        RETURNING usuario_id
+        """,
+        h=_hash_token(token), f=finalidade,
+    )
+
+
+def confirmar_email(conn: Connection, usuario_id: int) -> None:
+    execute(
+        conn,
+        "UPDATE usuarios SET email_verificado_em = COALESCE(email_verificado_em, now()) WHERE id = :id",
+        id=usuario_id,
+    )
+    execute(
+        conn, "DELETE FROM tokens_email WHERE usuario_id = :id AND finalidade = 'confirmar_email'", id=usuario_id
+    )
+
+
+def pedir_nova_senha(conn: Connection, email: str) -> tuple[str, str] | None:
+    """(address, token) for the new-password e-mail, or None when there is no
+    such account (the demo has none) or one was sent a minute ago. The page
+    answers the same either way."""
+    row = fetch_one(
+        conn, "SELECT id, email FROM usuarios WHERE lower(email) = lower(:email) AND NOT demo", email=email.strip()
+    )
+    if row is None:
+        return None
+    token = criar_token_email(conn, row["id"], "nova_senha")
+    return (row["email"], token) if token else None
+
+
+def redefinir_senha(conn: Connection, token: str, senha: str) -> int | None:
+    """Set the password through a new-password link. Returns the account, or
+    None if the link is not valid. Reading the e-mail also confirms it.
+    Raises ErroCadastro (link kept) when the password is not acceptable."""
+    validar_senha(senha)
+    usuario_id = usar_token(conn, token, "nova_senha")
+    if usuario_id is None:
+        return None
+    definir_senha(conn, usuario_id, senha)
+    confirmar_email(conn, usuario_id)
+    return usuario_id
 
 
 def aceitar_termos(conn: Connection, usuario_id: int) -> None:

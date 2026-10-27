@@ -20,7 +20,7 @@ misturar.
 
 | Dado | Origem | Guardado? | Forma |
 |---|---|---|---|
-| E-mail, senha | cadastro | sim | e-mail em claro; senha só como hash (Argon2) |
+| E-mail, senha | cadastro | sim | e-mail em claro; senha só como hash (Argon2). O e-mail recebe só a confirmação do cadastro e links de nova senha, pelo provedor de e-mail (operador) |
 | CPF | notas | **não** | HMAC-SHA256 com segredo do servidor (`investidores.cpf_hash`) + máscara `***.456.789-**` |
 | Nome, endereço, CEP, código de cliente, assessor | notas | **não** | lidos na extração e descartados |
 | Apelido da carteira ("Eu", "Esposa") | usuário | sim | texto livre |

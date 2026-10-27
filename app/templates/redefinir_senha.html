@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Nova senha — Carteira{% endblock %}
+{% block largura %} minimo{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h1>Nova senha</h1>
+  {% if erro_link %}
+  <p class="mensagem-erro" role="alert">{{ erro_link }}</p>
+  <p class="muted"><a href="/senha/esqueci">Pedir um novo link</a></p>
+  {% else %}
+  {% if erro %}<p class="mensagem-erro" role="alert">{{ erro }}</p>{% endif %}
+  <p class="muted">Ao salvar, as sessões abertas em outros aparelhos são encerradas.</p>
+  <form method="post" action="/senha/redefinir" class="formulario">
+    <input type="hidden" name="token" value="{{ token }}">
+    <label>
+      Nova senha <small>Mínimo de 10 caracteres.</small>
+      <input type="password" name="senha" autocomplete="new-password" minlength="10" maxlength="256" required autofocus>
+    </label>
+    <label>
+      Repita a nova senha
+      <input type="password" name="senha_confirmacao" autocomplete="new-password" minlength="10" maxlength="256" required>
+    </label>
+    <button type="submit" class="primario">Salvar e entrar</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

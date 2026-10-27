@@ -87,7 +87,7 @@ def _csrf(html: str) -> str:
     return re.search(r'"X-CSRF-Token": "([^"]+)"', html).group(1)
 
 
-_PUBLICAS = {"/entrar", "/cadastrar", "/demo"}
+_PUBLICAS = {"/entrar", "/cadastrar", "/demo", "/senha/esqueci", "/senha/redefinir"}
 _LIVRES = {"/sair", "/carteiras/{investidor_id}/selecionar"}
 
 

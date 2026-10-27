@@ -141,11 +141,14 @@ Each queued upload sends a Postgres NOTIFY. With several machines, set
 it is off by default because the listening connection keeps Neon from
 scaling to zero. Jobs are claimed with SKIP LOCKED either way.
 
-### Password reset needs an e-mail provider
+### E-mail: pick a provider
 
-There is no "forgot password" flow yet; `admin.py definir-senha` is the only way to
-reset a password. Needs a transactional e-mail provider before launch (also for e-mail
-verification at sign-up).
+Sign-up confirmation and "forgot password" are built (`correio.py`, `/senha/esqueci`,
+`/email/...`) and send through any SMTP server, but production has none configured
+yet: until it does, those pages say e-mail is unavailable and the public sign-up stays
+closed. Choose a transactional provider, set it up (docs/deploy.md, "E-mail") and name it
+on `/privacidade` as an operador. Not covered yet: changing the account's e-mail
+address, and telling the owner by e-mail when the password changes.
 
 ### Login waits: what is left
 

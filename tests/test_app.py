@@ -68,24 +68,25 @@ def test_htmx_sem_login_recebe_hx_redirect(db):
     assert resp.headers["HX-Redirect"] == "/entrar"
 
 
-def test_cadastro_leva_ao_primeiro_acesso(db):
+def test_cadastro_pede_confirmacao_do_email(db, caixa_de_saida):
     c = _cliente()
     resp = c.post("/cadastrar", data={
         "email": "nova@example.com", "senha": SENHA, "senha_confirmacao": SENHA, "aceite": "true",
     })
-    # No portfolio yet: the overview redirects to the import page, which onboards.
+    # The app stays closed until the link in the e-mail is opened (test_email.py).
     assert resp.status_code == 200
-    assert "Monte sua carteira" in resp.text
+    assert "Confirme seu e-mail" in resp.text
+    assert [para for para, _, _ in caixa_de_saida] == ["nova@example.com"]
 
 
-def test_cadastro_exige_aceite(db):
+def test_cadastro_exige_aceite(db, caixa_de_saida):
     resp = _cliente().post("/cadastrar", data={
         "email": "nova@example.com", "senha": SENHA, "senha_confirmacao": SENHA,
     })
     assert resp.status_code == 400
 
 
-def test_cadastro_fechado_recusa_e_esconde_o_link(db, monkeypatch):
+def test_cadastro_fechado_recusa_e_esconde_o_link(db, caixa_de_saida, monkeypatch):
     monkeypatch.setenv("CADASTRO_ABERTO", "false")
     c = _cliente()
     resp = c.post("/cadastrar", data={

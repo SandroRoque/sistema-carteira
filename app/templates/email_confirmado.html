@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Confirmação de e-mail — Carteira{% endblock %}
+{% block largura %} minimo{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h1>Confirmação de e-mail</h1>
+  {% if erro %}
+  <p class="mensagem-erro" role="alert">{{ erro }}</p>
+  <p class="muted">Entre na sua conta para pedir um novo link.</p>
+  {% else %}
+  <p class="ok"><span class="texto">E-mail confirmado.</span></p>
+  {% endif %}
+  <p><a href="/" class="botao primario">Ir para a Carteira</a></p>
+</div>
+{% endblock %}

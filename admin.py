@@ -68,7 +68,7 @@ def main() -> None:
     with connect_sistema() as conn:
         try:
             if args.comando == "criar-usuario":
-                usuario_id = auth.criar_usuario(conn, args.email, _ler_senha())
+                usuario_id = auth.criar_usuario(conn, args.email, _ler_senha(), email_verificado=True)
                 if args.admin:
                     execute(conn, "UPDATE usuarios SET e_admin = true WHERE id = :id", id=usuario_id)
             elif args.comando == "definir-senha":

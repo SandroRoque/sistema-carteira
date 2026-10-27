@@ -67,9 +67,9 @@ def test_nao_altera_nem_apaga_dados_alheios(duas_contas):
         assert scalar(conn, "SELECT COUNT(*) FROM notas") == 1
 
 
-def test_sem_acesso_a_usuarios_e_sessoes(duas_contas):
+def test_sem_acesso_a_tabelas_de_sistema(duas_contas):
     ana, _ = duas_contas
-    for tabela in ("usuarios", "sessoes"):
+    for tabela in ("usuarios", "sessoes", "tokens_email", "falhas_login_ip"):
         with pytest.raises(DBAPIError, match="permission denied"):
             with connect(ana) as conn:
                 scalar(conn, f"SELECT COUNT(*) FROM {tabela}")

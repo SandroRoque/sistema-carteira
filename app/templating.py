@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
+import correio
 import formato
 import settings
 import pendencias
@@ -34,7 +35,9 @@ templates = Jinja2Templates(directory=str(_HERE / "templates"))
 for _nome in ("brl", "brl_sinal", "numero", "pct", "qtd", "data", "data_hora", "hora", "quando", "mes_ano"):
     templates.env.filters[_nome] = getattr(formato, _nome)
 templates.env.filters["tipo_label"] = lambda v: TIPO_LABEL.get(v, v)
-templates.env.globals["cadastro_aberto"] = settings.cadastro_aberto
+# Sign-up needs e-mail too: a new account must confirm its address.
+templates.env.globals["cadastro_aberto"] = lambda: settings.cadastro_aberto() and correio.disponivel()
+templates.env.globals["email_disponivel"] = lambda: correio.disponivel()
 
 
 def demo_disponivel() -> bool:

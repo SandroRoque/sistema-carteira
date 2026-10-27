@@ -93,6 +93,10 @@ usuarios = Table(
     # Version of the terms of use the account accepted (auth.TERMOS_VERSAO), and when.
     Column("termos_versao", Text),
     Column("termos_aceitos_em", DateTime(timezone=True)),
+    # When the account proved it reads its e-mail (link from auth.criar_token_email).
+    # NULL: created by the public sign-up and not confirmed yet; the app is
+    # closed to it until then (app.seguranca).
+    Column("email_verificado_em", DateTime(timezone=True)),
     _criado_em(),
 )
 Index("uq_usuarios_email_lower", func.lower(usuarios.c.email), unique=True)
@@ -126,6 +130,21 @@ sessoes = Table(
     Column("csrf_token", Text, nullable=False),
     _criado_em(),
     Column("expira_em", DateTime(timezone=True), nullable=False),
+)
+
+# Single-use links sent by e-mail (auth.py): confirming the address and
+# choosing a new password. Only the token's SHA-256 is stored, as for
+# sessoes. System table: no tenant access.
+tokens_email = Table(
+    "tokens_email",
+    metadata,
+    Column("token_hash", Text, primary_key=True),
+    Column("usuario_id", BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False),
+    Column("finalidade", Text, nullable=False),
+    _criado_em(),
+    Column("expira_em", DateTime(timezone=True), nullable=False),
+    CheckConstraint("finalidade IN ('confirmar_email', 'nova_senha')", name="ck_tokens_email_finalidade"),
+    Index("ix_tokens_email_usuario_finalidade", "usuario_id", "finalidade"),
 )
 
 # Failed logins per client IP (auth.py), for throttling password spraying

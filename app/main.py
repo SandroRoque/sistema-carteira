@@ -14,6 +14,7 @@ started with the app; set CARTEIRA_WORKER=false to run without it.
 """
 from __future__ import annotations
 
+import logging
 import sys
 from contextlib import asynccontextmanager
 from decimal import ROUND_HALF_UP, Decimal
@@ -31,6 +32,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import conta, importar, paginas
 from app.seguranca import (
+    EmailPendente,
     InvestidorId,
     NaoAutenticado,
     SegurancaMiddleware,
@@ -48,6 +50,20 @@ from importacao import escutar_uploads, ouvinte, trabalhador, worker_habilitado
 
 _HERE = Path(__file__).parent
 
+
+class _SemQueryString(logging.Filter):
+    """Drops the query string from uvicorn's access log: links sent by e-mail
+    carry their token there (/senha/redefinir?token=...)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) >= 3 and isinstance(record.args[2], str):
+            args = list(record.args)
+            args[2] = args[2].split("?", 1)[0]
+            record.args = tuple(args)
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_SemQueryString())
 
 
 @asynccontextmanager
@@ -97,6 +113,11 @@ def _somente_leitura(request: Request, exc: SomenteLeitura):
 @app.exception_handler(TermosPendentes)
 def _termos_pendentes(request: Request, _exc: TermosPendentes):
     return redirecionar(request, "/termos")
+
+
+@app.exception_handler(EmailPendente)
+def _email_pendente(request: Request, _exc: EmailPendente):
+    return redirecionar(request, "/email/pendente")
 
 
 @app.exception_handler(SemCarteira)

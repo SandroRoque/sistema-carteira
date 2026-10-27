@@ -28,13 +28,14 @@ Every portfolio query must filter by `investidor_id`.
 `bonificacoes` have Postgres RLS policies (migration `0003`), and so does `uploads`
 (migration `0005`; the web role may only read and insert it). Web requests run as the
 restricted role `carteira_app` with `app.usuario_id` set to the logged-in account, and the
-policies only expose that account's rows. `carteira_app` has no access to `usuarios` or
-`sessoes`. The owner role (migrations, CLI, authentication) is not subject to the policies.
+policies only expose that account's rows. `carteira_app` has no access to `usuarios`,
+`sessoes` or `tokens_email`. The owner role (migrations, CLI, authentication) is not subject to the policies.
 
 | Table | Scope |
 |---|---|
-| `usuarios` | Account: e-mail, Argon2id `senha_hash`, `e_admin`, login lockout counters |
+| `usuarios` | Account: e-mail, Argon2id `senha_hash`, `e_admin`, login lockout counters, `email_verificado_em` (NULL until a public sign-up confirms its e-mail) |
 | `sessoes` | Login sessions: SHA-256 of the cookie token, CSRF token, selected portfolio, expiry |
+| `tokens_email` | Single-use links sent by e-mail (`confirmar_email`, `nova_senha`): SHA-256 of the token, expiry |
 
 ---
 

@@ -50,7 +50,8 @@ def db(database_url):
     with engine.begin() as conn:
         conn.exec_driver_sql(
             "TRUNCATE usuarios, sessoes, investidores, ativos, ticker_aliases, notas, negociacoes, "
-            "b3_arquivos_processados, b3_movimentacoes, bonificacoes, cotacoes, uploads, custos_informados, darfs_pagos, falhas_login_ip "
+            "b3_arquivos_processados, b3_movimentacoes, bonificacoes, cotacoes, uploads, custos_informados, darfs_pagos, falhas_login_ip, "
+            "tokens_email "
             "RESTART IDENTITY CASCADE"
         )
 
@@ -64,7 +65,7 @@ def usuario_id(db):
     from database import connect_sistema
 
     with connect_sistema() as conn:
-        usuario_id = auth.criar_usuario(conn, "ana@example.com", SENHA)
+        usuario_id = auth.criar_usuario(conn, "ana@example.com", SENHA, email_verificado=True)
         auth.aceitar_termos(conn, usuario_id)
         return usuario_id
 
@@ -86,6 +87,18 @@ def investidor_b(db):
     from database import connect_sistema
 
     with connect_sistema() as conn:
-        outro = auth.criar_usuario(conn, "bruno@example.com", SENHA)
+        outro = auth.criar_usuario(conn, "bruno@example.com", SENHA, email_verificado=True)
         auth.aceitar_termos(conn, outro)
         return get_or_create_investidor(conn, outro, CPF_B, "Bruno")
+
+
+@pytest.fixture
+def caixa_de_saida(monkeypatch):
+    """E-mail available, and every message sent captured here instead."""
+    import correio
+
+    monkeypatch.setenv("URL_PUBLICA", "https://carteira.example.com")
+    monkeypatch.setenv("EMAIL_NO_TERMINAL", "true")
+    enviados = []
+    monkeypatch.setattr(correio, "enviar", lambda para, assunto, texto: enviados.append((para, assunto, texto)))
+    return enviados

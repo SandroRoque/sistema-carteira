@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Confirme seu e-mail — Carteira{% endblock %}
+{% block largura %} minimo{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h1>Confirme seu e-mail</h1>
+  <p>Enviamos um link para <strong>{{ sessao.email }}</strong>. Abra-o para começar a usar a Carteira;
+  pode ser em outro aparelho.</p>
+  {% if reenviado %}<p class="ok"><span class="texto">Enviamos um novo link. Os anteriores deixaram de valer.</span></p>{% endif %}
+  {% if erro %}<p class="mensagem-erro" role="alert">{{ erro }}</p>{% endif %}
+  <form method="post" action="/email/reenviar" class="formulario">
+    <input type="hidden" name="csrf_token" value="{{ sessao.csrf_token }}">
+    <p class="muted">Não chegou? Confira a caixa de spam ou peça outro.</p>
+    <button type="submit">Enviar outro link</button>
+  </form>
+  <p class="muted"><a href="/">Já confirmei</a> · <a href="/conta">Conta</a></p>
+</div>
+{% endblock %}

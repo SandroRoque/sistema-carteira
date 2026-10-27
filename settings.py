@@ -65,6 +65,49 @@ def cadastro_aberto() -> bool:
     return os.environ.get("CADASTRO_ABERTO", "true").lower() not in ("0", "false", "no")
 
 
+def url_publica() -> str | None:
+    """Address the app is reached at (URL_PUBLICA, e.g. https://carteira.exemplo.com),
+    for links sent by e-mail. Never taken from the request's Host header, which
+    the client controls."""
+    load_dotenv()
+    return os.environ.get("URL_PUBLICA", "").strip().rstrip("/") or None
+
+
+@dataclass(frozen=True)
+class Smtp:
+    host: str
+    porta: int
+    usuario: str | None
+    senha: str | None
+    remetente: str
+
+
+def smtp() -> Smtp | None:
+    """Outgoing mail server (correio.py), or None when SMTP_HOST is not set.
+    Port 465 speaks TLS from the start; any other port must offer STARTTLS."""
+    load_dotenv()
+    host = os.environ.get("SMTP_HOST", "").strip()
+    if not host:
+        return None
+    remetente = os.environ.get("EMAIL_REMETENTE", "").strip()
+    if not remetente:
+        raise ValueError("EMAIL_REMETENTE não está definido (ex.: Carteira <nao-responda@exemplo.com>).")
+    return Smtp(
+        host=host,
+        porta=int(os.environ.get("SMTP_PORTA", "587")),
+        usuario=os.environ.get("SMTP_USUARIO") or None,
+        senha=os.environ.get("SMTP_SENHA") or None,
+        remetente=remetente,
+    )
+
+
+def email_no_terminal() -> bool:
+    """EMAIL_NO_TERMINAL=true prints e-mails instead of sending them. Local
+    development only: whoever reads the output can use the links."""
+    load_dotenv()
+    return os.environ.get("EMAIL_NO_TERMINAL", "false").lower() in ("1", "true", "yes")
+
+
 @dataclass(frozen=True)
 class Settings:
     notas_dir: Path

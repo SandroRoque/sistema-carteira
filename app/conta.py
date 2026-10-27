@@ -1,5 +1,5 @@
-"""Sign-up, login, account page and the LGPD data-subject rights:
-export (art. 18, II and V) and deletion (art. 18, VI)."""
+"""Sign-up, login, e-mail confirmation, new password, account page and the
+LGPD data-subject rights: export (art. 18, II and V) and deletion (art. 18, VI)."""
 
 from __future__ import annotations
 
@@ -7,10 +7,11 @@ import json
 from decimal import Decimal
 from datetime import date, datetime
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, BackgroundTasks, Form, Request
 from fastapi.responses import Response
 
 import auth
+import correio
 import settings
 from app.seguranca import (
     COOKIE_DISPOSITIVO,
@@ -29,6 +30,8 @@ router = APIRouter()
 
 _ERRO_LOGIN = "E-mail ou senha inválidos. Depois de várias tentativas erradas, a conta espera alguns minutos antes de aceitar outra."
 _ERRO_IP = "Muitas tentativas de login a partir desta rede. Tente de novo em alguns minutos."
+_ERRO_IP_SENHA = "Muitos pedidos a partir desta rede. Tente de novo em alguns minutos."
+_LINK_INVALIDO = "Este link não vale mais: ele expira, só pode ser usado uma vez e um pedido mais novo substitui os anteriores."
 
 
 def _entrar(request: Request, usuario_id: int, lembrar_dispositivo: bool = False) -> Response:
@@ -72,6 +75,19 @@ def entrar_na_demo(request: Request):
     return _entrar(request, usuario_id)
 
 
+def _enviar_confirmacao(tarefas: BackgroundTasks, email: str, token: str | None) -> None:
+    if token is None:
+        return
+    tarefas.add_task(
+        correio.enviar,
+        email,
+        "Confirme seu e-mail — Carteira",
+        "Para começar a usar a Carteira, confirme seu e-mail abrindo este link:\n\n"
+        f"{correio.link('/email/confirmar?token=' + token)}\n\n"
+        "O link vale por dois dias. Se você não criou esta conta, ignore esta mensagem.\n",
+    )
+
+
 @router.get("/cadastrar")
 def cadastrar_form(request: Request):
     return render(request, "cadastrar.html")
@@ -80,12 +96,14 @@ def cadastrar_form(request: Request):
 @router.post("/cadastrar")
 def cadastrar(
     request: Request,
+    tarefas: BackgroundTasks,
     email: str = Form(...),
     senha: str = Form(...),
     senha_confirmacao: str = Form(...),
     aceite: bool = Form(default=False),
 ):
-    if not settings.cadastro_aberto():
+    # Without e-mail the new account could never be confirmed.
+    if not settings.cadastro_aberto() or not correio.disponivel():
         return render(request, "cadastrar.html", status_code=403)
     erro = None
     if senha != senha_confirmacao:
@@ -97,11 +115,119 @@ def cadastrar(
             with connect_sistema() as conn:
                 usuario_id = auth.criar_usuario(conn, email, senha)
                 auth.aceitar_termos(conn, usuario_id)
+                token = auth.criar_token_email(conn, usuario_id, "confirmar_email")
         except auth.ErroCadastro as exc:
             erro = str(exc)
     if erro:
         return render(request, "cadastrar.html", {"erro": erro, "email": email}, 400)
+    _enviar_confirmacao(tarefas, email.strip(), token)
     return _entrar(request, usuario_id)
+
+
+# ---------------------------------------------------------------------------
+# E-mail confirmation
+# ---------------------------------------------------------------------------
+
+@router.get("/email/pendente")
+def email_pendente(request: Request, sessao: Sessao):
+    if not sessao.email_pendente:
+        return redirecionar(request, "/")
+    return render(request, "email_pendente.html")
+
+
+@router.post("/email/reenviar")
+def reenviar_confirmacao(request: Request, sessao: Sessao, tarefas: BackgroundTasks):
+    if not sessao.email_pendente:
+        return redirecionar(request, "/")
+    if not correio.disponivel():
+        return render(request, "email_pendente.html", {"erro": "O envio de e-mails está indisponível."}, 503)
+    with connect_sistema() as conn:
+        token = auth.criar_token_email(conn, sessao.usuario_id, "confirmar_email")
+    if token is None:
+        return render(
+            request, "email_pendente.html",
+            {"erro": "Acabamos de enviar um e-mail. Espere um minuto antes de pedir outro."}, 429,
+        )
+    _enviar_confirmacao(tarefas, sessao.email, token)
+    return render(request, "email_pendente.html", {"reenviado": True})
+
+
+@router.get("/email/confirmar")
+def confirmar_email(request: Request, token: str = ""):
+    """The link in the confirmation e-mail. Works in any browser, logged in or
+    not: it only marks the address as confirmed."""
+    with connect_sistema() as conn:
+        usuario_id = auth.usar_token(conn, token[:100], "confirmar_email")
+        if usuario_id is not None:
+            auth.confirmar_email(conn, usuario_id)
+    if usuario_id is None:
+        return render(request, "email_confirmado.html", {"erro": _LINK_INVALIDO}, 400)
+    return render(request, "email_confirmado.html")
+
+
+# ---------------------------------------------------------------------------
+# New password
+# ---------------------------------------------------------------------------
+
+@router.get("/senha/esqueci")
+def esqueci_form(request: Request):
+    return render(request, "esqueci_senha.html")
+
+
+@router.post("/senha/esqueci")
+def esqueci(request: Request, tarefas: BackgroundTasks, email: str = Form(...)):
+    if not correio.disponivel():
+        return render(request, "esqueci_senha.html", status_code=503)
+    ip = ip_do_cliente(request)
+    with connect_sistema() as conn:
+        # Counted with failed logins: the same budget per network.
+        if auth.ip_bloqueado(conn, ip):
+            return render(request, "esqueci_senha.html", {"erro": _ERRO_IP_SENHA, "email": email}, 429)
+        auth.registrar_falha_ip(conn, ip)
+        pedido = auth.pedir_nova_senha(conn, email[:320])
+    if pedido is not None:
+        destino, token = pedido
+        tarefas.add_task(
+            correio.enviar,
+            destino,
+            "Nova senha — Carteira",
+            "Alguém pediu uma nova senha para a sua conta na Carteira. Para escolher a nova senha, abra:\n\n"
+            f"{correio.link('/senha/redefinir?token=' + token)}\n\n"
+            "O link vale por uma hora e só pode ser usado uma vez. Se não foi você, ignore esta "
+            "mensagem: sua senha continua a mesma.\n",
+        )
+    # The same answer whether or not the account exists.
+    return render(request, "esqueci_senha.html", {"enviado": True})
+
+
+@router.get("/senha/redefinir")
+def redefinir_form(request: Request, token: str = ""):
+    # Only checked here, not spent: mail scanners open links before people do.
+    with connect_sistema() as conn:
+        valido = auth.usuario_do_token(conn, token[:100], "nova_senha") is not None
+    if not valido:
+        return render(request, "redefinir_senha.html", {"erro_link": _LINK_INVALIDO}, 400)
+    return render(request, "redefinir_senha.html", {"token": token})
+
+
+@router.post("/senha/redefinir")
+def redefinir(
+    request: Request,
+    token: str = Form(...),
+    senha: str = Form(...),
+    senha_confirmacao: str = Form(...),
+):
+    if senha != senha_confirmacao:
+        return render(request, "redefinir_senha.html", {"token": token, "erro": "As senhas não conferem."}, 400)
+    try:
+        with connect_sistema() as conn:
+            usuario_id = auth.redefinir_senha(conn, token[:100], senha)
+    except auth.ErroCadastro as exc:
+        return render(request, "redefinir_senha.html", {"token": token, "erro": str(exc)}, 400)
+    if usuario_id is None:
+        return render(request, "redefinir_senha.html", {"erro_link": _LINK_INVALIDO}, 400)
+    # Every other session ended with the old password; this browser starts one.
+    return _entrar(request, usuario_id, lembrar_dispositivo=True)
 
 
 @router.post("/sair")

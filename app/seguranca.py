@@ -47,6 +47,10 @@ class TermosPendentes(Exception):
     """The account has not accepted the current terms of use."""
 
 
+class EmailPendente(Exception):
+    """The account came from the public sign-up and has not confirmed its e-mail."""
+
+
 class SomenteLeitura(SemPermissao):
     """A write attempted from the demo account."""
 
@@ -59,6 +63,10 @@ _LIVRES_NA_DEMO = re.compile(r"^/sair$|^/carteiras/\d+/selecionar$")
 # What an account can reach before accepting the terms: the terms themselves,
 # logging out, and its LGPD rights (export, deletion) on /conta.
 _LIVRES_SEM_TERMOS = re.compile(r"^/termos$|^/sair$|^/conta(/|$)|^/privacidade$")
+# Before confirming the e-mail, the same plus the confirmation pages. Nothing
+# can be imported until then: whoever later proves they own the address (a
+# new-password link) must not find someone else's documents in the account.
+_LIVRES_SEM_EMAIL = re.compile(r"^/email/|^/termos$|^/sair$|^/conta(/exportar|/excluir)?$|^/privacidade$")
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +129,8 @@ async def sessao_atual(
             raise SomenteLeitura()
     if sessao.termos_pendentes and not _LIVRES_SEM_TERMOS.match(request.url.path):
         raise TermosPendentes()
+    if sessao.email_pendente and not _LIVRES_SEM_EMAIL.match(request.url.path):
+        raise EmailPendente()
     return sessao
 
 

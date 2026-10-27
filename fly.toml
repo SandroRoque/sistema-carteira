@@ -7,9 +7,11 @@ primary_region = "gru"
   release_command = "sh -c 'alembic upgrade head && python admin.py recriar-demo'"
 
 [env]
-  # Closed until password reset and per-IP throttling exist (TODO.md);
-  # accounts are created with `fly ssh console -C "python admin.py criar-usuario ..."`.
+  # Closed until e-mail is configured (docs/deploy.md); meanwhile accounts are
+  # created with `fly ssh console -C "python admin.py criar-usuario ..."`.
   CADASTRO_ABERTO = "false"
+  # Base of the links sent by e-mail (new password, sign-up confirmation).
+  URL_PUBLICA = "https://sistema-carteira.fly.dev"
 
 [http_service]
   internal_port = 8080

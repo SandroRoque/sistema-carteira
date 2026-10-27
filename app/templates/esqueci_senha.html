@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Esqueci a senha — Carteira{% endblock %}
+{% block largura %} minimo{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h1>Esqueci a senha</h1>
+  {% if enviado %}
+  <p class="ok"><span class="texto">Se houver uma conta com esse e-mail, enviamos para ele um link para escolher
+  uma nova senha. O link vale por uma hora.</span></p>
+  <p class="muted">Não chegou? Confira a caixa de spam ou peça de novo em um minuto.</p>
+  {% elif not email_disponivel() %}
+  <p class="mensagem-erro" role="alert">O envio de e-mails não está configurado. Peça uma nova senha ao administrador.</p>
+  {% else %}
+  {% if erro %}<p class="mensagem-erro" role="alert">{{ erro }}</p>{% endif %}
+  <p class="muted">Informe o e-mail da conta. Enviaremos um link para escolher uma nova senha.</p>
+  <form method="post" action="/senha/esqueci" class="formulario">
+    <label>
+      E-mail
+      <input type="email" name="email" value="{{ email or '' }}" autocomplete="username" maxlength="320" required autofocus>
+    </label>
+    <button type="submit" class="primario">Enviar link</button>
+  </form>
+  {% endif %}
+  <p class="muted"><a href="/entrar">Voltar para o login</a></p>
+</div>
+{% endblock %}
