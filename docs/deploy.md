@@ -92,6 +92,6 @@ python admin.py criar-usuario voce@exemplo.com --admin
 ## Antes de abrir o cadastro
 
 - Recuperação de senha e verificação de e-mail (provedor de e-mail transacional).
-- Pontos em aberto da apuração mensal (TODO.md), principalmente units e ETFs
-  classificados como FII.
+- Pontos em aberto da apuração mensal e do IRPF (TODO.md), principalmente units
+  tributadas sem a isenção de R$ 20 mil.
 - Revisar `/privacidade` contra o que a aplicação faz de fato.
